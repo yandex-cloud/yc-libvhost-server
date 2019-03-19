@@ -7,8 +7,6 @@
 
 #pragma once
 
-#include "vhd/platform.h"
-
 #ifdef __cplusplus
 extern "C" {
 #endif

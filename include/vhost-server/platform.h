@@ -117,12 +117,23 @@ static inline void* vhd_zalloc(size_t bytes)
     return p;
 }
 
+static inline void* vhd_calloc(size_t nmemb, size_t size)
+{
+    VHD_ASSERT(nmemb != 0 && size != 0);
+
+    void* p = calloc(nmemb, size);
+    VHD_VERIFY(p != NULL);
+    return p;
+}
+
 // TODO: aligned alloc
 
 static inline void vhd_free(void* p)
 {
     free(p);
 }
+
+////////////////////////////////////////////////////////////////////////////////
 
 static inline void vhd_compiler_barrier(void)
 {
@@ -131,5 +142,11 @@ static inline void vhd_compiler_barrier(void)
                    :
                    : "memory");
 }
+
+#define vhd_smp_mb  __sync_synchronize()
+
+/* We assume only x86_64 where rmb and wmb are noops for normal memory types */
+#define vhd_smp_rmb() vhd_compiler_barrier()
+#define vhd_smp_wmb() vhd_compiler_barrier()
 
 ////////////////////////////////////////////////////////////////////////////////
