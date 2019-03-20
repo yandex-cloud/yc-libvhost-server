@@ -134,12 +134,17 @@ static void dump_desc(const struct virtq_desc* desc, int idx)
                   idx, (unsigned long long) desc->addr, desc->len);
 }
 
-static void complete_last_avail(struct virtio_virtq* vq)
+static void pop_last_avail(struct virtio_virtq* vq, uint32_t len)
 {
-    vq->used->ring[vq->used->idx % vq->qsz].id = vq->avail->ring[vq->last_avail % vq->qsz];
+    struct virtq_used_elem* used = &vq->used->ring[vq->used->idx % vq->qsz];
 
-    /* Release update to idx */
+    /* Put buffer head index and len into used ring */
+    used->id = vq->avail->ring[vq->last_avail % vq->qsz];
+    used->len = len;
+
     vhd_smp_wmb();
+    vq->used->idx++;
+
     vq->last_avail++;
 }
 
@@ -164,6 +169,7 @@ int virtq_dequeue_many(struct virtio_virtq* vq, virtq_handle_buffers_cb handle_b
         uint16_t head;
         struct virtq_desc desc;
         struct virtq_sglist sglist;
+        uint32_t chain_len = 0;
 
         /* 2.4.5.3.1: A driver MUST NOT create a descriptor chain longer than the Queue Size of the device
          * Thus initial sglist size is enough if there are no indirect descriptors.
@@ -204,6 +210,7 @@ int virtq_dequeue_many(struct virtio_virtq* vq, virtq_handle_buffers_cb handle_b
 
             /* next head is not touched if loop terminated */
             head = desc.next;
+            chain_len++;
         } while (desc.flags & VIRTQ_DESC_F_NEXT);
 
         /* Send this over to handler */
@@ -211,7 +218,7 @@ int virtq_dequeue_many(struct virtio_virtq* vq, virtq_handle_buffers_cb handle_b
 
         /* Cleanup sglist and put buffer in used */
         sglist_reset(&sglist);
-        complete_last_avail(vq);
+        pop_last_avail(vq, chain_len);
     }
 
     /* TODO: restore notifier mask here */
