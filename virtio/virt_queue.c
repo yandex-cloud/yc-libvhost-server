@@ -63,6 +63,7 @@ int virtio_virtq_attach(struct virtio_virtq* vq,
     vq->avail = avail_addr;
     vq->qsz = qsz;
     vq->last_avail = avail_base;
+    vq->broken = false;
 
     sglist_alloc(&vq->sglist, vq->qsz);
 
@@ -72,6 +73,16 @@ int virtio_virtq_attach(struct virtio_virtq* vq,
 void virtio_virtq_release(struct virtio_virtq* vq)
 {
     sglist_free(&vq->sglist);
+}
+
+static void mark_broken(struct virtio_virtq* vq)
+{
+    vq->broken = true;
+}
+
+bool virtq_is_broken(struct virtio_virtq* vq)
+{
+    return vq->broken;
 }
 
 static int walk_indirect_table(struct virtio_virtq* vq, const struct virtq_desc* table_desc)
@@ -154,6 +165,11 @@ int virtq_dequeue_many(struct virtio_virtq* vq, virtq_handle_buffers_cb handle_b
 {
     int res;
 
+    if (virtq_is_broken(vq)) {
+        VHD_LOG_ERROR("virtqueue is broken, cannot process");
+        return -ENODEV;
+    }
+
     /* Limit this run to initial number of advertised descriptors.
      * TODO: limit it better in client */
     uint16_t num_avail = vq->avail->idx - vq->last_avail;
@@ -234,6 +250,6 @@ int virtq_dequeue_many(struct virtio_virtq* vq, virtq_handle_buffers_cb handle_b
     return 0;
 
 queue_broken:
-    /* TODO: mark and track broken state */
+    mark_broken(vq);
     return res;
 }
