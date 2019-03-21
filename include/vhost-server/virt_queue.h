@@ -35,10 +35,9 @@ struct virtio_virtq
     /* Shadow avail ring index */
     int last_avail;
 
-    /* We're not working with a single vring concurrently.
-     * While this is true we can preallocate @size number of iovectors
-     * and reuse them to process descriptor chains */
-    //struct virtq_sglist sglist;
+    /* 2.4.5.3.1: A driver MUST NOT create a descriptor chain longer than the Queue Size of the device
+     * Thus initial sglist size must be enough to hold a valid descriptor chain */
+    struct virtq_sglist sglist;
 };
 
 int virtio_virtq_attach(struct virtio_virtq* vq,
@@ -47,6 +46,8 @@ int virtio_virtq_attach(struct virtio_virtq* vq,
                         void* used_addr,
                         int qsz,
                         int avail_base);
+
+void virtio_virtq_release(struct virtio_virtq* vq);
 
 typedef void(*virtq_handle_buffers_cb)(void* arg, const struct virtq_sglist* buffers);
 int virtq_dequeue_many(struct virtio_virtq* vq, virtq_handle_buffers_cb handle_buffers_cb, void* arg);
