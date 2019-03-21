@@ -179,6 +179,13 @@ int virtq_dequeue_many(struct virtio_virtq* vq, virtq_handle_buffers_cb handle_b
     
         /* Walk descriptor chain */
         do {
+            /* Check that descriptor is in-bounds */
+            if (head >= vq->qsz) {
+                VHD_LOG_ERROR("Descriptor head %d is out-of-bounds", head);
+                res = -EINVAL;
+                goto queue_broken;
+            }
+
             /* We explicitly make a local copy here to avoid any possible TOCTOU problems. */
             memcpy(&desc, vq->desc + head, sizeof(desc));
             dump_desc(&desc, head);
