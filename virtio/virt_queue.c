@@ -83,6 +83,7 @@ void virtio_virtq_release(struct virtio_virtq* vq)
 
 bool virtq_is_broken(struct virtio_virtq* vq)
 {
+    VHD_VERIFY(vq);
     return vq->broken;
 }
 
