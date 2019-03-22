@@ -21,6 +21,24 @@ struct virtio_iov
     struct virtq_iovec buffers[0 /*nvecs*/];
 };
 
+/*
+ * Memory mapping context
+ * Implemented by client to validate and map guest memory addresses
+ */
+struct virtio_mm_ctx;
+
+/**
+ * Given a guest physical memory region produce its VA mapping on the host.
+ * This function is a linker dependancy for virtio code
+ *
+ * @mm      Client memory management context
+ * @gpa     Guest physical address
+ * @len     Total bytes in physical range
+ *
+ * @return  mapped host VA or NULL in case of error
+ */
+void* virtio_map_guest_phys_range(struct virtio_mm_ctx* mm, uint64_t gpa, uint32_t len);
+
 struct virtio_virtq
 {
     struct virtq_desc* desc;
@@ -58,7 +76,10 @@ void virtio_virtq_release(struct virtio_virtq* vq);
 bool virtq_is_broken(struct virtio_virtq* vq);
 
 typedef void(*virtq_handle_buffers_cb)(void* arg, struct virtio_iov* iov);
-int virtq_dequeue_many(struct virtio_virtq* vq, virtq_handle_buffers_cb handle_buffers_cb, void* arg);
+int virtq_dequeue_many(struct virtio_virtq* vq,
+                       struct virtio_mm_ctx* mm_ctx,
+                       virtq_handle_buffers_cb handle_buffers_cb,
+                       void* arg);
 
 void virtq_commit_buffers(struct virtio_virtq* vq, struct virtio_iov* iov);
 

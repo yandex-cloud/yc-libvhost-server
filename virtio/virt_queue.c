@@ -48,6 +48,17 @@ static int add_buffer(struct virtio_virtq* vq, void* addr, size_t len)
     return 0;
 }
 
+static int map_buffer(struct virtio_virtq* vq, struct virtio_mm_ctx* mm, uint64_t gpa, size_t len)
+{
+    void* addr = virtio_map_guest_phys_range(mm, gpa, len);
+    if (!addr) {
+        return -EINVAL;
+    }
+
+    return add_buffer(vq, addr, len);
+}
+
+
 int virtio_virtq_attach(struct virtio_virtq* vq,
                         void* desc_addr,
                         void* avail_addr,
@@ -92,7 +103,9 @@ static void mark_broken(struct virtio_virtq* vq)
     vq->broken = true;
 }
 
-static int walk_indirect_table(struct virtio_virtq* vq, const struct virtq_desc* table_desc)
+static int walk_indirect_table(struct virtio_virtq* vq,
+                               struct virtio_mm_ctx* mm,
+                               const struct virtq_desc* table_desc)
 {
     int res;
     struct virtq_desc desc;
@@ -105,11 +118,18 @@ static int walk_indirect_table(struct virtio_virtq* vq, const struct virtq_desc*
         return -EINVAL;
     }
 
+    void* mapped_table = virtio_map_guest_phys_range(mm, table_desc->addr, table_desc->len);
+    if (!mapped_table) {
+        VHD_LOG_ERROR("Bad guest address range on indirect descriptor table");
+        return -EINVAL;
+    }
+
     int max_indirect_descs = table_desc->len / sizeof(desc); 
     int chain_len = 0;
-    struct virtq_desc* pdesc = (struct virtq_desc*)(uintptr_t)table_desc->addr;
-    struct virtq_desc* pdesc_first = pdesc;
-    struct virtq_desc* pdesc_last = pdesc + max_indirect_descs - 1;
+
+    struct virtq_desc* pdesc = (struct virtq_desc*) mapped_table;
+    struct virtq_desc* pdesc_first = (struct virtq_desc*) mapped_table;
+    struct virtq_desc* pdesc_last = (pdesc_first + max_indirect_descs - 1);
 
     do {
         /* Descriptor should point inside indirect table */
@@ -127,7 +147,7 @@ static int walk_indirect_table(struct virtio_virtq* vq, const struct virtq_desc*
 
         /* 2.4.5.3.1: "A driver MUST NOT create a descriptor chain longer than the Queue Size of the device"
          * Indirect descriptors are part of the chain and should abide by this requirement */
-        res = add_buffer(vq, (void*)(uintptr_t)desc.addr, desc.len);
+        res = map_buffer(vq, mm, desc.addr, desc.len);
         if (res != 0) {
             VHD_LOG_ERROR("Descriptor loop found, vring is broken");
             return -EINVAL;
@@ -154,7 +174,10 @@ static void dump_desc(const struct virtq_desc* desc, int idx)
                   idx, (unsigned long long) desc->addr, desc->len);
 }
 
-int virtq_dequeue_many(struct virtio_virtq* vq, virtq_handle_buffers_cb handle_buffers_cb, void* arg)
+int virtq_dequeue_many(struct virtio_virtq* vq,
+                       struct virtio_mm_ctx* mm,
+                       virtq_handle_buffers_cb handle_buffers_cb,
+                       void* arg)
 {
     int res;
 
@@ -210,7 +233,7 @@ int virtq_dequeue_many(struct virtio_virtq* vq, virtq_handle_buffers_cb handle_b
                     goto queue_broken;
                 }
 
-                res = walk_indirect_table(vq, &desc);
+                res = walk_indirect_table(vq, mm, &desc);
                 if (res != 0) {
                     goto queue_broken;
                 }
@@ -221,7 +244,7 @@ int virtq_dequeue_many(struct virtio_virtq* vq, virtq_handle_buffers_cb handle_b
                 VHD_ASSERT((desc.flags & VIRTQ_DESC_F_NEXT) == 0);
 
             } else {
-                res = add_buffer(vq, (void*)(uintptr_t)desc.addr, desc.len);
+                res = map_buffer(vq, mm, desc.addr, desc.len);
                 if (res != 0) {
                     /* We always reserve space beforehand, so this is a descriptor loop */
                     VHD_LOG_ERROR("Descriptor loop found, vring is broken");
