@@ -11,13 +11,14 @@ struct virtq_iovec {
     void* start;
     size_t len;
 };
-   
-struct virtq_sglist
+
+/**
+ * Describes parsed buffer chain to be handled by virtio device type
+ */
+struct virtio_iov
 {
-    size_t ncap;    /* Capacity in iovecs */
-    size_t nvecs;   /* Total vectors */
-    size_t nbytes;  /* Total bytes stored in sglist */
-    struct virtq_iovec* iovecs;
+    uint16_t nvecs;
+    struct virtq_iovec buffers[0 /*nvecs*/];
 };
 
 struct virtio_virtq
@@ -36,8 +37,9 @@ struct virtio_virtq
     int last_avail;
 
     /* 2.4.5.3.1: A driver MUST NOT create a descriptor chain longer than the Queue Size of the device
-     * Thus initial sglist size must be enough to hold a valid descriptor chain */
-    struct virtq_sglist sglist;
+     * Thus we can have a known number of preallocated buffers to hold a valid descriptor chain */
+    uint16_t next_buffer;           /* Total preallocated buffers used */
+    struct virtq_iovec* buffers;    /* qsz preallocated buffers */
 
     /* Virtqueue is broken, probably because there is an invalid descriptor chain in it.
      * Broken status is sticky and so far cannot be repared. */
@@ -55,8 +57,10 @@ void virtio_virtq_release(struct virtio_virtq* vq);
 
 bool virtq_is_broken(struct virtio_virtq* vq);
 
-typedef void(*virtq_handle_buffers_cb)(void* arg, const struct virtq_sglist* buffers);
+typedef void(*virtq_handle_buffers_cb)(void* arg, struct virtio_iov* iov);
 int virtq_dequeue_many(struct virtio_virtq* vq, virtq_handle_buffers_cb handle_buffers_cb, void* arg);
+
+void virtq_commit_buffers(struct virtio_virtq* vq, struct virtio_iov* iov);
 
 #ifdef __cplusplus
 }

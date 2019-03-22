@@ -8,40 +8,44 @@
 
 ////////////////////////////////////////////////////////////////////////////////
 
-static void sglist_alloc(struct virtq_sglist* sgl, size_t reserve)
+/**
+ * Holds private virtq data together with iovs we show users
+ */
+struct virtq_iov_private
 {
-    sgl->ncap = reserve;
-    sgl->nvecs = 0;
-    sgl->nbytes = 0;
-    sgl->iovecs = vhd_calloc(sizeof(*(sgl->iovecs)), reserve);
+    /* Private virtq fields */
+    uint16_t used_head;
+    uint16_t used_len;
+
+    /* Iov we show to caller */
+    struct virtio_iov iov;
+};
+
+static struct virtq_iov_private* alloc_iov(uint16_t nvecs)
+{
+    size_t size = sizeof(struct virtq_iov_private) + sizeof(struct virtq_iovec) * nvecs;
+
+    struct virtq_iov_private* priv = vhd_alloc(size);
+    priv->iov.nvecs = nvecs;
+    return priv;
 }
 
-static int sglist_add_buffer(struct virtq_sglist* sgl, void* addr, size_t len)
+static void free_iov(struct virtq_iov_private* iov)
 {
-    if (sgl->ncap == sgl->nvecs) {
+    if (iov) {
+        vhd_free(iov);
+    }
+}
+
+static int add_buffer(struct virtio_virtq* vq, void* addr, size_t len)
+{
+    if (vq->next_buffer == vq->qsz) {
         return -ENOSPC;
     }
 
-    sgl->iovecs[sgl->nvecs] = (struct virtq_iovec) {addr, len};
-    sgl->nbytes += len;
-    sgl->nvecs++;
+    vq->buffers[vq->next_buffer] = (struct virtq_iovec) {addr, len};
+    vq->next_buffer++;
     return 0;
-}
-
-static void sglist_reset(struct virtq_sglist* sgl)
-{
-    sgl->nvecs = 0;
-    sgl->nbytes = 0;
-
-    /* Not nessesary, but lets avoid any potential address leaks by sanitizing */
-    memset(sgl->iovecs, 0, sgl->ncap * sizeof(sgl->iovecs));
-}
-
-static void sglist_free(struct virtq_sglist* sgl)
-{
-    if (sgl) {
-        vhd_free(sgl->iovecs);
-    }
 }
 
 int virtio_virtq_attach(struct virtio_virtq* vq,
@@ -64,25 +68,27 @@ int virtio_virtq_attach(struct virtio_virtq* vq,
     vq->qsz = qsz;
     vq->last_avail = avail_base;
     vq->broken = false;
-
-    sglist_alloc(&vq->sglist, vq->qsz);
+    vq->buffers = vhd_calloc(qsz, sizeof(vq->buffers[0]));
+    vq->next_buffer = 0;
 
     return 0;
 }
 
 void virtio_virtq_release(struct virtio_virtq* vq)
 {
-    sglist_free(&vq->sglist);
-}
-
-static void mark_broken(struct virtio_virtq* vq)
-{
-    vq->broken = true;
+    if (vq) {
+        vhd_free(vq->buffers);
+    }
 }
 
 bool virtq_is_broken(struct virtio_virtq* vq)
 {
     return vq->broken;
+}
+
+static void mark_broken(struct virtio_virtq* vq)
+{
+    vq->broken = true;
 }
 
 static int walk_indirect_table(struct virtio_virtq* vq, const struct virtq_desc* table_desc)
@@ -120,7 +126,7 @@ static int walk_indirect_table(struct virtio_virtq* vq, const struct virtq_desc*
 
         /* 2.4.5.3.1: "A driver MUST NOT create a descriptor chain longer than the Queue Size of the device"
          * Indirect descriptors are part of the chain and should abide by this requirement */
-        res = sglist_add_buffer(&vq->sglist, (void*)(uintptr_t)desc.addr, desc.len);
+        res = add_buffer(vq, (void*)(uintptr_t)desc.addr, desc.len);
         if (res != 0) {
             VHD_LOG_ERROR("Descriptor loop found, vring is broken");
             return -EINVAL;
@@ -147,20 +153,6 @@ static void dump_desc(const struct virtq_desc* desc, int idx)
                   idx, (unsigned long long) desc->addr, desc->len);
 }
 
-static void pop_last_avail(struct virtio_virtq* vq, uint32_t len)
-{
-    struct virtq_used_elem* used = &vq->used->ring[vq->used->idx % vq->qsz];
-
-    /* Put buffer head index and len into used ring */
-    used->id = vq->avail->ring[vq->last_avail % vq->qsz];
-    used->len = len;
-
-    vhd_smp_wmb();
-    vq->used->idx++;
-
-    vq->last_avail++;
-}
-
 int virtq_dequeue_many(struct virtio_virtq* vq, virtq_handle_buffers_cb handle_buffers_cb, void* arg)
 {
     int res;
@@ -185,26 +177,29 @@ int virtq_dequeue_many(struct virtio_virtq* vq, virtq_handle_buffers_cb handle_b
 
     for (uint16_t i = 0; i < num_avail; ++i) {
         uint16_t head;
+        uint16_t descnum;
+        uint16_t chain_len = 0;
         struct virtq_desc desc;
-        uint32_t chain_len = 0;
 
-        sglist_reset(&vq->sglist);
+        /* Reset stored vectors position */
+        vq->next_buffer = 0;
 
         /* Grab next descriptor head */
         head = vq->avail->ring[vq->last_avail % vq->qsz];
+        descnum = head;
     
         /* Walk descriptor chain */
         do {
             /* Check that descriptor is in-bounds */
-            if (head >= vq->qsz) {
-                VHD_LOG_ERROR("Descriptor head %d is out-of-bounds", head);
+            if (descnum >= vq->qsz) {
+                VHD_LOG_ERROR("Descriptor num %d is out-of-bounds", descnum);
                 res = -EINVAL;
                 goto queue_broken;
             }
 
             /* We explicitly make a local copy here to avoid any possible TOCTOU problems. */
-            memcpy(&desc, vq->desc + head, sizeof(desc));
-            dump_desc(&desc, head);
+            memcpy(&desc, vq->desc + descnum, sizeof(desc));
+            dump_desc(&desc, descnum);
 
             if (desc.flags & VIRTQ_DESC_F_INDIRECT) {
                 /* 2.4.5.3.1: A driver MUST NOT set both VIRTQ_DESC_F_INDIRECT and VIRTQ_DESC_F_NEXT in flags */
@@ -225,7 +220,7 @@ int virtq_dequeue_many(struct virtio_virtq* vq, virtq_handle_buffers_cb handle_b
                 VHD_ASSERT((desc.flags & VIRTQ_DESC_F_NEXT) == 0);
 
             } else {
-                res = sglist_add_buffer(&vq->sglist, (void*)(uintptr_t)desc.addr, desc.len);
+                res = add_buffer(vq, (void*)(uintptr_t)desc.addr, desc.len);
                 if (res != 0) {
                     /* We always reserve space beforehand, so this is a descriptor loop */
                     VHD_LOG_ERROR("Descriptor loop found, vring is broken");
@@ -234,16 +229,20 @@ int virtq_dequeue_many(struct virtio_virtq* vq, virtq_handle_buffers_cb handle_b
                 }
             }
 
-            /* next head is not touched if loop terminated */
-            head = desc.next;
+            /* next desc is not touched if loop terminated */
+            descnum = desc.next;
             chain_len++;
         } while (desc.flags & VIRTQ_DESC_F_NEXT);
 
-        /* Send this over to handler */
-        handle_buffers_cb(arg, &vq->sglist);
+        /* Create iov copy from stored buffer for client handling */
+        struct virtq_iov_private* priv = alloc_iov(vq->next_buffer);
+        memcpy(priv->iov.buffers, vq->buffers, priv->iov.nvecs * sizeof(vq->buffers[0]));
+        priv->used_head = head;
+        priv->used_len = chain_len;
 
-        /* Cleanup sglist and put buffer in used */
-        pop_last_avail(vq, chain_len);
+        /* Send this over to handler */
+        handle_buffers_cb(arg, &priv->iov);
+        vq->last_avail++;
     }
 
     /* TODO: restore notifier mask here */
@@ -252,4 +251,20 @@ int virtq_dequeue_many(struct virtio_virtq* vq, virtq_handle_buffers_cb handle_b
 queue_broken:
     mark_broken(vq);
     return res;
+}
+
+void virtq_commit_buffers(struct virtio_virtq* vq, struct virtio_iov* iov)
+{
+    VHD_VERIFY(vq);
+
+    /* Put buffer head index and len into used ring */
+    struct virtq_iov_private* priv = containerof(iov, struct virtq_iov_private, iov);
+    struct virtq_used_elem* used = &vq->used->ring[vq->used->idx % vq->qsz];
+    used->id = priv->used_head;
+    used->len = priv->used_len;
+
+    vhd_smp_wmb();
+    vq->used->idx++;
+
+    free_iov(priv);
 }
