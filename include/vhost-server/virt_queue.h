@@ -1,7 +1,7 @@
 #pragma once
 
 #include "vhost-server/platform.h"
-#include "vhost-server/virtio10.h"
+#include "virtio/virtio10.h"
 
 #ifdef __cplusplus
 extern "C" {

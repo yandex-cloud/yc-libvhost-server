@@ -2,6 +2,8 @@
 #include "vhost-server/blockdev.h"
 #include "vhost-server/virtio_blk.h"
 
+#include "virtio/virtio_blk10.h"
+
 #define VBLK_DEFAULT_FEATURES ((uint64_t)( \
     (1UL << VIRTIO_F_RING_INDIRECT_DESC) | \
     (1UL << VIRTIO_F_VERSION_1) | \
@@ -33,17 +35,15 @@ static int blk_set_features(struct vhd_vdev* vdev, uint64_t features)
 
 static size_t blk_get_config(struct vhd_vdev* vdev, void* cfgbuf, size_t bufsize)
 {
-    VHD_ASSERT(bufsize == sizeof(struct TVirtioBlkConfig));
+    VHD_ASSERT(bufsize == sizeof(struct virtio_blk_config));
 
     struct vhd_blockdev* bdev = VHD_BLOCKDEV_FROM_VDEV(vdev);
-    struct TVirtioBlkConfig* blk_config = (struct TVirtioBlkConfig*)cfgbuf;
+    struct virtio_blk_config* blk_config = (struct virtio_blk_config*)cfgbuf;
 
-    blk_config->Capacity = bdev->total_blocks;
-    blk_config->SizeMax = bdev->total_blocks;
-    blk_config->SegMax = 0x7e; // ???
-    blk_config->BlkSize = get_block_size(bdev);
-    blk_config->MinIoSize = 0x1; // ???
-    blk_config->NumQueues = vdev->max_queues;
+    blk_config->capacity = bdev->total_blocks;
+    blk_config->size_max = bdev->total_blocks;
+    blk_config->blk_size = get_block_size(bdev);
+    blk_config->numqueues = vdev->max_queues;
 
     return sizeof(*blk_config);
 }
