@@ -75,7 +75,7 @@ void virtio_virtq_release(struct virtio_virtq* vq);
 
 bool virtq_is_broken(struct virtio_virtq* vq);
 
-typedef void(*virtq_handle_buffers_cb)(void* arg, struct virtio_iov* iov);
+typedef void(*virtq_handle_buffers_cb)(void* arg, struct virtio_virtq* vq, struct virtio_iov* iov);
 int virtq_dequeue_many(struct virtio_virtq* vq,
                        struct virtio_mm_ctx* mm_ctx,
                        virtq_handle_buffers_cb handle_buffers_cb,

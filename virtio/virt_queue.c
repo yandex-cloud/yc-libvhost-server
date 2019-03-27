@@ -265,7 +265,7 @@ int virtq_dequeue_many(struct virtio_virtq* vq,
         priv->used_len = chain_len;
 
         /* Send this over to handler */
-        handle_buffers_cb(arg, &priv->iov);
+        handle_buffers_cb(arg, vq, &priv->iov);
         vq->last_avail++;
     }
 
