@@ -1,8 +1,30 @@
 #include "vhost-server/platform.h"
 #include "vhost-server/blockdev.h"
+#include "vhost-server/intrusive_list.h"
 #include "vhost-server/virtio_blk.h"
 
 #include "virtio/virtio_blk10.h"
+
+struct vhd_vhost_bdev
+{
+    /* Base vdev */
+    struct vhd_vdev vdev;
+
+    /* Client backend */
+    struct vhd_bdev* bdev;
+
+    /* VM-facing interface type and contexts */
+    enum vhd_bdev_interface_type iface_type;
+    union {
+        struct virtio_blk_dev vblk;
+    };
+
+    LIST_ENTRY(vhd_vhost_bdev) blockdevs;
+};
+
+LIST_HEAD(, vhd_vhost_bdev) g_bdev_list = LIST_HEAD_INITIALIZER(g_bdev_list);
+
+#define VHD_BLOCKDEV_FROM_VDEV(ptr) containerof(ptr, struct vhd_vhost_bdev, vdev)
 
 #define VBLK_DEFAULT_FEATURES ((uint64_t)( \
     (1UL << VIRTIO_F_RING_INDIRECT_DESC) | \
@@ -12,11 +34,6 @@
     (1UL << VIRTIO_BLK_F_BLK_SIZE) | \
     (1UL << VIRTIO_BLK_F_TOPOLOGY) | \
     (1UL << VIRTIO_BLK_F_MQ)))
-
-static inline uint64_t get_block_size(struct vhd_blockdev* bdev)
-{
-    return 1ull << bdev->block_size_log2;
-}
 
 static uint64_t blk_get_features(struct vhd_vdev* vdev)
 {
@@ -37,13 +54,13 @@ static size_t blk_get_config(struct vhd_vdev* vdev, void* cfgbuf, size_t bufsize
 {
     VHD_ASSERT(bufsize == sizeof(struct virtio_blk_config));
 
-    struct vhd_blockdev* bdev = VHD_BLOCKDEV_FROM_VDEV(vdev);
+    struct vhd_vhost_bdev* dev = VHD_BLOCKDEV_FROM_VDEV(vdev);
     struct virtio_blk_config* blk_config = (struct virtio_blk_config*)cfgbuf;
 
-    blk_config->capacity = bdev->total_blocks;
-    blk_config->size_max = bdev->total_blocks;
-    blk_config->blk_size = get_block_size(bdev);
-    blk_config->numqueues = vdev->max_queues;
+    blk_config->capacity = dev->bdev->total_blocks;
+    blk_config->size_max = dev->bdev->total_blocks;
+    blk_config->blk_size = dev->bdev->block_size;
+    blk_config->numqueues = dev->bdev->num_queues;
 
     return sizeof(*blk_config);
 }
@@ -56,29 +73,33 @@ const struct vhd_vdev_type vhd_block_vdev_type =
     .get_config = blk_get_config,
 };
 
-int vhd_create_blockdev(const char* id, uint32_t block_size, uint64_t total_blocks, struct vhd_blockdev* bdev)
+////////////////////////////////////////////////////////////////////////////////
+
+int vhd_create_blockdev(struct vhd_bdev* bdev, enum vhd_bdev_interface_type iface)
 {
     int res = 0;
 
-    VHD_VERIFY(id);
     VHD_VERIFY(bdev);
 
-    if (total_blocks == 0) {
-        return EINVAL;
+    if (bdev->total_blocks == 0) {
+        return -EINVAL;
     }
 
     /* Check block size is power-of-2 */
-    if (block_size == 0 || (block_size & (block_size - 1))) {
+    if (bdev->block_size == 0 || (bdev->block_size & (bdev->block_size - 1))) {
         return EINVAL;
     }
 
-    res = vhd_vdev_init_server(&bdev->vdev, id,  &vhd_block_vdev_type, 1);
+    struct vhd_vhost_bdev* dev = vhd_alloc(sizeof(*dev));
+    res = vhd_vdev_init_server(&dev->vdev, bdev->id, &vhd_block_vdev_type, bdev->num_queues);
     if (res != 0) {
-        return res;
+        goto error_out;
     }
 
-    bdev->block_size_log2 = __builtin_ctz(block_size);
-    bdev->total_blocks = total_blocks;
-
+    dev->bdev = bdev;
     return 0;
+
+error_out:
+    vhd_free(dev);
+    return res;
 }
