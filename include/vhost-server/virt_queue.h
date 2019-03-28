@@ -10,6 +10,7 @@ extern "C" {
 struct virtq_iovec {
     void* start;
     size_t len;
+    bool writable;
 };
 
 /**

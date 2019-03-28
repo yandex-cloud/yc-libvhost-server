@@ -37,25 +37,30 @@ static void free_iov(struct virtq_iov_private* iov)
     }
 }
 
-static int add_buffer(struct virtio_virtq* vq, void* addr, size_t len)
+static int add_buffer(struct virtio_virtq* vq, void* addr, size_t len, bool writable)
 {
     if (vq->next_buffer == vq->qsz) {
         return -ENOSPC;
     }
 
-    vq->buffers[vq->next_buffer] = (struct virtq_iovec) {addr, len};
+    vq->buffers[vq->next_buffer] = (struct virtq_iovec) {
+        .start = addr,
+        .len = len,
+        .writable = writable,
+    };
+
     vq->next_buffer++;
     return 0;
 }
 
-static int map_buffer(struct virtio_virtq* vq, struct virtio_mm_ctx* mm, uint64_t gpa, size_t len)
+static int map_buffer(struct virtio_virtq* vq, struct virtio_mm_ctx* mm, uint64_t gpa, size_t len, bool writable)
 {
     void* addr = virtio_map_guest_phys_range(mm, gpa, len);
     if (!addr) {
         return -EINVAL;
     }
 
-    return add_buffer(vq, addr, len);
+    return add_buffer(vq, addr, len, writable);
 }
 
 
@@ -147,7 +152,7 @@ static int walk_indirect_table(struct virtio_virtq* vq,
 
         /* 2.4.5.3.1: "A driver MUST NOT create a descriptor chain longer than the Queue Size of the device"
          * Indirect descriptors are part of the chain and should abide by this requirement */
-        res = map_buffer(vq, mm, desc.addr, desc.len);
+        res = map_buffer(vq, mm, desc.addr, desc.len, desc.flags & VIRTQ_DESC_F_WRITE);
         if (res != 0) {
             VHD_LOG_ERROR("Descriptor loop found, vring is broken");
             return -EINVAL;
@@ -244,7 +249,7 @@ int virtq_dequeue_many(struct virtio_virtq* vq,
                 VHD_ASSERT((desc.flags & VIRTQ_DESC_F_NEXT) == 0);
 
             } else {
-                res = map_buffer(vq, mm, desc.addr, desc.len);
+                res = map_buffer(vq, mm, desc.addr, desc.len, desc.flags & VIRTQ_DESC_F_WRITE);
                 if (res != 0) {
                     /* We always reserve space beforehand, so this is a descriptor loop */
                     VHD_LOG_ERROR("Descriptor loop found, vring is broken");
