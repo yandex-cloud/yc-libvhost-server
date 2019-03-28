@@ -40,9 +40,9 @@ static void complete_io(struct vhd_bdev_io* bdev_io, enum vhd_bdev_io_result res
 }
 
 static int handle_inout(struct virtio_blk_dev* dev,
-                         struct virtio_blk_req_hdr* req,
-                         struct virtio_virtq* vq,
-                         struct virtio_iov* iov)
+                        struct virtio_blk_req_hdr* req,
+                        struct virtio_virtq* vq,
+                        struct virtio_iov* iov)
 {
     int res = 0;
 
@@ -54,18 +54,31 @@ static int handle_inout(struct virtio_blk_dev* dev,
         goto abort_request;
     }
 
+    struct vhd_buffer* status_buf = &iov->buffers[iov->nvecs - 1];
+    struct vhd_buffer* pdata = &iov->buffers[1];
+    size_t ndatabufs = iov->nvecs - 2;
+
     /* Check that status vector has expected size */
-    if (iov->buffers[iov->nvecs - 1].len != sizeof(uint8_t)) {
+    if (status_buf->len != sizeof(uint8_t)) {
         res = -EINVAL;
         goto abort_request;
     }
 
-    struct vhd_buffer* pdata = &iov->buffers[1];
-    size_t ndatabufs = iov->nvecs - 2;
+    /* Status buffer should be writable */
+    if (!status_buf->writable) {
+        res = -EINVAL;
+        goto abort_request;
+    }
 
     uint64_t total_sectors = 0;
     for (size_t i = 0; i < ndatabufs; ++i) {
         if (!IS_ALIGNED_TO_SECTOR(pdata[i].len)) {
+            res = -EINVAL;
+            goto complete_early;
+        }
+    
+        /* Buffer should be writable if this is a read request */
+        if (req->type == VIRTIO_BLK_T_IN && !pdata[i].writable) {
             res = -EINVAL;
             goto complete_early;
         }
@@ -106,7 +119,7 @@ static int handle_inout(struct virtio_blk_dev* dev,
 
 complete_early:
     /* Complete request normally before sending it to backend queue */
-    set_status(iov, res);
+    set_status(iov, (res == 0 ? VIRTIO_BLK_S_OK : VIRTIO_BLK_S_IOERR));
 
 abort_request:
     /* We didn't like request framing.
