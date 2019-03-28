@@ -1,3 +1,5 @@
+#include <string.h>
+
 #include "vhost-server/platform.h"
 #include "vhost-server/types.h"
 #include "vhost-server/blockdev.h"
@@ -39,18 +41,30 @@ static void complete_io(struct vhd_bdev_io* bdev_io, enum vhd_bdev_io_result res
     vhd_free(bio);
 }
 
+static bool check_status_buffer(struct vhd_buffer* buf)
+{
+    /* Check that status vector has expected size */
+    if (buf->len != sizeof(uint8_t)) {
+        return false;
+    }
+
+    /* Status buffer should be writable */
+    if (!buf->writable) {
+        return false;
+    }
+
+    return true;
+}
+
 static int handle_inout(struct virtio_blk_dev* dev,
                         struct virtio_blk_req_hdr* req,
                         struct virtio_virtq* vq,
                         struct virtio_iov* iov)
 {
-    int res = 0;
-
     VHD_ASSERT(req->type == VIRTIO_BLK_T_IN || req->type == VIRTIO_BLK_T_OUT);
 
     /* See comment about message framing in handle_buffers */
     if (iov->nvecs < 3) {
-        res = -EINVAL;
         goto abort_request;
     }
 
@@ -58,28 +72,18 @@ static int handle_inout(struct virtio_blk_dev* dev,
     struct vhd_buffer* pdata = &iov->buffers[1];
     size_t ndatabufs = iov->nvecs - 2;
 
-    /* Check that status vector has expected size */
-    if (status_buf->len != sizeof(uint8_t)) {
-        res = -EINVAL;
-        goto abort_request;
-    }
-
-    /* Status buffer should be writable */
-    if (!status_buf->writable) {
-        res = -EINVAL;
+    if (!check_status_buffer(status_buf)) {
         goto abort_request;
     }
 
     uint64_t total_sectors = 0;
     for (size_t i = 0; i < ndatabufs; ++i) {
         if (!IS_ALIGNED_TO_SECTOR(pdata[i].len)) {
-            res = -EINVAL;
             goto complete_early;
         }
     
         /* Buffer should be writable if this is a read request */
         if (req->type == VIRTIO_BLK_T_IN && !pdata[i].writable) {
-            res = -EINVAL;
             goto complete_early;
         }
 
@@ -87,14 +91,12 @@ static int handle_inout(struct virtio_blk_dev* dev,
     }
 
     if (total_sectors == 0) {
-        res = -EINVAL;
         goto complete_early;
     }
 
     uint64_t last_sector = req->sector + total_sectors - 1;
     if (last_sector < req->sector /* overflow */ ||
         last_sector >= BLOCKS_TO_SECTORS(dev, dev->bdev->total_blocks)) {
-        res = -EINVAL;
         goto complete_early;
     }
 
@@ -109,7 +111,7 @@ static int handle_inout(struct virtio_blk_dev* dev,
     bio->bdev_io.sglist.buffers = (struct vhd_buffer*)pdata;
     bio->bdev_io.completion_handler = complete_io;
 
-    res = dev->bdev->submit_requests(NULL, &bio->bdev_io, 1);
+    int res = dev->bdev->submit_requests(NULL, &bio->bdev_io, 1);
     if (res != 0) {
         /* Backend could not submit request, however it is still responsible
          * to complete it with error, so don't do that here */
@@ -119,13 +121,48 @@ static int handle_inout(struct virtio_blk_dev* dev,
 
 complete_early:
     /* Complete request normally before sending it to backend queue */
-    set_status(iov, (res == 0 ? VIRTIO_BLK_S_OK : VIRTIO_BLK_S_IOERR));
+    set_status(iov, VIRTIO_BLK_S_IOERR);
 
 abort_request:
     /* We didn't like request framing.
      * Release buffer chain, but don't try to set request status on malformed layout. */
     abort_request(vq, iov);
-    return res;
+    return -EINVAL;
+}
+
+static int handle_getid(struct virtio_blk_dev* dev,
+                        struct virtio_blk_req_hdr* req,
+                        struct virtio_virtq* vq,
+                        struct virtio_iov* iov)
+{
+    VHD_ASSERT(req->type == VIRTIO_BLK_T_GET_ID);
+
+    if (iov->nvecs != 3) {
+        goto abort_request;
+    }
+
+    struct vhd_buffer* status_buf = &iov->buffers[2];
+    struct vhd_buffer* id_buf = &iov->buffers[1];
+
+    if (!check_status_buffer(status_buf)) {
+        goto abort_request;
+    }
+
+    if (id_buf->len != VIRTIO_BLK_DISKID_LENGTH || !id_buf->writable) {
+        set_status(iov, VIRTIO_BLK_S_IOERR);
+        goto abort_request;
+    }
+
+    /* strncpy will not add a null-term if src length is >= desc->len, which is what we need */
+    strncpy((char*) id_buf->base, dev->bdev->id, id_buf->len);
+    set_status(iov, VIRTIO_BLK_S_OK);
+    virtq_commit_buffers(vq, iov);
+
+    return 0;
+
+abort_request:
+    abort_request(vq, iov);
+    return -EINVAL;
 }
 
 static void handle_buffers(void* arg, struct virtio_virtq* vq, struct virtio_iov* iov)
@@ -152,6 +189,9 @@ static void handle_buffers(void* arg, struct virtio_virtq* vq, struct virtio_iov
     case VIRTIO_BLK_T_OUT:
         res = handle_inout(dev, req, vq, iov);
         break;
+    case VIRTIO_BLK_T_GET_ID:
+        res = handle_getid(dev, req, vq, iov);
+        break;
     default:
         VHD_LOG_WARN("unknown request type %d", req->type);
         res = -ENOTSUP;
@@ -162,6 +202,8 @@ static void handle_buffers(void* arg, struct virtio_virtq* vq, struct virtio_iov
         VHD_LOG_ERROR("request failed with %d", res);
     }
 }
+
+////////////////////////////////////////////////////////////////////////////////
 
 int virtio_blk_handle_requests(struct virtio_blk_dev* dev, struct virtio_virtq* vq)
 {
