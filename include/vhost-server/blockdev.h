@@ -8,12 +8,6 @@ extern "C" {
 
 struct vhd_bdev_queue;
 
-struct vhd_buffer
-{
-    void* base;
-    size_t len;
-};
-
 struct vhd_sglist
 {
     uint32_t nbuffers;

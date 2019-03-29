@@ -1,4 +1,5 @@
 #include "vhost-server/platform.h"
+#include "vhost-server/types.h"
 #include "vhost-server/blockdev.h"
 #include "vhost-server/virt_queue.h"
 #include "vhost-server/virtio_blk.h"
@@ -19,7 +20,7 @@ struct virtio_blk_io
 
 static void set_status(struct virtio_iov* iov, uint8_t status)
 {
-    *((uint8_t*)iov->buffers[iov->nvecs - 1].start) = status;
+    *((uint8_t*)iov->buffers[iov->nvecs - 1].base) = status;
 }
 
 static void abort_request(struct virtio_virtq* vq, struct virtio_iov* iov)
@@ -59,7 +60,7 @@ static int handle_inout(struct virtio_blk_dev* dev,
         goto abort_request;
     }
 
-    struct virtq_iovec* pdata = &iov->buffers[1];
+    struct vhd_buffer* pdata = &iov->buffers[1];
     size_t ndatabufs = iov->nvecs - 2;
 
     uint64_t total_sectors = 0;
@@ -126,7 +127,7 @@ static void handle_buffers(void* arg, struct virtio_virtq* vq, struct virtio_iov
      * - data buffer for In/Out/GetId requests
      * - 1 byte status buffer for !GetId requests */
 
-    struct virtio_blk_req_hdr* req = (struct virtio_blk_req_hdr*) iov->buffers[0].start;
+    struct virtio_blk_req_hdr* req = (struct virtio_blk_req_hdr*) iov->buffers[0].base;
     if (iov->buffers[0].len != sizeof(*req)) {
         VHD_LOG_ERROR("virtio blk request invalid size %zu", iov->buffers[0].len);
         abort_request(vq, iov);

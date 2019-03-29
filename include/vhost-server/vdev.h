@@ -3,6 +3,7 @@
 #include "vhost-server/event.h"
 #include "vhost-server/intrusive_list.h"
 #include "vhost-server/vhost_proto.h"
+#include "vhost-server/types.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -10,9 +11,6 @@ extern "C" {
 
 struct vhd_vdev;
 struct vhd_vring;
-
-typedef uint64_t vhd_paddr_t;
-typedef uint64_t vhd_uaddr_t;
 
 /**
  * TODO: need a separate unit for this

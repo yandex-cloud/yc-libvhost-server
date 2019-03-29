@@ -1,17 +1,12 @@
 #pragma once
 
 #include "vhost-server/platform.h"
+#include "vhost-server/types.h"
 #include "virtio/virtio10.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-struct virtq_iovec {
-    void* start;
-    size_t len;
-    bool writable;
-};
 
 /**
  * Describes parsed buffer chain to be handled by virtio device type
@@ -19,7 +14,7 @@ struct virtq_iovec {
 struct virtio_iov
 {
     uint16_t nvecs;
-    struct virtq_iovec buffers[0 /*nvecs*/];
+    struct vhd_buffer buffers[0 /*nvecs*/];
 };
 
 /*
@@ -58,7 +53,7 @@ struct virtio_virtq
     /* 2.4.5.3.1: A driver MUST NOT create a descriptor chain longer than the Queue Size of the device
      * Thus we can have a known number of preallocated buffers to hold a valid descriptor chain */
     uint16_t next_buffer;           /* Total preallocated buffers used */
-    struct virtq_iovec* buffers;    /* qsz preallocated buffers */
+    struct vhd_buffer* buffers;     /* qsz preallocated buffers */
 
     /* Virtqueue is broken, probably because there is an invalid descriptor chain in it.
      * Broken status is sticky and so far cannot be repared. */

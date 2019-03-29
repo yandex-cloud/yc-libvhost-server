@@ -23,7 +23,7 @@ struct virtq_iov_private
 
 static struct virtq_iov_private* alloc_iov(uint16_t nvecs)
 {
-    size_t size = sizeof(struct virtq_iov_private) + sizeof(struct virtq_iovec) * nvecs;
+    size_t size = sizeof(struct virtq_iov_private) + sizeof(struct vhd_buffer) * nvecs;
 
     struct virtq_iov_private* priv = vhd_alloc(size);
     priv->iov.nvecs = nvecs;
@@ -43,8 +43,8 @@ static int add_buffer(struct virtio_virtq* vq, void* addr, size_t len, bool writ
         return -ENOSPC;
     }
 
-    vq->buffers[vq->next_buffer] = (struct virtq_iovec) {
-        .start = addr,
+    vq->buffers[vq->next_buffer] = (struct vhd_buffer) {
+        .base = addr,
         .len = len,
         .writable = writable,
     };
