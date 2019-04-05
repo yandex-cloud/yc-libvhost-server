@@ -30,6 +30,12 @@ static void abort_request(struct virtio_virtq* vq, struct virtio_iov* iov)
     virtq_commit_buffers(vq, iov);
 }
 
+static void fail_request(struct virtio_virtq* vq, struct virtio_iov* iov)
+{
+    set_status(iov, VIRTIO_BLK_S_IOERR);
+    abort_request(vq, iov);
+}
+
 static void complete_io(struct vhd_bdev_io* bdev_io, enum vhd_bdev_io_result res)
 {
     VHD_ASSERT(bdev_io);
@@ -65,7 +71,8 @@ static int handle_inout(struct virtio_blk_dev* dev,
 
     /* See comment about message framing in handle_buffers */
     if (iov->nvecs < 3) {
-        goto abort_request;
+        abort_request(vq, iov);
+        return -EINVAL;
     }
 
     struct vhd_buffer* status_buf = &iov->buffers[iov->nvecs - 1];
@@ -73,32 +80,44 @@ static int handle_inout(struct virtio_blk_dev* dev,
     size_t ndatabufs = iov->nvecs - 2;
 
     if (!check_status_buffer(status_buf)) {
-        goto abort_request;
+        abort_request(vq, iov);
+        return -EINVAL;
     }
 
     uint64_t total_sectors = 0;
     for (size_t i = 0; i < ndatabufs; ++i) {
         if (!IS_ALIGNED_TO_SECTOR(pdata[i].len)) {
-            goto complete_early;
+            fail_request(vq, iov);
+            return -EINVAL;
         }
     
-        /* Buffer should be writable if this is a read request or readable if write request */
-        if ((req->type == VIRTIO_BLK_T_IN && !vhd_buffer_can_write(pdata + i)) ||
-            (req->type == VIRTIO_BLK_T_OUT && !vhd_buffer_can_read(pdata + i))) {
-            goto complete_early;
+        /* Buffer should be write-only if this is a read request */
+        if (req->type == VIRTIO_BLK_T_IN && !vhd_buffer_is_write_only(pdata + i)) {
+            VHD_LOG_ERROR("Cannot write to data buffer %zu", i);
+            fail_request(vq, iov);
+            return -EINVAL;
+        }
+
+        /* Buffer should be read-only if this is a write request */
+        if (req->type == VIRTIO_BLK_T_OUT && !vhd_buffer_is_read_only(pdata + i)) {
+            VHD_LOG_ERROR("Cannot read from data buffer %zu", i);
+            fail_request(vq, iov);
+            return -EINVAL;
         }
 
         total_sectors += pdata[i].len / VIRTIO_BLK_SECTOR_SIZE;
     }
 
     if (total_sectors == 0) {
-        goto complete_early;
+        fail_request(vq, iov);
+        return -EINVAL;
     }
 
     uint64_t last_sector = req->sector + total_sectors - 1;
     if (last_sector < req->sector /* overflow */ ||
         last_sector >= BLOCKS_TO_SECTORS(dev, dev->bdev->total_blocks)) {
-        goto complete_early;
+        fail_request(vq, iov);
+        return -EINVAL;
     }
 
     struct virtio_blk_io* bio = vhd_zalloc(sizeof(*bio));
@@ -114,21 +133,11 @@ static int handle_inout(struct virtio_blk_dev* dev,
 
     int res = dev->bdev->submit_requests(NULL, &bio->bdev_io, 1);
     if (res != 0) {
-        /* Backend could not submit request, however it is still responsible
-         * to complete it with error, so don't do that here */
+        fail_request(vq, iov);
+        return res;
     }
 
-    return res;
-
-complete_early:
-    /* Complete request normally before sending it to backend queue */
-    set_status(iov, VIRTIO_BLK_S_IOERR);
-
-abort_request:
-    /* We didn't like request framing.
-     * Release buffer chain, but don't try to set request status on malformed layout. */
-    abort_request(vq, iov);
-    return -EINVAL;
+    return 0;
 }
 
 static int handle_getid(struct virtio_blk_dev* dev,
@@ -139,19 +148,21 @@ static int handle_getid(struct virtio_blk_dev* dev,
     VHD_ASSERT(req->type == VIRTIO_BLK_T_GET_ID);
 
     if (iov->nvecs != 3) {
-        goto abort_request;
+        abort_request(vq, iov);
+        return -EINVAL;
     }
 
     struct vhd_buffer* status_buf = &iov->buffers[2];
     struct vhd_buffer* id_buf = &iov->buffers[1];
 
     if (!check_status_buffer(status_buf)) {
-        goto abort_request;
+        abort_request(vq, iov);
+        return -EINVAL;
     }
 
     if (id_buf->len != VIRTIO_BLK_DISKID_LENGTH || !vhd_buffer_can_write(id_buf)) {
-        set_status(iov, VIRTIO_BLK_S_IOERR);
-        goto abort_request;
+        fail_request(vq, iov);
+        return -EINVAL;
     }
 
     /* strncpy will not add a null-term if src length is >= desc->len, which is what we need */
@@ -160,10 +171,6 @@ static int handle_getid(struct virtio_blk_dev* dev,
     virtq_commit_buffers(vq, iov);
 
     return 0;
-
-abort_request:
-    abort_request(vq, iov);
-    return -EINVAL;
 }
 
 static void handle_buffers(void* arg, struct virtio_virtq* vq, struct virtio_iov* iov)
