@@ -71,6 +71,7 @@ static int handle_inout(struct virtio_blk_dev* dev,
 
     /* See comment about message framing in handle_buffers */
     if (iov->nvecs < 3) {
+        VHD_LOG_ERROR("Bad number of buffers %d in iov", iov->nvecs);
         abort_request(vq, iov);
         return -EINVAL;
     }
@@ -80,6 +81,7 @@ static int handle_inout(struct virtio_blk_dev* dev,
     size_t ndatabufs = iov->nvecs - 2;
 
     if (!check_status_buffer(status_buf)) {
+        VHD_LOG_ERROR("Bad status buffer");
         abort_request(vq, iov);
         return -EINVAL;
     }
@@ -87,6 +89,7 @@ static int handle_inout(struct virtio_blk_dev* dev,
     uint64_t total_sectors = 0;
     for (size_t i = 0; i < ndatabufs; ++i) {
         if (!IS_ALIGNED_TO_SECTOR(pdata[i].len)) {
+            VHD_LOG_ERROR("Data buffer %zu length %zu is not aligned to sector size", i, pdata[i].len);
             fail_request(vq, iov);
             return -EINVAL;
         }
@@ -109,6 +112,7 @@ static int handle_inout(struct virtio_blk_dev* dev,
     }
 
     if (total_sectors == 0) {
+        VHD_LOG_ERROR("0 sectors in I/O request");
         fail_request(vq, iov);
         return -EINVAL;
     }
@@ -116,6 +120,7 @@ static int handle_inout(struct virtio_blk_dev* dev,
     uint64_t last_sector = req->sector + total_sectors - 1;
     if (last_sector < req->sector /* overflow */ ||
         last_sector >= BLOCKS_TO_SECTORS(dev, dev->bdev->total_blocks)) {
+        VHD_LOG_ERROR("Request out of bdev range, last sector = %llu", (unsigned long long) last_sector);
         fail_request(vq, iov);
         return -EINVAL;
     }
@@ -133,6 +138,7 @@ static int handle_inout(struct virtio_blk_dev* dev,
 
     int res = dev->bdev->submit_requests(NULL, &bio->bdev_io, 1);
     if (res != 0) {
+        VHD_LOG_ERROR("bdev request submission failed with %d", res);
         fail_request(vq, iov);
         return res;
     }
@@ -148,6 +154,7 @@ static int handle_getid(struct virtio_blk_dev* dev,
     VHD_ASSERT(req->type == VIRTIO_BLK_T_GET_ID);
 
     if (iov->nvecs != 3) {
+        VHD_LOG_ERROR("Bad number of buffers %d in iov", iov->nvecs);
         abort_request(vq, iov);
         return -EINVAL;
     }
@@ -156,11 +163,13 @@ static int handle_getid(struct virtio_blk_dev* dev,
     struct vhd_buffer* id_buf = &iov->buffers[1];
 
     if (!check_status_buffer(status_buf)) {
+        VHD_LOG_ERROR("Bad status buffer");
         abort_request(vq, iov);
         return -EINVAL;
     }
 
     if (id_buf->len != VIRTIO_BLK_DISKID_LENGTH || !vhd_buffer_can_write(id_buf)) {
+        VHD_LOG_ERROR("Bad id buffer (len %zu)", id_buf->len);
         fail_request(vq, iov);
         return -EINVAL;
     }
@@ -187,6 +196,7 @@ static void handle_buffers(void* arg, struct virtio_virtq* vq, struct virtio_iov
 
     struct vhd_buffer* req_buf = &iov->buffers[0];
     if (!vhd_buffer_can_read(req_buf)) {
+        VHD_LOG_ERROR("Request header is not readable by device");
         abort_request(vq, iov);
         return;
     }
