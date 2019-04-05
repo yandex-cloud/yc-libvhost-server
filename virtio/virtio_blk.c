@@ -49,7 +49,7 @@ static bool check_status_buffer(struct vhd_buffer* buf)
     }
 
     /* Status buffer should be writable */
-    if (!buf->writable) {
+    if (!vhd_buffer_can_write(buf)) {
         return false;
     }
 
@@ -82,8 +82,9 @@ static int handle_inout(struct virtio_blk_dev* dev,
             goto complete_early;
         }
     
-        /* Buffer should be writable if this is a read request */
-        if (req->type == VIRTIO_BLK_T_IN && !pdata[i].writable) {
+        /* Buffer should be writable if this is a read request or readable if write request */
+        if ((req->type == VIRTIO_BLK_T_IN && !vhd_buffer_can_write(pdata + i)) ||
+            (req->type == VIRTIO_BLK_T_OUT && !vhd_buffer_can_read(pdata + i))) {
             goto complete_early;
         }
 
@@ -148,7 +149,7 @@ static int handle_getid(struct virtio_blk_dev* dev,
         goto abort_request;
     }
 
-    if (id_buf->len != VIRTIO_BLK_DISKID_LENGTH || !id_buf->writable) {
+    if (id_buf->len != VIRTIO_BLK_DISKID_LENGTH || !vhd_buffer_can_write(id_buf)) {
         set_status(iov, VIRTIO_BLK_S_IOERR);
         goto abort_request;
     }
@@ -177,7 +178,13 @@ static void handle_buffers(void* arg, struct virtio_virtq* vq, struct virtio_iov
      * - data buffer for In/Out/GetId requests
      * - 1 byte status buffer for !GetId requests */
 
-    struct virtio_blk_req_hdr* req = (struct virtio_blk_req_hdr*) iov->buffers[0].base;
+    struct vhd_buffer* req_buf = &iov->buffers[0];
+    if (!vhd_buffer_can_read(req_buf)) {
+        abort_request(vq, iov);
+        return;
+    }
+
+    struct virtio_blk_req_hdr* req = (struct virtio_blk_req_hdr*) req_buf->base;
     if (iov->buffers[0].len != sizeof(*req)) {
         VHD_LOG_ERROR("virtio blk request invalid size %zu", iov->buffers[0].len);
         abort_request(vq, iov);

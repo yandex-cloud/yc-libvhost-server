@@ -37,7 +37,7 @@ static void free_iov(struct virtq_iov_private* iov)
     }
 }
 
-static int add_buffer(struct virtio_virtq* vq, void* addr, size_t len, bool writable)
+static int add_buffer(struct virtio_virtq* vq, void* addr, size_t len, bool write_only)
 {
     if (vq->next_buffer == vq->qsz) {
         return -ENOSPC;
@@ -46,21 +46,21 @@ static int add_buffer(struct virtio_virtq* vq, void* addr, size_t len, bool writ
     vq->buffers[vq->next_buffer] = (struct vhd_buffer) {
         .base = addr,
         .len = len,
-        .writable = writable,
+        .write_only = write_only,
     };
 
     vq->next_buffer++;
     return 0;
 }
 
-static int map_buffer(struct virtio_virtq* vq, struct virtio_mm_ctx* mm, uint64_t gpa, size_t len, bool writable)
+static int map_buffer(struct virtio_virtq* vq, struct virtio_mm_ctx* mm, uint64_t gpa, size_t len, bool write_only)
 {
     void* addr = virtio_map_guest_phys_range(mm, gpa, len);
     if (!addr) {
         return -EINVAL;
     }
 
-    return add_buffer(vq, addr, len, writable);
+    return add_buffer(vq, addr, len, write_only);
 }
 
 
