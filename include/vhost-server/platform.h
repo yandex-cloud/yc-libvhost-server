@@ -28,6 +28,7 @@
 #   define vhd_noreturn             __attribute__((noreturn))
 #   define vhd_typeof               typeof
 #   define VHD_STATIC_ASSERT(pred)  _Static_assert((pred), __STRINGIFY(pred))
+#   define VHD_PACKED               __attribute__((packed))
 
 #   define VHD_CONTAINEROF(ptr, type, member) ({                \
         const typeof(((type *)0)->member)*__mptr = (ptr);       \

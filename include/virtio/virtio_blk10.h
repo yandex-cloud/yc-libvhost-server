@@ -35,7 +35,7 @@ typedef uint64_t le64;
 /* Device configuration layout.
  * The capacity of the device (expressed in 512-byte sectors) is always present.
  * The availability of the others all depend on various feature bits as indicated above. */
-struct virtio_blk_config {
+struct VHD_PACKED virtio_blk_config {
     le64 capacity;
     le32 size_max;
     le32 seg_max;
