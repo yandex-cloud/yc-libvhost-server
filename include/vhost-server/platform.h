@@ -10,7 +10,8 @@
 
 #include <sys/queue.h>
 
-#define PAGE_SIZE 0x1000
+#define PAGE_SHIFT  12
+#define PAGE_SIZE   (1ul << PAGE_SHIFT)
 
 ////////////////////////////////////////////////////////////////////////////////
 

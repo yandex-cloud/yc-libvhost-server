@@ -11,6 +11,7 @@
 #include "vhost-server/platform.h"
 #include "vhost-server/event.h"
 #include "vhost-server/vdev.h"
+#include "vhost-server/virt_queue.h"
 
 static LIST_HEAD(, vhd_vdev) g_vdevs = LIST_HEAD_INITIALIZER(g_vdevs);
 
@@ -195,13 +196,23 @@ static int map_guest_region(
     return 0;
 }
 
+static bool is_region_mapped(struct vhd_guest_memory_region* reg)
+{
+    return reg->hva != NULL;
+}
+
+static size_t region_size_bytes(struct vhd_guest_memory_region* reg)
+{
+    return (size_t)reg->pages << PAGE_SHIFT;
+}
+
 static void unmap_guest_region(struct vhd_guest_memory_region* reg)
 {
     int ret;
 
     VHD_VERIFY(reg);
 
-    if (reg->hva == NULL) {
+    if (!is_region_mapped(reg)) {
         return;
     }
 
@@ -230,6 +241,23 @@ void vhd_guest_memory_unmap_all(struct vhd_guest_memory_map* map)
     for (int i = 0; i < VHOST_USER_MEM_REGIONS_MAX; ++i) {
         unmap_guest_region(&map->regions[i]);
     }
+}
+
+/* Convert host emulator address to the current mmap address.
+ * Return mmap address in case of success or NULL.
+ */
+static void* map_uva(struct vhd_guest_memory_map* map, vhd_uaddr_t uva)
+{
+    for (int i = 0; i < VHOST_USER_MEM_REGIONS_MAX; i++) {
+        struct vhd_guest_memory_region* reg = &map->regions[i];
+        if (is_region_mapped(reg)
+            && uva >= reg->uva
+            && uva < reg->uva + region_size_bytes(reg)) {
+            return (void*)((uintptr_t)reg->hva + (uva - reg->uva));
+        }
+    }
+
+    return NULL;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -411,7 +439,30 @@ static int vhost_get_queue_num(struct vhd_vdev* vdev, struct vhost_user_msg* msg
     return vhost_send_reply(vdev, msg, vdev->max_queues);
 }
 
-static int vhost_set_vring_fd_common(struct vhd_vdev* vdev, struct vhost_user_msg* msg, int* fds, int fdn, bool is_kick)
+static struct vhd_vring* get_vring(struct vhd_vdev* vdev, uint32_t index)
+{
+    if (index >= vdev->num_queues) {
+        VHD_LOG_ERROR("vring index out of bounds (%d >= %d)", index, vdev->num_queues);
+        return NULL;
+    }
+
+    return vdev->vrings + index;
+}
+
+static struct vhd_vring* get_vring_not_enabled(struct vhd_vdev* vdev, int index)
+{
+    struct vhd_vring* vring = get_vring(vdev, index);
+    if (vring && vring->is_enabled) {
+        VHD_LOG_ERROR("vring %d is enabled", index);
+        return NULL;
+    }
+
+    return vring;
+}
+
+enum vring_desc_type { VRING_KICKFD, VRING_CALLFD, VRING_ERRFD };
+
+static int vhost_set_vring_fd_common(struct vhd_vdev* vdev, struct vhost_user_msg* msg, int* fds, int fdn, enum vring_desc_type type)
 {
     VHD_LOG_DEBUG("payload = 0x%llx\n", (unsigned long long) msg->payload.u64);
 
@@ -428,12 +479,17 @@ static int vhost_set_vring_fd_common(struct vhd_vdev* vdev, struct vhost_user_ms
         return EINVAL;
     }
 
-    if (vring_idx >= vdev->num_queues) {
-        VHD_LOG_ERROR("vring index out of bounds (%d >= %d)", vring_idx, vdev->num_queues);
+    struct vhd_vring* vring = get_vring(vdev, vring_idx);
+    if (!vring) {
         return EINVAL;
     }
 
-    *(is_kick ? &vdev->vrings[vring_idx].kickfd : &vdev->vrings[vring_idx].callfd) = fds[0];
+    switch (type) {
+    case VRING_KICKFD: vring->kickfd = fds[0]; break;
+    case VRING_CALLFD: vring->callfd = fds[0]; break;
+    case VRING_ERRFD:  vring->errfd = fds[0];  break;
+    default: VHD_ASSERT(0);
+    }
 
     return 0;
 }
@@ -441,13 +497,19 @@ static int vhost_set_vring_fd_common(struct vhd_vdev* vdev, struct vhost_user_ms
 static int vhost_set_vring_call(struct vhd_vdev* vdev, struct vhost_user_msg* msg, int* fds, int fdn)
 {
     VHD_LOG_DEBUG("payload = 0x%llx", (unsigned long long)msg->payload.u64);
-    return vhost_set_vring_fd_common(vdev, msg, fds, fdn, false);
+    return vhost_set_vring_fd_common(vdev, msg, fds, fdn, VRING_CALLFD);
 }
 
 static int vhost_set_vring_kick(struct vhd_vdev* vdev, struct vhost_user_msg* msg, int* fds, int fdn)
 {
     VHD_LOG_DEBUG("payload = 0x%llx", (unsigned long long)msg->payload.u64);
-    return vhost_set_vring_fd_common(vdev, msg, fds, fdn, true);
+    return vhost_set_vring_fd_common(vdev, msg, fds, fdn, VRING_KICKFD);
+}
+
+static int vhost_set_vring_err(struct vhd_vdev* vdev, struct vhost_user_msg* msg, int* fds, int fdn)
+{
+    VHD_LOG_DEBUG("payload = 0x%llx", (unsigned long long)msg->payload.u64);
+    return vhost_set_vring_fd_common(vdev, msg, fds, fdn, VRING_ERRFD);
 }
 
 static int vhost_set_vring_num(struct vhd_vdev* vdev, struct vhost_user_msg* msg)
@@ -456,13 +518,12 @@ static int vhost_set_vring_num(struct vhd_vdev* vdev, struct vhost_user_msg* msg
 
     struct vhost_user_vring_state* vrstate = &msg->payload.vring_state;
 
-    if (vrstate->index >= vdev->num_queues) {
-        VHD_LOG_ERROR("vring index out of bounds (%d >= %d)", vrstate->index, vdev->num_queues);
+    struct vhd_vring* vring = get_vring_not_enabled(vdev, vrstate->index);
+    if (!vring) {
         return EINVAL;
     }
 
-    // TODO: implement me
-
+    vring->client_info.num = vrstate->num;
     return 0;
 }
 
@@ -472,13 +533,12 @@ static int vhost_set_vring_base(struct vhd_vdev* vdev, struct vhost_user_msg* ms
 
     struct vhost_user_vring_state* vrstate = &msg->payload.vring_state;
 
-    if (vrstate->index >= vdev->num_queues) {
-        VHD_LOG_ERROR("vring index out of bounds (%d >= %d)", vrstate->index, vdev->num_queues);
+    struct vhd_vring* vring = get_vring_not_enabled(vdev, vrstate->index);
+    if (!vring) {
         return EINVAL;
     }
 
-    // TODO: implement me
-
+    vring->client_info.base = vrstate->num;
     return 0;
 }
 
@@ -488,12 +548,88 @@ static int vhost_get_vring_base(struct vhd_vdev* vdev, struct vhost_user_msg* ms
 
     struct vhost_user_vring_state* vrstate = &msg->payload.vring_state;
 
-    if (vrstate->index >= vdev->num_queues) {
-        VHD_LOG_ERROR("vring index out of bounds (%d >= %d)", vrstate->index, vdev->num_queues);
+    struct vhd_vring* vring = get_vring(vdev, vrstate->index);
+    if (!vring) {
         return EINVAL;
     }
 
-    // TODO: implement me
+    return vring->vq.last_avail;
+}
+
+static int vhost_set_vring_addr(struct vhd_vdev* vdev, struct vhost_user_msg* msg)
+{
+    VHD_LOG_TRACE();
+
+    struct vhost_user_vring_addr* vraddr = &msg->payload.vring_addr;
+
+    struct vhd_vring* vring = get_vring_not_enabled(vdev, vraddr->index);
+    if (!vring) {
+        return EINVAL;
+    }
+
+    /* TODO: we don't have to do full lookup 3 times, we can do it in 1 */
+    void* desc_addr = map_uva(&vdev->guest_memmap, vraddr->desc_addr);
+    void* used_addr = map_uva(&vdev->guest_memmap, vraddr->used_addr);
+    void* avail_addr = map_uva(&vdev->guest_memmap, vraddr->avail_addr);
+    /* TODO: log_addr */
+
+    if (!desc_addr || !used_addr || !avail_addr) {
+        VHD_LOG_ERROR("invalid vring component address (%p, %p, %p)",
+            desc_addr, used_addr, avail_addr);
+        return EINVAL;
+    }
+
+    vring->client_info.desc_addr = desc_addr;
+    vring->client_info.used_addr = used_addr;
+    vring->client_info.avail_addr = avail_addr;
+
+    return 0;
+}
+
+static int vring_event(void*);
+
+static int vhost_set_vring_enable(struct vhd_vdev* vdev, struct vhost_user_msg* msg)
+{
+    VHD_LOG_TRACE();
+
+    struct vhost_user_vring_state* vrstate = &msg->payload.vring_state;
+    struct vhd_vring* vring = get_vring(vdev, vrstate->index);
+    if (!vring) {
+        return EINVAL;
+    }
+
+    if (vrstate->num == 1 && !vring->is_enabled) {
+        int res = virtio_virtq_attach(&vring->vq,
+                                      vring->client_info.desc_addr,
+                                      vring->client_info.avail_addr,
+                                      vring->client_info.used_addr,
+                                      vring->client_info.num,
+                                      vring->client_info.base);
+        if (res != 0) {
+            VHD_LOG_ERROR("virtq attach failed: %d", res);
+            return res;
+        }
+
+        static const struct vhd_event_ops g_vring_ops = {
+            .read = vring_event,
+        };
+
+        res = vhd_make_event(vring->kickfd, vring, &g_vring_ops, &vring->kickev);
+        if (res != 0) {
+            VHD_LOG_ERROR("Could not create vring event from kickfd: %d", res);
+            virtio_virtq_release(&vring->vq);
+            return res;
+        }
+
+        vring->is_enabled = true;
+    } else if (vrstate->num == 0 && vring->is_enabled) {
+        vhd_del_event(vring->kickfd);
+        virtio_virtq_release(&vring->vq);
+        vring->is_enabled = false;
+    } else {
+        VHD_LOG_WARN("strange VRING_ENABLE call from client (vring is already %s)",
+            vring->is_enabled ? "enabled" : "disabled");
+    }
 
     return 0;
 }
@@ -516,8 +652,7 @@ static int vhost_ack_request_if_needed(struct vhd_vdev* vdev, const struct vhost
 }
 
 /* 
- * Return 0 in case of success, otherwise return error code. In case
- * of success the msg argument should contain the answer to the master.
+ * Return 0 in case of success, otherwise return error code.
  */
 static int vhost_handle_request(struct vhd_vdev* vdev, struct vhost_user_msg *msg, int *fds, size_t fdn)
 {
@@ -569,6 +704,9 @@ static int vhost_handle_request(struct vhd_vdev* vdev, struct vhost_user_msg *ms
         case VHOST_USER_SET_VRING_KICK:
             ret = vhost_set_vring_kick(vdev, msg, fds, fdn);
             break;
+        case VHOST_USER_SET_VRING_ERR:
+            ret = vhost_set_vring_err(vdev, msg, fds, fdn);
+            break;
         case VHOST_USER_SET_VRING_NUM:
             ret = vhost_set_vring_num(vdev, msg);
             break;
@@ -578,16 +716,19 @@ static int vhost_handle_request(struct vhd_vdev* vdev, struct vhost_user_msg *ms
         case VHOST_USER_GET_VRING_BASE:
             ret = vhost_get_vring_base(vdev, msg);
             break;
+        case VHOST_USER_SET_VRING_ADDR:
+            ret = vhost_set_vring_addr(vdev, msg);
+            break;
+        case VHOST_USER_SET_VRING_ENABLE:
+            ret = vhost_set_vring_enable(vdev, msg);
+            break;
 
         /*
          * TODO
          */
 
-        case VHOST_USER_SET_VRING_ADDR:
         case VHOST_USER_SET_LOG_BASE:
         case VHOST_USER_SET_LOG_FD:
-        case VHOST_USER_SET_VRING_ERR:
-        case VHOST_USER_SET_VRING_ENABLE:
         case VHOST_USER_SEND_RARP:
         case VHOST_USER_NET_SET_MTU:
         case VHOST_USER_SET_SLAVE_REQ_FD:
@@ -623,6 +764,11 @@ static int vhost_handle_request(struct vhd_vdev* vdev, struct vhost_user_msg *ms
 
     VHD_LOG_DEBUG("Handle command: %d", ret);
     return ret;
+}
+
+static int vring_event(void* ctx)
+{
+    return 0;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

@@ -3,7 +3,7 @@
 #include "vhost-server/event.h"
 #include "vhost-server/intrusive_list.h"
 #include "vhost-server/vhost_proto.h"
-#include "vhost-server/types.h"
+#include "vhost-server/virt_queue.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -159,15 +159,32 @@ struct vhd_vring
     /* owning vdev */
     struct vhd_vdev* vdev;
 
+    /* This structure is used to collect info about client vring during
+     * several vhost packets until we have enought to initialize it */
+    struct vring_client_info {
+        void* desc_addr;
+        void* avail_addr;
+        void* used_addr;
+        int num;
+        int base;
+    } client_info;
+
     /* vring id, acts as an index in its owning device */
     int id;
 
     /* client-supplied eventfds */
     int kickfd;
     int callfd;
+    int errfd;
 
     /* vring can service requests */
     bool is_enabled;
+
+    /* Client kick event */
+    struct vhd_event_ctx kickev;
+
+    /* Low-level virtio queue */
+    struct virtio_virtq vq;
 };
 
 /**
