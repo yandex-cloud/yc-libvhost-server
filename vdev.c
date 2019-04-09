@@ -1024,7 +1024,7 @@ int vhd_vdev_init_server(struct vhd_vdev* vdev, const char* socket_path, const s
     vdev->supported_protocol_features = g_default_protocol_features;
     vdev->max_queues = max_queues;
     vdev->num_queues = max_queues; /* May be overriden later by SET_CONFIG, but should be <= max_queues */
-    vdev->vrings = vhd_alloc(sizeof(vdev->vrings) * max_queues);
+    vdev->vrings = vhd_calloc(max_queues, sizeof(vdev->vrings[0]));
     for (int i = 0; i < max_queues; ++i) {
         vhd_vring_init(vdev->vrings + i, i, vdev);
     }
