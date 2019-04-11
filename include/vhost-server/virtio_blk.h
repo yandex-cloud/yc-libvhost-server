@@ -31,7 +31,7 @@ struct virtio_blk_dev
 };
 
 int virtio_blk_init_dev(struct virtio_blk_dev* dev, struct vhd_bdev* bdev);
-int virtio_blk_handle_requests(struct virtio_blk_dev* dev, struct virtio_virtq* vq, struct virtio_mm_ctx* mm);
+int virtio_blk_dispatch_requests(struct virtio_blk_dev* dev, struct virtio_virtq* vq, struct virtio_mm_ctx* mm);
 
 #ifdef __cplusplus
 }

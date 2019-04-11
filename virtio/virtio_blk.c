@@ -43,7 +43,10 @@ static void complete_io(struct vhd_bdev_io* bdev_io, enum vhd_bdev_io_result res
     struct virtio_blk_io* bio = containerof(bdev_io, struct virtio_blk_io, bdev_io);
 
     set_status(bio->iov, (res == VHD_BDEV_SUCCESS ? VIRTIO_BLK_S_OK : VIRTIO_BLK_S_IOERR));
+
     virtq_commit_buffers(bio->vq, bio->iov);
+    virtq_notify(bio->vq);
+
     vhd_free(bio);
 }
 
@@ -229,7 +232,7 @@ static void handle_buffers(void* arg, struct virtio_virtq* vq, struct virtio_iov
 
 ////////////////////////////////////////////////////////////////////////////////
 
-int virtio_blk_handle_requests(struct virtio_blk_dev* dev, struct virtio_virtq* vq, struct virtio_mm_ctx* mm)
+int virtio_blk_dispatch_requests(struct virtio_blk_dev* dev, struct virtio_virtq* vq, struct virtio_mm_ctx* mm)
 {
     VHD_VERIFY(dev);
     VHD_VERIFY(vq);

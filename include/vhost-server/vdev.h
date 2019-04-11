@@ -65,6 +65,7 @@ struct vhd_vdev_type
     uint64_t (*get_features)(struct vhd_vdev* vdev);
     int (*set_features)(struct vhd_vdev* vdev, uint64_t features);
     size_t (*get_config)(struct vhd_vdev* vdev, void* cfgbuf, size_t bufsize);
+    int (*dispatch_requests)(struct vhd_vdev* vdev, struct vhd_vring* vring);
 };
 
 /**
@@ -135,20 +136,26 @@ void vhd_vdev_uninit(struct vhd_vdev* vdev);
 
 static inline uint64_t vhd_vdev_get_features(struct vhd_vdev* vdev)
 {
-    VHD_ASSERT(vdev && vdev->type);
+    VHD_ASSERT(vdev && vdev->type && vdev->type->get_features);
     return vdev->type->get_features(vdev);
 }
 
 static inline int vhd_vdev_set_features(struct vhd_vdev* vdev, uint64_t features)
 {
-    VHD_ASSERT(vdev && vdev->type);
+    VHD_ASSERT(vdev && vdev->type && vdev->type->set_features);
     return vdev->type->set_features(vdev, features);
 }
 
 static inline size_t vhd_vdev_get_config(struct vhd_vdev* vdev, void* cfgbuf, size_t bufsize)
 {
-    VHD_ASSERT(vdev);
+    VHD_ASSERT(vdev && vdev->type && vdev->type->get_config);
     return vdev->type->get_config(vdev, cfgbuf, bufsize);
+}
+
+static inline int vhd_vdev_dispatch_requests(struct vhd_vdev* vdev, struct vhd_vring* vring)
+{
+    VHD_ASSERT(vdev && vdev->type && vdev->type->dispatch_requests);
+    return vdev->type->dispatch_requests(vdev, vring);
 }
 
 static inline struct virtio_mm_ctx* vhd_vdev_mm_ctx(struct vhd_vdev* vdev)

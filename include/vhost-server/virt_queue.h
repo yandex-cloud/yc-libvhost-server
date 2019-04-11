@@ -41,9 +41,6 @@ struct virtio_virtq
     struct virtq_avail* avail;
     struct virtq_used* used;
 
-    /* Size of raw mapped queue area in bytes */
-    size_t mapped_size;
-
     /* Size of queue in number of descriptors it can hold */
     int qsz;
 
@@ -58,6 +55,9 @@ struct virtio_virtq
     /* Virtqueue is broken, probably because there is an invalid descriptor chain in it.
      * Broken status is sticky and so far cannot be repared. */
     bool broken;
+
+    /* eventfd for used buffers notification */
+    int notify_fd;
 };
 
 int virtio_virtq_attach(struct virtio_virtq* vq,
@@ -65,7 +65,8 @@ int virtio_virtq_attach(struct virtio_virtq* vq,
                         void* avail_addr,
                         void* used_addr,
                         int qsz,
-                        int avail_base);
+                        int avail_base,
+                        int notify_fd);
 
 void virtio_virtq_release(struct virtio_virtq* vq);
 
@@ -78,6 +79,8 @@ int virtq_dequeue_many(struct virtio_virtq* vq,
                        void* arg);
 
 void virtq_commit_buffers(struct virtio_virtq* vq, struct virtio_iov* iov);
+
+void virtq_notify(struct virtio_virtq* vq);
 
 #ifdef __cplusplus
 }

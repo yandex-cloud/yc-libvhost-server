@@ -69,7 +69,8 @@ int virtio_virtq_attach(struct virtio_virtq* vq,
                         void* avail_addr,
                         void* used_addr,
                         int qsz,
-                        int avail_base)
+                        int avail_base,
+                        int notify_fd)
 {
     VHD_VERIFY(vq);
     VHD_VERIFY(desc_addr);
@@ -86,6 +87,7 @@ int virtio_virtq_attach(struct virtio_virtq* vq,
     vq->broken = false;
     vq->buffers = vhd_calloc(qsz, sizeof(vq->buffers[0]));
     vq->next_buffer = 0;
+    vq->notify_fd = notify_fd;
 
     return 0;
 }
@@ -296,4 +298,12 @@ void virtq_commit_buffers(struct virtio_virtq* vq, struct virtio_iov* iov)
     vq->used->idx++;
 
     free_iov(priv);
+}
+
+void virtq_notify(struct virtio_virtq* vq)
+{
+    VHD_VERIFY(vq);
+
+    /* TODO: check for notification mask! */
+    eventfd_write(vq->notify_fd, 1);
 }

@@ -310,6 +310,9 @@ static const uint64_t g_default_protocol_features =
     (1UL << VHOST_USER_PROTOCOL_F_REPLY_ACK) |
     (1UL << VHOST_USER_PROTOCOL_F_CONFIG);
 
+static int vring_io_event(void* ctx);
+static int vring_close_event(void* ctx);
+
 static int vhost_send(struct vhd_vdev* vdev, const struct vhost_user_msg *msg)
 {
     int len = net_send_msg(vdev->connfd, msg);
@@ -621,8 +624,6 @@ static int vhost_set_vring_addr(struct vhd_vdev* vdev, struct vhost_user_msg* ms
     return 0;
 }
 
-static int vring_event(void*);
-
 static int vhost_set_vring_enable(struct vhd_vdev* vdev, struct vhost_user_msg* msg)
 {
     VHD_LOG_TRACE();
@@ -639,14 +640,16 @@ static int vhost_set_vring_enable(struct vhd_vdev* vdev, struct vhost_user_msg* 
                                       vring->client_info.avail_addr,
                                       vring->client_info.used_addr,
                                       vring->client_info.num,
-                                      vring->client_info.base);
+                                      vring->client_info.base,
+                                      vring->callfd);
         if (res != 0) {
             VHD_LOG_ERROR("virtq attach failed: %d", res);
             return res;
         }
 
         static const struct vhd_event_ops g_vring_ops = {
-            .read = vring_event,
+            .read = vring_io_event,
+            .close = vring_close_event,
         };
 
         res = vhd_make_event(vring->kickfd, vring, &g_vring_ops, &vring->kickev);
@@ -799,11 +802,6 @@ static int vhost_handle_request(struct vhd_vdev* vdev, struct vhost_user_msg *ms
 
     VHD_LOG_DEBUG("Handle command: %d", ret);
     return ret;
-}
-
-static int vring_event(void* ctx)
-{
-    return 0;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1074,6 +1072,31 @@ int vhd_vdev_init_server(struct vhd_vdev* vdev, const char* socket_path, const s
     }
 
     return ret;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+static int vring_io_event(void* ctx)
+{
+    struct vhd_vring* vring = (struct vhd_vring*) ctx;
+    VHD_ASSERT(vring);
+
+    /* TODO: is it possible for client to enqueue a bunch of requests and then disable queue? */
+    if (!vring->is_enabled) {
+        VHD_LOG_ERROR("Somehow we got an event on disabled vring");
+        return -EINVAL;
+    }
+
+    int res = vhd_vdev_dispatch_requests(vring->vdev, vring);
+    vhd_clear_eventfd(vring->kickfd);
+
+    return res;
+}
+
+static int vring_close_event(void* ctx)
+{
+    /* TODO: not sure how we should react */
+    return 0;
 }
 
 void vhd_vdev_uninit(struct vhd_vdev* vdev)

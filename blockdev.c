@@ -52,12 +52,19 @@ static size_t vblk_get_config(struct vhd_vdev* vdev, void* cfgbuf, size_t bufsiz
     return sizeof(*blk_config);
 }
 
+static int vblk_dispatch(struct vhd_vdev* vdev, struct vhd_vring* vring)
+{
+    struct vhd_vhost_bdev* dev = VHD_BLOCKDEV_FROM_VDEV(vdev);
+    return virtio_blk_dispatch_requests(&dev->vblk, &vring->vq, vhd_vdev_mm_ctx(vdev));
+}
+
 const struct vhd_vdev_type g_virtio_blk_vdev_type =
 {
     .desc               = "virtio-blk",
     .get_features       = vblk_get_features,
     .set_features       = vblk_set_features,
     .get_config         = vblk_get_config,
+    .dispatch_requests  = vblk_dispatch,
 };
 
 ////////////////////////////////////////////////////////////////////////////////
