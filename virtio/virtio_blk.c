@@ -252,5 +252,10 @@ int virtio_blk_init_dev(struct virtio_blk_dev* dev, struct vhd_bdev* bdev)
     dev->bdev = bdev;
     dev->block_shift = __builtin_ctz(bdev->block_size >> VIRTIO_BLK_SECTOR_SHIFT);
 
+    dev->config.capacity = BLOCKS_TO_SECTORS(dev, bdev->total_blocks);
+    dev->config.size_max = BLOCKS_TO_SECTORS(dev, bdev->total_blocks);
+    dev->config.blk_size = bdev->block_size;
+    dev->config.numqueues = bdev->num_queues;
+
     return 0;
 }

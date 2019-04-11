@@ -85,9 +85,6 @@ struct vhd_bdev
     int (*submit_requests) (struct vhd_bdev_queue* queue, struct vhd_bdev_io* iov, size_t iovsize);
 };
 
-/** Global block vdev type description */
-extern const struct vhd_vdev_type vhd_block_vdev_type;
-
 int vhd_create_blockdev(struct vhd_bdev* bdev, enum vhd_bdev_interface_type iface);
 
 #ifdef __cplusplus

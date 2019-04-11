@@ -3,8 +3,6 @@
 #include "vhost-server/intrusive_list.h"
 #include "vhost-server/virtio_blk.h"
 
-#include "virtio/virtio_blk10.h"
-
 struct vhd_vhost_bdev
 {
     /* Base vdev */
@@ -26,51 +24,40 @@ LIST_HEAD(, vhd_vhost_bdev) g_bdev_list = LIST_HEAD_INITIALIZER(g_bdev_list);
 
 #define VHD_BLOCKDEV_FROM_VDEV(ptr) containerof(ptr, struct vhd_vhost_bdev, vdev)
 
-#define VBLK_DEFAULT_FEATURES ((uint64_t)( \
-    (1UL << VIRTIO_F_RING_INDIRECT_DESC) | \
-    (1UL << VIRTIO_F_VERSION_1) | \
-    (1UL << VIRTIO_BLK_F_SIZE_MAX) | \
-    (1UL << VIRTIO_BLK_F_SEG_MAX) | \
-    (1UL << VIRTIO_BLK_F_BLK_SIZE) | \
-    (1UL << VIRTIO_BLK_F_TOPOLOGY) | \
-    (1UL << VIRTIO_BLK_F_MQ)))
+////////////////////////////////////////////////////////////////////////////////
 
-static uint64_t blk_get_features(struct vhd_vdev* vdev)
+static uint64_t vblk_get_features(struct vhd_vdev* vdev)
 {
-    return VBLK_DEFAULT_FEATURES;
+    return VIRTIO_BLK_DEFAULT_FEATURES;
 }
 
-static int blk_set_features(struct vhd_vdev* vdev, uint64_t features)
+static int vblk_set_features(struct vhd_vdev* vdev, uint64_t features)
 {
-    if (features & ~VBLK_DEFAULT_FEATURES) {
-        return EINVAL;
+    if (features & ~VIRTIO_BLK_DEFAULT_FEATURES) {
+        return -EINVAL;
     }
 
     vdev->negotiated_device_features = features;
     return 0;
 }
 
-static size_t blk_get_config(struct vhd_vdev* vdev, void* cfgbuf, size_t bufsize)
+static size_t vblk_get_config(struct vhd_vdev* vdev, void* cfgbuf, size_t bufsize)
 {
-    VHD_ASSERT(bufsize == sizeof(struct virtio_blk_config));
-
     struct vhd_vhost_bdev* dev = VHD_BLOCKDEV_FROM_VDEV(vdev);
+
+    VHD_ASSERT(bufsize >= sizeof(struct virtio_blk_config));
     struct virtio_blk_config* blk_config = (struct virtio_blk_config*)cfgbuf;
 
-    blk_config->capacity = dev->bdev->total_blocks;
-    blk_config->size_max = dev->bdev->total_blocks;
-    blk_config->blk_size = dev->bdev->block_size;
-    blk_config->numqueues = dev->bdev->num_queues;
-
+    *blk_config = dev->vblk.config;
     return sizeof(*blk_config);
 }
 
-const struct vhd_vdev_type vhd_block_vdev_type = 
+const struct vhd_vdev_type g_virtio_blk_vdev_type =
 {
-    .desc = "virtio-blk",
-    .get_features = blk_get_features,
-    .set_features = blk_set_features,
-    .get_config = blk_get_config,
+    .desc               = "virtio-blk",
+    .get_features       = vblk_get_features,
+    .set_features       = vblk_set_features,
+    .get_config         = vblk_get_config,
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -87,11 +74,27 @@ int vhd_create_blockdev(struct vhd_bdev* bdev, enum vhd_bdev_interface_type ifac
 
     /* Check block size is power-of-2 */
     if (bdev->block_size == 0 || (bdev->block_size & (bdev->block_size - 1))) {
-        return EINVAL;
+        return -EINVAL;
     }
 
+    const struct vhd_vdev_type* type = NULL;
     struct vhd_vhost_bdev* dev = vhd_alloc(sizeof(*dev));
-    res = vhd_vdev_init_server(&dev->vdev, bdev->id, &vhd_block_vdev_type, bdev->num_queues);
+
+    switch (iface) {
+    case VHD_BDEV_IFACE_VIRTIO_BLK:
+        res = virtio_blk_init_dev(&dev->vblk, bdev);
+        if (res != 0) {
+            goto error_out;
+        }
+
+        type = &g_virtio_blk_vdev_type;
+        break;
+    default:
+        res = -EINVAL;
+        goto error_out;
+    };
+
+    res = vhd_vdev_init_server(&dev->vdev, bdev->id, type, bdev->num_queues);
     if (res != 0) {
         goto error_out;
     }
