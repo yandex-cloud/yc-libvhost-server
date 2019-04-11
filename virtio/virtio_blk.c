@@ -229,12 +229,12 @@ static void handle_buffers(void* arg, struct virtio_virtq* vq, struct virtio_iov
 
 ////////////////////////////////////////////////////////////////////////////////
 
-int virtio_blk_handle_requests(struct virtio_blk_dev* dev, struct virtio_virtq* vq)
+int virtio_blk_handle_requests(struct virtio_blk_dev* dev, struct virtio_virtq* vq, struct virtio_mm_ctx* mm)
 {
     VHD_VERIFY(dev);
     VHD_VERIFY(vq);
 
-    return virtq_dequeue_many(vq, dev->mm, handle_buffers, dev);
+    return virtq_dequeue_many(vq, mm, handle_buffers, dev);
 }
 
 int virtio_blk_init_dev(struct virtio_blk_dev* dev, struct vhd_bdev* bdev)

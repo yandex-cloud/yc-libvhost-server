@@ -252,12 +252,47 @@ static void* map_uva(struct vhd_guest_memory_map* map, vhd_uaddr_t uva)
         struct vhd_guest_memory_region* reg = &map->regions[i];
         if (is_region_mapped(reg)
             && uva >= reg->uva
-            && uva < reg->uva + region_size_bytes(reg)) {
+            && uva - reg->uva < region_size_bytes(reg)) {
             return (void*)((uintptr_t)reg->hva + (uva - reg->uva));
         }
     }
 
     return NULL;
+}
+
+static void* map_gpa_len(struct vhd_guest_memory_map* map, vhd_paddr_t gpa, uint32_t len)
+{
+    if (len == 0) {
+        return NULL;
+    }
+
+    /* TODO: sanitize for overflow */
+    vhd_paddr_t last_gpa = gpa + len - 1;
+
+    for (int i = 0; i < VHOST_USER_MEM_REGIONS_MAX; i++) {
+        struct vhd_guest_memory_region* reg = &map->regions[i];
+        if (is_region_mapped(reg)
+            && gpa >= reg->gpa
+            && gpa - reg->gpa < region_size_bytes(reg))
+        {
+            /* Check that length fits in a single region.
+             *
+             * TODO: should we handle gpa areas that cross region boundaries
+             *       but are otherwise valid? */
+            if (last_gpa - reg->gpa >= region_size_bytes(reg)) {
+                return NULL;
+            }
+
+            return (void*)((uintptr_t)reg->hva + (gpa - reg->gpa));
+        }
+    }
+
+    return NULL;
+}
+
+void* virtio_map_guest_phys_range(struct virtio_mm_ctx* mm, uint64_t gpa, uint32_t len)
+{
+    return map_gpa_len((struct vhd_guest_memory_map*)mm, gpa, len);
 }
 
 ////////////////////////////////////////////////////////////////////////////////

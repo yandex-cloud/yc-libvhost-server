@@ -151,6 +151,12 @@ static inline size_t vhd_vdev_get_config(struct vhd_vdev* vdev, void* cfgbuf, si
     return vdev->type->get_config(vdev, cfgbuf, bufsize);
 }
 
+static inline struct virtio_mm_ctx* vhd_vdev_mm_ctx(struct vhd_vdev* vdev)
+{
+    VHD_ASSERT(vdev);
+    return (struct virtio_mm_ctx*) &vdev->guest_memmap;
+}
+
 /**
  * Device vring instance
  */

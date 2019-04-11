@@ -22,7 +22,6 @@ struct virtio_virtq;
 struct virtio_blk_dev
 {
     struct vhd_bdev* bdev;
-    struct virtio_mm_ctx* mm;
 
     /* blk config data generated on init from bdev */
     struct virtio_blk_config config;
@@ -32,7 +31,7 @@ struct virtio_blk_dev
 };
 
 int virtio_blk_init_dev(struct virtio_blk_dev* dev, struct vhd_bdev* bdev);
-int virtio_blk_handle_requests(struct virtio_blk_dev* dev, struct virtio_virtq* vq);
+int virtio_blk_handle_requests(struct virtio_blk_dev* dev, struct virtio_virtq* vq, struct virtio_mm_ctx* mm);
 
 #ifdef __cplusplus
 }
