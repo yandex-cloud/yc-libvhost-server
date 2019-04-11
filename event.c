@@ -7,6 +7,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/epoll.h>
+#include <sys/eventfd.h>
 
 #include "vhost-server/platform.h"
 #include "vhost-server/event.h"
@@ -104,6 +105,16 @@ int vhd_add_event(int fd, struct vhd_event_ctx* ctx)
     }
 
     return 0;
+}
+
+void vhd_clear_eventfd(int fd)
+{
+    eventfd_read(fd, NULL);
+}
+
+void vhd_set_eventfd(int fd)
+{
+    eventfd_write(fd, 1);
 }
 
 int vhd_del_event(int fd)

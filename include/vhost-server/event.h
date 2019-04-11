@@ -47,6 +47,16 @@ static inline int vhd_make_event(
 }
 
 /**
+ * Clear eventfd after handling it
+ */
+void vhd_clear_eventfd(int fd);
+
+/**
+ * Trigger eventfd
+ */
+void vhd_set_eventfd(int fd);
+
+/**
  * Remove event from event loop
  */
 int vhd_del_event(int fd);
