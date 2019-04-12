@@ -7,3 +7,4 @@ $(VHD_TARGET): $(OBJS) $(HDRS)
 
 clean:
 	rm -f *.o $(VHD_TARGET)
+	$(MAKE) -C test clean
