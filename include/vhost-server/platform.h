@@ -28,7 +28,6 @@
 #   define __STRINGIFY(x)           #x
 #   define vhd_noreturn             __attribute__((noreturn))
 #   define vhd_typeof               typeof
-#   define VHD_STATIC_ASSERT(pred)  _Static_assert((pred), __STRINGIFY(pred))
 #   define VHD_PACKED               __attribute__((packed))
 
 #   define VHD_CONTAINEROF(ptr, type, member) ({                \
@@ -40,6 +39,14 @@
 
 #if !defined(MIN)
 #   define MIN(num1, num2) ((num1) < (num2) ? (num1) : (num2))
+#endif
+
+#ifdef __cplusplus
+#   define VHD_STATIC_ASSERT(pred) static_assert((pred), __STRINGIFY(pred))
+#elif (__STDC_VERSION__ >= 201112L)
+#   define VHD_STATIC_ASSERT(pred)  _Static_assert((pred), __STRINGIFY(pred))
+#else
+#   error Implement me
 #endif
 
 ////////////////////////////////////////////////////////////////////////////////
