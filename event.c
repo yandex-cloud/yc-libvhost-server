@@ -76,10 +76,11 @@ int vhd_run_event_loop(void)
     }
 
     struct epoll_event events[VHD_MAX_EVENTS];
+
     int nev = epoll_wait(g_event_loop_fd, events, VHD_MAX_EVENTS, VHD_MAX_EPOLL_TIMEOUT_MS);
-    if (!nev) {
+    if (!nev || (nev < 0 && errno == EINTR)) {
         return 0;
-    } else if (nev == -1) {
+    } else if (nev < 0) {
         VHD_LOG_ERROR("epoll_wait internal error: %d", errno);
         return nev;
     }
