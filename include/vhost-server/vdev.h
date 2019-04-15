@@ -121,6 +121,26 @@ struct vhd_vdev
 };
 
 /**
+ * Create and run default vhost event loop.
+ *
+ * vhost event loop will run in a separate low-priority thread.
+ * Should be called before any device is registered.
+ */
+int vhd_start_vhost_event_loop(void);
+
+/**
+ * Terminate vhost event loop.
+ *
+ * Any and all vhost requests will not be services after this.
+ */
+void vhd_stop_vhost_event_loop(void);
+
+/**
+ * Interrupt vhost event loop once
+ */
+void vhd_interrupt_vhost_event_loop(void);
+
+/**
  * Init new generic vhost device in server mode
  * @socket_path     Listen socket path
  * @type            Device type description
