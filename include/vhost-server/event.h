@@ -6,6 +6,8 @@
 extern "C" {
 #endif
 
+#define VHD_EVENT_LOOP_DEFAULT_MAX_EVENTS 32
+
 /**
  * Event loop instance
  *
