@@ -107,6 +107,7 @@ struct vhd_event_loop* vhd_create_event_loop(size_t max_events)
         goto error_out;
     }
 
+    /* Register interrupt eventfd, make sure it is level-triggered */
     struct epoll_event ev;
     ev.events = EPOLLIN;
     ev.data.fd = interruptfd;
@@ -135,11 +136,15 @@ int vhd_run_event_loop(struct vhd_event_loop* evloop, int timeout_ms)
 {
     VHD_VERIFY(is_valid(evloop));
 
+    if (get_state(evloop) == EVLOOP_SHOULD_STOP) {
+        return 0;
+    }
+
     int nev = epoll_wait(evloop->epollfd, evloop->events, evloop->max_events, timeout_ms);
     if (!nev) {
         return 0;
     } else if (nev < 0) {
-        if (errno == EINTR || (errno == EBADF && get_state(evloop) == EVLOOP_SHOULD_STOP)) {
+        if (errno == EINTR) {
             return 0;
         }
 
@@ -181,8 +186,8 @@ void vhd_terminate_event_loop(struct vhd_event_loop* evloop)
         return;
     }
 
-    /* Close epollfd, this way any epoll_wait call will return and fail to restart */
-    close(evloop->epollfd);
+    /* Interrupt any running epoll_wait */
+    vhd_interrupt_event_loop(evloop);
     evloop->is_terminated = true;
 }
 
@@ -197,8 +202,9 @@ void vhd_free_event_loop(struct vhd_event_loop* evloop)
     /* See comments about event loop termination race in vhd_terminate_event_loop */
     if (!cas_state(evloop, EVLOOP_RUNNING, EVLOOP_DESTROYED)) {
         /* Wait for running termination to complete */
-        while (!evloop->is_terminated)
-            ;
+        while (!evloop->is_terminated) {
+            vhd_yield_cpu();
+        }
 
         if (!cas_state(evloop, EVLOOP_SHOULD_STOP, EVLOOP_DESTROYED)) {
             /* We should only see EVLOOP_SHOULD_STOP state now */
@@ -206,11 +212,7 @@ void vhd_free_event_loop(struct vhd_event_loop* evloop)
         }
     }
 
-    /* epollfd already closed if we were terminated, don't double-close it */
-    if (!evloop->is_terminated) {
-        close(evloop->epollfd);
-    }
-
+    close(evloop->epollfd);
     close(evloop->interruptfd);
     vhd_free(evloop->events);
     vhd_free(evloop);
