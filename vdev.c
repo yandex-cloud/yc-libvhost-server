@@ -14,80 +14,9 @@
 #include "vhost-server/event.h"
 #include "vhost-server/vdev.h"
 #include "vhost-server/virt_queue.h"
+#include "vhost-server/server.h"
 
 static LIST_HEAD(, vhd_vdev) g_vdevs = LIST_HEAD_INITIALIZER(g_vdevs);
-
-static struct vhd_event_loop* g_vhost_event_loop;
-static pthread_t g_vhost_thread;
-
-#define VHOST_EVENT_LOOP_EVENTS 128
-
-static void free_vhost_evloop(void)
-{
-    vhd_free_event_loop(g_vhost_event_loop);
-    g_vhost_event_loop = NULL;
-}
-
-/* Thread func that runs global vhost event loop for all vdevs */
-static void* vhost_evloop_func(void* arg)
-{
-    while (!vhd_event_loop_terminated(g_vhost_event_loop)) {
-        int res = vhd_run_event_loop(g_vhost_event_loop, -1);
-        if (res < 0) {
-            VHD_LOG_ERROR("vhost event loop iteration failed: %d", res);
-            break;
-        }
-    }
-
-    free_vhost_evloop();
-    return NULL;
-}
-
-int vhd_start_vhost_event_loop(void)
-{
-    VHD_VERIFY(g_vhost_event_loop == NULL);
-
-    g_vhost_event_loop = vhd_create_event_loop(VHOST_EVENT_LOOP_EVENTS);
-    if (!g_vhost_event_loop) {
-        VHD_LOG_ERROR("failed to craate vhost event loop");
-        return -ENODEV;
-    }
-
-    int res = pthread_create(&g_vhost_thread, NULL, vhost_evloop_func, NULL);
-    if (res != 0) {
-        VHD_LOG_ERROR("failed to start vhost event loop thread: %d", res);
-        free_vhost_evloop();
-        return -res;
-    }
-
-    return 0;
-}
-
-void vhd_stop_vhost_event_loop(void)
-{
-    if (!g_vhost_event_loop) {
-        return;
-    }
-
-    vhd_terminate_event_loop(g_vhost_event_loop);
-    pthread_join(g_vhost_thread, NULL);
-}
-
-void vhd_interrupt_vhost_event_loop(void)
-{
-    vhd_interrupt_event_loop(g_vhost_event_loop);
-}
-
-static int add_vhost_event(int fd, void* priv, const struct vhd_event_ops* ops, struct vhd_event_ctx* ctx)
-{
-    return vhd_make_event(g_vhost_event_loop, fd, priv, ops, ctx);
-}
-
-static void del_vhost_event(int fd)
-{
-    int res = vhd_del_event(g_vhost_event_loop, fd);
-    VHD_ASSERT(res == 0);
-}
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -728,7 +657,7 @@ static int vhost_set_vring_enable(struct vhd_vdev* vdev, struct vhost_user_msg* 
             .close = vring_close_event,
         };
 
-        res = add_vhost_event(vring->kickfd, vring, &g_vring_ops, &vring->kickev);
+        res = vhd_add_vhost_event(vring->kickfd, vdev, &g_vring_ops, &vring->kickev);
         if (res != 0) {
             VHD_LOG_ERROR("Could not create vring event from kickfd: %d", res);
             virtio_virtq_release(&vring->vq);
@@ -737,7 +666,7 @@ static int vhost_set_vring_enable(struct vhd_vdev* vdev, struct vhost_user_msg* 
 
         vring->is_enabled = true;
     } else if (vrstate->num == 0 && vring->is_enabled) {
-        del_vhost_event(vring->kickfd);
+        vhd_del_vhost_event(vring->kickfd);
         virtio_virtq_release(&vring->vq);
         vring->is_enabled = false;
     } else {
@@ -891,14 +820,14 @@ static int change_device_state(struct vhd_vdev* vdev, enum vhd_vdev_state new_st
         switch (vdev->state) {
         case VDEV_CONNECTED:
             /* We're terminating existing connection and going back to listen mode */
-            del_vhost_event(vdev->connfd);
+            vhd_del_vhost_event(vdev->connfd);
             close(vdev->connfd);
             vdev->connfd = -1; /* Not nessesary, just defensive */
             /* Fall thru */
 
         case VDEV_INITIALIZED:
             /* Normal listening init */
-            ret = add_vhost_event(vdev->listenfd, vdev, &g_server_sock_ops, &vdev->sock_ev);
+            ret = vhd_add_vhost_event(vdev->listenfd, vdev, &g_server_sock_ops, &vdev->sock_ev);
             if (ret != 0) {
                 return ret;
             }
@@ -913,13 +842,13 @@ static int change_device_state(struct vhd_vdev* vdev, enum vhd_vdev_state new_st
         switch (vdev->state) {
         case VDEV_LISTENING:
             /* Establish new connection and exiting listen-mode */
-            ret = add_vhost_event(vdev->connfd, vdev, &g_conn_sock_ops, &vdev->sock_ev);
+            ret = vhd_add_vhost_event(vdev->connfd, vdev, &g_conn_sock_ops, &vdev->sock_ev);
             if (ret != 0) {
                 return ret;
             }
 
             /* Remove server fd from event loop. We don't want multiple clients */
-            del_vhost_event(vdev->listenfd);
+            vhd_del_vhost_event(vdev->listenfd);
             break;
         default:
             goto invalid_transition;
@@ -998,7 +927,7 @@ static int conn_read(void* data)
     int len;
     struct vhost_user_msg msg;
     int fds[VHOST_USER_MEM_REGIONS_MAX];
-    int fdn;
+    int fdn = 0;
 
     struct vhd_vdev* vdev = (struct vhd_vdev*)data;
     VHD_ASSERT(vdev);
