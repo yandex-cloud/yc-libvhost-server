@@ -179,8 +179,11 @@ static int handle_getid(struct virtio_blk_dev* dev,
 
     /* strncpy will not add a null-term if src length is >= desc->len, which is what we need */
     strncpy((char*) id_buf->base, dev->bdev->id, id_buf->len);
+
+    /* Complete request */
     set_status(iov, VIRTIO_BLK_S_OK);
     virtq_commit_buffers(vq, iov);
+    virtq_notify(vq);
 
     return 0;
 }
