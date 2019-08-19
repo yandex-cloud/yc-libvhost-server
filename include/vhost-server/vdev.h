@@ -11,6 +11,7 @@ extern "C" {
 
 struct vhd_vdev;
 struct vhd_vring;
+struct vhd_request_queue;
 
 /**
  * TODO: need a separate unit for this
@@ -65,7 +66,7 @@ struct vhd_vdev_type
     uint64_t (*get_features)(struct vhd_vdev* vdev);
     int (*set_features)(struct vhd_vdev* vdev, uint64_t features);
     size_t (*get_config)(struct vhd_vdev* vdev, void* cfgbuf, size_t bufsize);
-    int (*dispatch_requests)(struct vhd_vdev* vdev, struct vhd_vring* vring);
+    int (*dispatch_requests)(struct vhd_vdev* vdev, struct vhd_vring* vring, struct vhd_request_queue* rq);
 };
 
 /**
@@ -89,6 +90,9 @@ struct vhd_vdev
 
     /* Handles both server and conn event (since only one can exist at a time) */
     struct vhd_event_ctx sock_ev;
+
+    /* Attached request queue */
+    struct vhd_request_queue* rq;
 
     /* Current state */
     enum vhd_vdev_state state;
@@ -147,7 +151,12 @@ void vhd_interrupt_vhost_event_loop(void);
  * @vdev            vdev instance to initialize
  * @max_queues      Maximum number of queues this device can support
  */
-int vhd_vdev_init_server(struct vhd_vdev* vdev, const char* socket_path, const struct vhd_vdev_type* type, int max_queues);
+int vhd_vdev_init_server(
+    struct vhd_vdev* vdev,
+    const char* socket_path,
+    const struct vhd_vdev_type* type,
+    int max_queues,
+    struct vhd_request_queue* rq);
 
 /**
  * Destroy vdev instance
@@ -175,7 +184,7 @@ static inline size_t vhd_vdev_get_config(struct vhd_vdev* vdev, void* cfgbuf, si
 static inline int vhd_vdev_dispatch_requests(struct vhd_vdev* vdev, struct vhd_vring* vring)
 {
     VHD_ASSERT(vdev && vdev->type && vdev->type->dispatch_requests);
-    return vdev->type->dispatch_requests(vdev, vring);
+    return vdev->type->dispatch_requests(vdev, vring, vdev->rq);
 }
 
 static inline struct virtio_mm_ctx* vhd_vdev_mm_ctx(struct vhd_vdev* vdev)

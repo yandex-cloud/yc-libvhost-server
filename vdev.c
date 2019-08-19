@@ -657,7 +657,9 @@ static int vhost_set_vring_enable(struct vhd_vdev* vdev, struct vhost_user_msg* 
             .close = vring_close_event,
         };
 
-        res = vhd_add_vhost_event(vring->kickfd, vdev, &g_vring_ops, &vring->kickev);
+        vring->kickev.priv = vring;
+        vring->kickev.ops = &g_vring_ops;
+        res = vhd_attach_event(vdev->rq, vring->kickfd, &vring->kickev);
         if (res != 0) {
             VHD_LOG_ERROR("Could not create vring event from kickfd: %d", res);
             virtio_virtq_release(&vring->vq);
@@ -666,7 +668,7 @@ static int vhost_set_vring_enable(struct vhd_vdev* vdev, struct vhost_user_msg* 
 
         vring->is_enabled = true;
     } else if (vrstate->num == 0 && vring->is_enabled) {
-        vhd_del_vhost_event(vring->kickfd);
+        vhd_detach_event(vdev->rq, vring->kickfd);
         virtio_virtq_release(&vring->vq);
         vring->is_enabled = false;
     } else {
@@ -1039,7 +1041,12 @@ close_fd:
     return -1;
 }
 
-int vhd_vdev_init_server(struct vhd_vdev* vdev, const char* socket_path, const struct vhd_vdev_type* type, int max_queues)
+int vhd_vdev_init_server(
+    struct vhd_vdev* vdev,
+    const char* socket_path,
+    const struct vhd_vdev_type* type,
+    int max_queues,
+    struct vhd_request_queue* rq)
 {
     int ret;
     int listenfd;
@@ -1059,6 +1066,8 @@ int vhd_vdev_init_server(struct vhd_vdev* vdev, const char* socket_path, const s
     vdev->type = type;
     vdev->listenfd = listenfd;
     vdev->connfd = -1;
+    vdev->rq = rq;
+
     vdev->supported_protocol_features = g_default_protocol_features;
     vdev->max_queues = max_queues;
     vdev->num_queues = max_queues; /* May be overriden later by SET_CONFIG, but should be <= max_queues */
