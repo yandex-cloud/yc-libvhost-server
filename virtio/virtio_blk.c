@@ -8,6 +8,10 @@
 
 #include "virtio/virtio_blk10.h"
 
+#define SECTORS_TO_BLOCKS(dev, sectors) ((sectors) >> (dev)->block_shift)
+#define BLOCKS_TO_SECTORS(dev, blocks)  ((blocks) << (dev)->block_shift)
+#define IS_ALIGNED_TO_SECTOR(val)       (((val) & (VIRTIO_BLK_SECTOR_SIZE - 1)) == 0)
+
 /* virtio blk data for bdev io */
 struct virtio_blk_io
 {
@@ -15,10 +19,6 @@ struct virtio_blk_io
     struct virtio_iov* iov;
     struct vhd_bdev_io bdev_io;
 };
-
-#define SECTORS_TO_BLOCKS(dev, sectors) ((sectors) >> (dev)->block_shift)
-#define BLOCKS_TO_SECTORS(dev, blocks)  ((blocks) << (dev)->block_shift)
-#define IS_ALIGNED_TO_SECTOR(val)       (((val) & (VIRTIO_BLK_SECTOR_SIZE - 1)) == 0)
 
 static void set_status(struct virtio_iov* iov, uint8_t status)
 {
@@ -122,7 +122,7 @@ static int handle_inout(struct virtio_blk_dev* dev,
 
     uint64_t last_sector = req->sector + total_sectors - 1;
     if (last_sector < req->sector /* overflow */ ||
-        last_sector >= BLOCKS_TO_SECTORS(dev, dev->bdev->total_blocks)) {
+        last_sector >= dev->config.capacity) {
         VHD_LOG_ERROR("Request out of bdev range, last sector = %llu", (unsigned long long) last_sector);
         fail_request(vq, iov);
         return -EINVAL;
@@ -131,7 +131,6 @@ static int handle_inout(struct virtio_blk_dev* dev,
     struct virtio_blk_io* bio = vhd_zalloc(sizeof(*bio));
     bio->vq = vq;
     bio->iov = iov;
-    bio->bdev_io.bdev = dev->bdev;
     bio->bdev_io.type = (req->type == VIRTIO_BLK_T_IN ? VHD_BDEV_READ : VHD_BDEV_WRITE);
     bio->bdev_io.first_block = SECTORS_TO_BLOCKS(dev, req->sector);
     bio->bdev_io.total_blocks = SECTORS_TO_BLOCKS(dev, total_sectors);
@@ -139,7 +138,7 @@ static int handle_inout(struct virtio_blk_dev* dev,
     bio->bdev_io.sglist.buffers = (struct vhd_buffer*)pdata;
     bio->bdev_io.completion_handler = complete_io;
 
-    int res = dev->bdev->submit_requests(NULL, &bio->bdev_io, 1);
+    int res = dev->dispatch(dev, &bio->bdev_io);
     if (res != 0) {
         VHD_LOG_ERROR("bdev request submission failed with %d", res);
         fail_request(vq, iov);
@@ -235,7 +234,10 @@ static void handle_buffers(void* arg, struct virtio_virtq* vq, struct virtio_iov
 
 ////////////////////////////////////////////////////////////////////////////////
 
-int virtio_blk_dispatch_requests(struct virtio_blk_dev* dev, struct virtio_virtq* vq, struct virtio_mm_ctx* mm)
+int virtio_blk_dispatch_requests(
+    struct virtio_blk_dev* dev,
+    struct virtio_virtq* vq,
+    struct virtio_mm_ctx* mm)
 {
     VHD_VERIFY(dev);
     VHD_VERIFY(vq);
@@ -243,7 +245,10 @@ int virtio_blk_dispatch_requests(struct virtio_blk_dev* dev, struct virtio_virtq
     return virtq_dequeue_many(vq, mm, handle_buffers, dev);
 }
 
-int virtio_blk_init_dev(struct virtio_blk_dev* dev, struct vhd_bdev* bdev)
+int virtio_blk_init_dev(
+    struct virtio_blk_dev* dev,
+    struct vhd_bdev_info* bdev,
+    virtio_blk_io_dispatch* dispatch)
 {
     VHD_VERIFY(dev);
     VHD_VERIFY(bdev);
@@ -255,9 +260,9 @@ int virtio_blk_init_dev(struct virtio_blk_dev* dev, struct vhd_bdev* bdev)
         return -EINVAL;
     }
 
-    dev->bdev = bdev;
     dev->block_shift = __builtin_ctz(bdev->block_size >> VIRTIO_BLK_SECTOR_SHIFT);
-
+    dev->dispatch = dispatch;
+    dev->bdev = bdev;
     dev->config.capacity = BLOCKS_TO_SECTORS(dev, bdev->total_blocks);
     dev->config.size_max = BLOCKS_TO_SECTORS(dev, bdev->total_blocks);
     dev->config.blk_size = bdev->block_size;

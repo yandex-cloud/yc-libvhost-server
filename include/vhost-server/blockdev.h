@@ -6,21 +6,12 @@
 extern "C" {
 #endif
 
-struct vhd_bdev_queue;
+struct vhd_request_queue;
 
 struct vhd_sglist
 {
     uint32_t nbuffers;
     struct vhd_buffer* buffers;
-};
-
-/**
- * Device guest-facing interface type
- */
-enum vhd_bdev_interface_type
-{
-    VHD_BDEV_IFACE_VIRTIO_BLK = 0,
-    VHD_BDEV_IFACE_DEFAULT = VHD_BDEV_IFACE_VIRTIO_BLK,
 };
 
 /**
@@ -46,9 +37,6 @@ enum vhd_bdev_io_result
  */
 struct vhd_bdev_io
 {
-    struct vhd_bdev* bdev;
-    struct vhd_bdev_queue* queue;
-
     enum vhd_bdev_io_type type;
 
     uint64_t first_block;
@@ -58,34 +46,41 @@ struct vhd_bdev_io
     void (*completion_handler) (struct vhd_bdev_io* bio, enum vhd_bdev_io_result res);
 };
 
+static inline void vhd_complete_bio(struct vhd_bdev_io* bio, enum vhd_bdev_io_result res)
+{
+    VHD_VERIFY(bio && bio->completion_handler);
+    bio->completion_handler(bio, res);
+}
+
 /**
  * Client-supplied block device backend definition
  */
-struct vhd_bdev
+struct vhd_bdev_info
 {
-    /* Client private data */
-    void* priv;
-
     /* Blockdev id, will be used to create listen sockets */
     const char* id;
 
     /* Block size in bytes */
     uint32_t block_size;
 
-    /* Device size in blocks */
-    uint64_t total_blocks;
-
     /* Total number of backend queues this device supports */
     uint32_t num_queues;
 
-    /* Start servicing requests on specified queue id (qid is [0; num_queue)) */
-    struct vhd_bdev_queue* (*plug_queue) (uint32_t qid);
-
-    /* Submit requests to device queue */
-    int (*submit_requests) (struct vhd_bdev_queue* queue, struct vhd_bdev_io* iov, size_t iovsize);
+    /* Device size in blocks */
+    uint64_t total_blocks;
 };
 
-int vhd_create_blockdev(struct vhd_bdev* bdev, enum vhd_bdev_interface_type iface);
+/**
+ * Register vhost block device.
+ *
+ * After registering device will be accessible through vhost socket to client.
+ * All requests are submitted to attacher request queue for caller to process.
+ *
+ * @bdev        Caller block device info.
+ * @iface       Type of virtualized interface (i.e virtio-blk, ...).
+ * @rq          Request queue to use for dispatch device I/O requests.
+ */
+int vhd_register_blockdev(struct vhd_bdev_info* bdev, struct vhd_request_queue* rq);
 
 #ifdef __cplusplus
 }
