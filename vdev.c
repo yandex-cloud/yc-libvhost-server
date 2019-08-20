@@ -599,7 +599,7 @@ static int vhost_get_vring_base(struct vhd_vdev* vdev, struct vhost_user_msg* ms
         return EINVAL;
     }
 
-    return vring->vq.last_avail;
+    return vhost_send_reply(vdev, msg, vring->vq.last_avail);
 }
 
 static int vhost_set_vring_addr(struct vhd_vdev* vdev, struct vhost_user_msg* msg)
@@ -696,6 +696,19 @@ static int vhost_ack_request_if_needed(struct vhd_vdev* vdev, const struct vhost
         return 0;
     }
 
+    /* We negotiated REPLY_ACK but message already has an explicit reply which was successfully sent */
+    if (ret == 0) {
+        switch (msg->req) {
+        case VHOST_USER_GET_FEATURES:
+        case VHOST_USER_GET_PROTOCOL_FEATURES:
+        case VHOST_USER_GET_CONFIG:
+        case VHOST_USER_GET_QUEUE_NUM:
+        case VHOST_USER_GET_VRING_BASE:
+            return 0;
+        };
+    }
+
+    /* Ok, send the reply */
     return vhost_send_reply(vdev, msg, ret);
 }
 
@@ -787,15 +800,13 @@ static int vhost_handle_request(struct vhd_vdev* vdev, struct vhost_user_msg *ms
         case VHOST_USER_POSTCOPY_ADVISE:
         case VHOST_USER_POSTCOPY_LISTEN:
         case VHOST_USER_POSTCOPY_END:
-            ret = vhost_send_reply(vdev, msg, ENOTSUP);
             VHD_LOG_WARN("Command = %d, not supported", msg->req);
-            VHD_ASSERT(0);
+            ret = ENOTSUP;
             break;
         case VHOST_USER_NONE:
         default:
-            ret = vhost_send_reply(vdev, msg, EINVAL);
             VHD_LOG_ERROR("Command = %d, not defined", msg->req);
-            VHD_ASSERT(0);
+            ret = EINVAL;
             break;
     }
 
@@ -810,7 +821,6 @@ static int vhost_handle_request(struct vhd_vdev* vdev, struct vhost_user_msg *ms
         ret = reply_ret;
     }
 
-    VHD_LOG_DEBUG("Handle command: %d", ret);
     return ret;
 }
 
