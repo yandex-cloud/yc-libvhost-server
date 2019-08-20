@@ -1046,7 +1046,8 @@ int vhd_vdev_init_server(
     const char* socket_path,
     const struct vhd_vdev_type* type,
     int max_queues,
-    struct vhd_request_queue* rq)
+    struct vhd_request_queue* rq,
+    void* priv)
 {
     int ret;
     int listenfd;
@@ -1063,6 +1064,7 @@ int vhd_vdev_init_server(
         return -1;
     }
 
+    vdev->priv = priv;
     vdev->type = type;
     vdev->listenfd = listenfd;
     vdev->connfd = -1;
@@ -1151,4 +1153,11 @@ void vhd_vring_uninit(struct vhd_vring* vring)
     }
 
     virtio_virtq_release(&vring->vq);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+void* vhd_vdev_get_priv(struct vhd_vdev* vdev)
+{
+    return vdev->priv;
 }

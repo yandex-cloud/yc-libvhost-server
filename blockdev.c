@@ -73,7 +73,7 @@ static int vblk_handle_request(struct virtio_blk_dev* vblk, struct vhd_bdev_io* 
 
 ////////////////////////////////////////////////////////////////////////////////
 
-struct vhd_vdev* vhd_register_blockdev(struct vhd_bdev_info* bdev, struct vhd_request_queue* rq)
+struct vhd_vdev* vhd_register_blockdev(struct vhd_bdev_info* bdev, struct vhd_request_queue* rq, void* priv)
 {
     int res = 0;
 
@@ -96,7 +96,7 @@ struct vhd_vdev* vhd_register_blockdev(struct vhd_bdev_info* bdev, struct vhd_re
         goto error_out;
     }
 
-    res = vhd_vdev_init_server(&dev->vdev, bdev->id, &g_virtio_blk_vdev_type, bdev->num_queues, rq);
+    res = vhd_vdev_init_server(&dev->vdev, bdev->id, &g_virtio_blk_vdev_type, bdev->num_queues, rq, priv);
     if (res != 0) {
         goto error_out;
     }

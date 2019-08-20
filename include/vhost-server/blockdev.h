@@ -79,8 +79,9 @@ struct vhd_bdev_info
  *
  * @bdev        Caller block device info.
  * @rq          Request queue to use for dispatch device I/O requests.
+ * @priv        Caller private data to associate with resulting vdev.
  */
-struct vhd_vdev* vhd_register_blockdev(struct vhd_bdev_info* bdev, struct vhd_request_queue* rq);
+struct vhd_vdev* vhd_register_blockdev(struct vhd_bdev_info* bdev, struct vhd_request_queue* rq, void* priv);
 
 /**
  * Unregister vhost block device.

@@ -79,6 +79,9 @@ struct vhd_vdev_type
  */
 struct vhd_vdev
 {
+    /* Accosiated client private data */
+    void* priv;
+
     /* Device type description */
     const struct vhd_vdev_type* type;
 
@@ -156,7 +159,8 @@ int vhd_vdev_init_server(
     const char* socket_path,
     const struct vhd_vdev_type* type,
     int max_queues,
-    struct vhd_request_queue* rq);
+    struct vhd_request_queue* rq,
+    void* priv);
 
 /**
  * Destroy vdev instance
@@ -241,6 +245,14 @@ void vhd_vring_init(struct vhd_vring* vring, int id, struct vhd_vdev* vdev);
  * Release vring resoucres
  */
 void vhd_vring_uninit(struct vhd_vring* vring);
+
+////////////////////////////////////////////////////////////////////////////////
+
+//
+// TODO: public API
+//
+
+void* vhd_vdev_get_priv(struct vhd_vdev* vdev);
 
 #ifdef __cplusplus
 }
