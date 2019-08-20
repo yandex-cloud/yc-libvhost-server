@@ -189,6 +189,9 @@ static int map_guest_region(
         return errno;
     }
 
+    /* Mark memory as defined explicitly */
+    VHD_MEMCHECK_DEFINED(vaddr, size);
+
     region->fd = fd;
     region->hva = vaddr;
     region->gpa = guest_addr;

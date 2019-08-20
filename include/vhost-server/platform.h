@@ -101,6 +101,17 @@ static inline void vhd_noreturn _vhd_verify_helper(
 
 ////////////////////////////////////////////////////////////////////////////////
 
+#ifdef VHD_MEMCHECK
+#   include <valgrind/memcheck.h>
+#   define VHD_MEMCHECK_DEFINED(addr, len)      VALGRIND_MAKE_MEM_DEFINED(addr, len)
+#   define VHD_MEMCHECK_UNDEFINED(addr, len)    VALGRIND_MAKE_MEM_UNDEFINED(addr, len)
+#else
+#   define VHD_MEMCHECK_DEFINED(addr, len)
+#   define VHD_MEMCHECK_UNDEFINED(addr, len)
+#endif
+
+////////////////////////////////////////////////////////////////////////////////
+
 #define __VHD_ALIGN_MASK(x,mask)    (((x) + (mask)) & ~(mask))
 #define VHD_ALIGN_UP(x, a)          __VHD_ALIGN_MASK(x, (vhd_typeof(x))(a) - 1)
 #define VHD_IS_ALIGNED(x, a)        (!((x) & ((vhd_typeof(x))(a) - 1)))
