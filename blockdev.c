@@ -89,7 +89,7 @@ int vhd_register_blockdev(struct vhd_bdev_info* bdev, struct vhd_request_queue* 
         return -EINVAL;
     }
 
-    struct vhd_vhost_bdev* dev = vhd_alloc(sizeof(*dev));
+    struct vhd_vhost_bdev* dev = vhd_zalloc(sizeof(*dev));
 
     res = virtio_blk_init_dev(&dev->vblk, bdev, vblk_handle_request);
     if (res != 0) {
