@@ -7,6 +7,7 @@ extern "C" {
 #endif
 
 struct vhd_request_queue;
+struct vhd_vdev;
 
 struct vhd_sglist
 {
@@ -77,10 +78,14 @@ struct vhd_bdev_info
  * All requests are submitted to attacher request queue for caller to process.
  *
  * @bdev        Caller block device info.
- * @iface       Type of virtualized interface (i.e virtio-blk, ...).
  * @rq          Request queue to use for dispatch device I/O requests.
  */
-int vhd_register_blockdev(struct vhd_bdev_info* bdev, struct vhd_request_queue* rq);
+struct vhd_vdev* vhd_register_blockdev(struct vhd_bdev_info* bdev, struct vhd_request_queue* rq);
+
+/**
+ * Unregister vhost block device.
+ */
+void vhd_unregister_blockdev(struct vhd_vdev* vdev);
 
 #ifdef __cplusplus
 }

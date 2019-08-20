@@ -8,8 +8,7 @@ extern "C" {
 
 struct vhd_event_ops;
 struct vhd_event_ctx;
-
-struct vhd_bdev_info;
+struct vhd_vdev;
 struct vhd_bdev_io;
 
 /**
@@ -47,11 +46,10 @@ void vhd_del_vhost_event(int fd);
  */
 struct vhd_request
 {
-    /* Device id that generated this request
-     * TODO: let's not make client lookup devices each time */
-    const char* device_id;
+    /* Device that generated this request */
+    struct vhd_vdev* vdev;
 
-    /* TODO: this should be device-specific */
+    /* TODO: this should be device type-specific */
     struct vhd_bdev_io* bio;
 };
 
@@ -101,7 +99,7 @@ bool vhd_dequeue_request(struct vhd_request_queue* rq, struct vhd_request* out_r
 /**
  * Enqueue block IO request
  */
-int vhd_enqueue_block_request(struct vhd_request_queue* rq, struct vhd_bdev_info* bdev, struct vhd_bdev_io* bio);
+int vhd_enqueue_block_request(struct vhd_request_queue* rq, struct vhd_vdev* vdev, struct vhd_bdev_io* bio);
 
 #ifdef __cplusplus
 }

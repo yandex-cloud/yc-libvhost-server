@@ -237,6 +237,11 @@ struct vhd_vring
  */
 void vhd_vring_init(struct vhd_vring* vring, int id, struct vhd_vdev* vdev);
 
+/**
+ * Release vring resoucres
+ */
+void vhd_vring_uninit(struct vhd_vring* vring);
+
 #ifdef __cplusplus
 }
 #endif

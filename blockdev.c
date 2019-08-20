@@ -4,7 +4,7 @@
 #include "vhost-server/virtio_blk.h"
 #include "vhost-server/server.h"
 
-struct vhd_vhost_bdev
+struct vhd_bdev
 {
     /* Base vdev */
     struct vhd_vdev vdev;
@@ -15,13 +15,13 @@ struct vhd_vhost_bdev
     /* VM-facing interface type */
     struct virtio_blk_dev vblk;
 
-    LIST_ENTRY(vhd_vhost_bdev) blockdevs;
+    LIST_ENTRY(vhd_bdev) blockdevs;
 };
 
-LIST_HEAD(, vhd_vhost_bdev) g_bdev_list = LIST_HEAD_INITIALIZER(g_bdev_list);
+LIST_HEAD(, vhd_bdev) g_bdev_list = LIST_HEAD_INITIALIZER(g_bdev_list);
 
-#define VHD_BLOCKDEV_FROM_VDEV(ptr) containerof(ptr, struct vhd_vhost_bdev, vdev)
-#define VHD_BLOCKDEV_FROM_VBLK(ptr) containerof(ptr, struct vhd_vhost_bdev, vblk)
+#define VHD_BLOCKDEV_FROM_VDEV(ptr) containerof(ptr, struct vhd_bdev, vdev)
+#define VHD_BLOCKDEV_FROM_VBLK(ptr) containerof(ptr, struct vhd_bdev, vblk)
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -42,7 +42,7 @@ static int vblk_set_features(struct vhd_vdev* vdev, uint64_t features)
 
 static size_t vblk_get_config(struct vhd_vdev* vdev, void* cfgbuf, size_t bufsize)
 {
-    struct vhd_vhost_bdev* dev = VHD_BLOCKDEV_FROM_VDEV(vdev);
+    struct vhd_bdev* dev = VHD_BLOCKDEV_FROM_VDEV(vdev);
 
     VHD_ASSERT(bufsize >= sizeof(struct virtio_blk_config));
     struct virtio_blk_config* blk_config = (struct virtio_blk_config*)cfgbuf;
@@ -53,7 +53,7 @@ static size_t vblk_get_config(struct vhd_vdev* vdev, void* cfgbuf, size_t bufsiz
 
 static int vblk_dispatch(struct vhd_vdev* vdev, struct vhd_vring* vring, struct vhd_request_queue* rq)
 {
-    struct vhd_vhost_bdev* dev = VHD_BLOCKDEV_FROM_VDEV(vdev);
+    struct vhd_bdev* dev = VHD_BLOCKDEV_FROM_VDEV(vdev);
     return virtio_blk_dispatch_requests(&dev->vblk, &vring->vq, vhd_vdev_mm_ctx(vdev));
 }
 
@@ -67,13 +67,13 @@ const struct vhd_vdev_type g_virtio_blk_vdev_type = {
 
 static int vblk_handle_request(struct virtio_blk_dev* vblk, struct vhd_bdev_io* bio)
 {
-    struct vhd_vhost_bdev* dev = VHD_BLOCKDEV_FROM_VBLK(vblk);
-    return vhd_enqueue_block_request(dev->vdev.rq, dev->bdev, bio);
+    struct vhd_bdev* dev = VHD_BLOCKDEV_FROM_VBLK(vblk);
+    return vhd_enqueue_block_request(dev->vdev.rq, &dev->vdev, bio);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-int vhd_register_blockdev(struct vhd_bdev_info* bdev, struct vhd_request_queue* rq)
+struct vhd_vdev* vhd_register_blockdev(struct vhd_bdev_info* bdev, struct vhd_request_queue* rq)
 {
     int res = 0;
 
@@ -81,15 +81,15 @@ int vhd_register_blockdev(struct vhd_bdev_info* bdev, struct vhd_request_queue* 
     VHD_VERIFY(rq);
 
     if (bdev->total_blocks == 0) {
-        return -EINVAL;
+        return NULL;
     }
 
     /* Check block size is power-of-2 */
     if (bdev->block_size == 0 || (bdev->block_size & (bdev->block_size - 1))) {
-        return -EINVAL;
+        return NULL;
     }
 
-    struct vhd_vhost_bdev* dev = vhd_zalloc(sizeof(*dev));
+    struct vhd_bdev* dev = vhd_zalloc(sizeof(*dev));
 
     res = virtio_blk_init_dev(&dev->vblk, bdev, vblk_handle_request);
     if (res != 0) {
@@ -102,9 +102,24 @@ int vhd_register_blockdev(struct vhd_bdev_info* bdev, struct vhd_request_queue* 
     }
 
     dev->bdev = bdev;
-    return 0;
+
+    LIST_INSERT_HEAD(&g_bdev_list, dev, blockdevs);
+    return &dev->vdev;
 
 error_out:
     vhd_free(dev);
-    return res;
+    return NULL;
+}
+
+void vhd_unregister_blockdev(struct vhd_vdev* vdev)
+{
+    if (!vdev) {
+        return;
+    }
+
+    struct vhd_bdev* bdev = VHD_BLOCKDEV_FROM_VDEV(vdev);
+
+    LIST_REMOVE(bdev, blockdevs);
+    vhd_vdev_uninit(vdev);
+    vhd_free(bdev);
 }

@@ -202,14 +202,14 @@ int vhd_enqueue_request(struct vhd_request_queue* rq, struct vhd_request_entry* 
     return 0;
 }
 
-int vhd_enqueue_block_request(struct vhd_request_queue* rq, struct vhd_bdev_info* bdev, struct vhd_bdev_io* bio)
+int vhd_enqueue_block_request(struct vhd_request_queue* rq, struct vhd_vdev* vdev, struct vhd_bdev_io* bio)
 {
     VHD_VERIFY(rq);
     VHD_VERIFY(bio);
 
     struct vhd_request_entry* r = vhd_zalloc(sizeof(*r));
     r->data.bio = bio;
-    r->data.device_id = bdev->id;
+    r->data.vdev = vdev;
 
     return vhd_enqueue_request(rq, r);
 }

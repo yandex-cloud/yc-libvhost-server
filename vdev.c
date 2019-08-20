@@ -1088,6 +1088,22 @@ int vhd_vdev_init_server(
     return ret;
 }
 
+void vhd_vdev_uninit(struct vhd_vdev* vdev)
+{
+    if (!vdev) {
+        return;
+    }
+
+    close(vdev->listenfd);
+
+    for (int i = 0; i < vdev->max_queues; ++i) {
+        vhd_vring_uninit(vdev->vrings + i);
+    }
+
+    LIST_REMOVE(vdev, vdev_list);
+    vhd_free(vdev->vrings);
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 static int vring_io_event(void* ctx)
@@ -1113,17 +1129,6 @@ static int vring_close_event(void* ctx)
     return 0;
 }
 
-void vhd_vdev_uninit(struct vhd_vdev* vdev)
-{
-    if (vdev) {
-        LIST_REMOVE(vdev, vdev_list);
-        vhd_free(vdev->vrings);
-        close(vdev->listenfd);
-
-        /* TODO: we should probably gracefully terminate client connection */
-    }
-}
-
 void vhd_vring_init(struct vhd_vring* vring, int id, struct vhd_vdev* vdev)
 {
     VHD_ASSERT(vring);
@@ -1137,4 +1142,13 @@ void vhd_vring_init(struct vhd_vring* vring, int id, struct vhd_vdev* vdev)
     vring->kickfd = -1;
     vring->callfd = -1;
     vring->vdev = vdev;
+}
+
+void vhd_vring_uninit(struct vhd_vring* vring)
+{
+    if (!vring) {
+        return;
+    }
+
+    virtio_virtq_release(&vring->vq);
 }
