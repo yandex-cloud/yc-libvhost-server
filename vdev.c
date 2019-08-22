@@ -97,7 +97,7 @@ static int net_recv_msg(int fd, struct vhost_user_msg *msg,
         VHD_LOG_ERROR("Payload read failed. Error code = %d, %s",
                 errno, strerror(errno));
         return -errno;
-    } else if (payload_len != msg->size) {
+    } else if ((size_t)payload_len != msg->size) {
         VHD_LOG_ERROR("Read only part of the payload = %d, required = %d",
                 payload_len, msg->size);
         return -EIO;
@@ -400,6 +400,7 @@ static int vhost_set_features(struct vhd_vdev* vdev, struct vhost_user_msg* msg)
 static int vhost_set_owner(struct vhd_vdev* vdev, struct vhost_user_msg* msg)
 {
     VHD_LOG_TRACE();
+    VHD_UNUSED(msg);
 
     /* We don't support changing session owner */
     if (vdev->is_owned) {
@@ -413,6 +414,9 @@ static int vhost_set_owner(struct vhd_vdev* vdev, struct vhost_user_msg* msg)
 static int vhost_reset_owner(struct vhd_vdev* vdev, struct vhost_user_msg* msg)
 {
     VHD_LOG_TRACE();
+
+    VHD_UNUSED(vdev);
+    VHD_UNUSED(msg);
 
     /* This is no longer used in vhost-spec spec so we don't support it either */
     return ENOTSUP;
@@ -431,7 +435,7 @@ static int vhost_set_mem_table(struct vhd_vdev* vdev, struct vhost_user_msg* msg
         return EINVAL;
     }
 
-    for (int i = 0; i < desc->nregions; i++) {
+    for (uint32_t i = 0; i < desc->nregions; i++) {
         struct vhost_user_mem_region *region = &desc->regions[i];
         error = map_guest_region(
                     &vdev->guest_memmap, i,
@@ -473,6 +477,9 @@ static int vhost_get_config(struct vhd_vdev* vdev, struct vhost_user_msg* msg)
 static int vhost_set_config(struct vhd_vdev* vdev, struct vhost_user_msg* msg)
 {
     VHD_LOG_TRACE();
+
+    VHD_UNUSED(msg);
+    VHD_UNUSED(vdev);
 
     /* TODO */
     return ENOTSUP;
@@ -933,6 +940,8 @@ close_client:
 
 static int server_close(void* data)
 {
+    VHD_UNUSED(data);
+
     /* We ignore close on server socket */
     return 0;
 }
@@ -1111,7 +1120,7 @@ void vhd_vdev_uninit(struct vhd_vdev* vdev)
 
     close(vdev->listenfd);
 
-    for (int i = 0; i < vdev->max_queues; ++i) {
+    for (uint32_t i = 0; i < vdev->max_queues; ++i) {
         vhd_vring_uninit(vdev->vrings + i);
     }
 
@@ -1140,6 +1149,8 @@ static int vring_io_event(void* ctx)
 
 static int vring_close_event(void* ctx)
 {
+    VHD_UNUSED(ctx);
+
     /* TODO: not sure how we should react */
     return 0;
 }

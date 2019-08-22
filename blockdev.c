@@ -27,6 +27,7 @@ LIST_HEAD(, vhd_bdev) g_bdev_list = LIST_HEAD_INITIALIZER(g_bdev_list);
 
 static uint64_t vblk_get_features(struct vhd_vdev* vdev)
 {
+    VHD_UNUSED(vdev);
     return VIRTIO_BLK_DEFAULT_FEATURES;
 }
 
@@ -43,9 +44,11 @@ static int vblk_set_features(struct vhd_vdev* vdev, uint64_t features)
 static size_t vblk_get_config(struct vhd_vdev* vdev, void* cfgbuf, size_t bufsize)
 {
     struct vhd_bdev* dev = VHD_BLOCKDEV_FROM_VDEV(vdev);
-
-    VHD_ASSERT(bufsize >= sizeof(struct virtio_blk_config));
     struct virtio_blk_config* blk_config = (struct virtio_blk_config*)cfgbuf;
+
+    if (bufsize < sizeof(struct virtio_blk_config)) {
+        return 0;
+    }
 
     *blk_config = dev->vblk.config;
     return sizeof(*blk_config);
@@ -53,6 +56,8 @@ static size_t vblk_get_config(struct vhd_vdev* vdev, void* cfgbuf, size_t bufsiz
 
 static int vblk_dispatch(struct vhd_vdev* vdev, struct vhd_vring* vring, struct vhd_request_queue* rq)
 {
+    VHD_UNUSED(rq);
+
     struct vhd_bdev* dev = VHD_BLOCKDEV_FROM_VDEV(vdev);
     return virtio_blk_dispatch_requests(&dev->vblk, &vring->vq, vhd_vdev_mm_ctx(vdev));
 }

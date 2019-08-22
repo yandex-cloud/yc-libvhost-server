@@ -175,12 +175,6 @@ static int walk_indirect_table(struct virtio_virtq* vq,
     return 0;
 }
 
-static void dump_desc(const struct virtq_desc* desc, int idx)
-{
-    VHD_LOG_DEBUG("%d: addr = 0x%llx, len = %d\n",
-                  idx, (unsigned long long) desc->addr, desc->len);
-}
-
 int virtq_dequeue_many(struct virtio_virtq* vq,
                        struct virtio_mm_ctx* mm,
                        virtq_handle_buffers_cb handle_buffers_cb,
@@ -230,7 +224,7 @@ int virtq_dequeue_many(struct virtio_virtq* vq,
 
             /* We explicitly make a local copy here to avoid any possible TOCTOU problems. */
             memcpy(&desc, vq->desc + descnum, sizeof(desc));
-            dump_desc(&desc, descnum);
+            VHD_LOG_DEBUG("%d: addr = 0x%llx, len = %d\n", i, (unsigned long long) desc.addr, desc.len);
 
             if (desc.flags & VIRTQ_DESC_F_INDIRECT) {
                 /* 2.4.5.3.1: A driver MUST NOT set both VIRTQ_DESC_F_INDIRECT and VIRTQ_DESC_F_NEXT in flags */
