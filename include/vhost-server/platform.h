@@ -16,6 +16,12 @@
 
 ////////////////////////////////////////////////////////////////////////////////
 
+#if !defined(NDEBUG)
+#   define VHD_DEBUG
+#endif
+
+////////////////////////////////////////////////////////////////////////////////
+
 #if !defined(containerof)
 #   define containerof(ptr, type, member) ((type *) ((char *)(ptr) - offsetof(type, member)))
 #endif
@@ -53,7 +59,7 @@
 ////////////////////////////////////////////////////////////////////////////////
 
 // TODO: smarter logging
-#ifdef _DEBUG
+#ifdef VHD_DEBUG
 #   define VHD_LOG_DEBUG(fmt, ...)           \
     do {                                     \
         fprintf(stderr, "DEBUG: %s:%d: " fmt "\n", __FUNCTION__, __LINE__, ##__VA_ARGS__); \
