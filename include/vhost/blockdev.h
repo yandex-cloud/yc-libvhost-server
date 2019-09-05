@@ -1,6 +1,6 @@
 #pragma once
 
-#include "vhost-server/vdev.h"
+#include <vhost/vdev.h>
 
 #ifdef __cplusplus
 extern "C" {

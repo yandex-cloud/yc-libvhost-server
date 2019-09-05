@@ -1,9 +1,10 @@
 #pragma once
 
-#include "vhost-server/event.h"
-#include "vhost-server/intrusive_list.h"
-#include "vhost-server/vhost_proto.h"
-#include "vhost-server/virt_queue.h"
+#include <vhost/event.h>
+#include <vhost/intrusive_list.h>
+#include <vhost/vhost_spec.h>
+
+#include <virtio/virt_queue.h>
 
 #ifdef __cplusplus
 extern "C" {

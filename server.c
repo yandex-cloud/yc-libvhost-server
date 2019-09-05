@@ -1,10 +1,10 @@
 #include <pthread.h>
 
-#include "vhost-server/server.h"
-#include "vhost-server/intrusive_list.h"
-#include "vhost-server/event.h"
-#include "vhost-server/vdev.h"
-#include "vhost-server/blockdev.h"
+#include <vhost/server.h>
+#include <vhost/intrusive_list.h>
+#include <vhost/event.h>
+#include <vhost/vdev.h>
+#include <vhost/blockdev.h>
 
 #define VHOST_EVENT_LOOP_EVENTS 128
 

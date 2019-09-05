@@ -1,12 +1,13 @@
 #include <string.h>
 
-#include "vhost-server/platform.h"
-#include "vhost-server/types.h"
-#include "vhost-server/blockdev.h"
-#include "vhost-server/virt_queue.h"
-#include "vhost-server/virtio_blk.h"
+#include <vhost/platform.h>
+#include <vhost/types.h>
+#include <vhost/blockdev.h>
 
-#include "virtio/virtio_blk10.h"
+#include "virtio_blk.h"
+#include "virtio_blk_spec.h"
+
+#include "virt_queue.h"
 
 #define SECTORS_TO_BLOCKS(dev, sectors) ((sectors) >> (dev)->block_shift)
 #define BLOCKS_TO_SECTORS(dev, blocks)  ((blocks) << (dev)->block_shift)

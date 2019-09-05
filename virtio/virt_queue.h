@@ -1,8 +1,9 @@
 #pragma once
 
-#include "vhost-server/platform.h"
-#include "vhost-server/types.h"
-#include "virtio/virtio10.h"
+#include <vhost/platform.h>
+#include <vhost/types.h>
+
+#include "virtio_spec.h"
 
 #ifdef __cplusplus
 extern "C" {

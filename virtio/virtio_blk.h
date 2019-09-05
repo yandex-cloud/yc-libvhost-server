@@ -1,6 +1,6 @@
 #pragma once
 
-#include "virtio/virtio_blk10.h"
+#include "virtio_blk_spec.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -16,6 +16,8 @@ extern "C" {
     (1UL << VIRTIO_BLK_F_MQ)))
 
 struct vhd_bdev_info;
+struct vhd_bdev_io;
+
 struct virtio_mm_ctx;
 struct virtio_virtq;
 struct virtio_blk_dev;

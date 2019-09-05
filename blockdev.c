@@ -1,8 +1,9 @@
-#include "vhost-server/platform.h"
-#include "vhost-server/blockdev.h"
-#include "vhost-server/intrusive_list.h"
-#include "vhost-server/virtio_blk.h"
-#include "vhost-server/server.h"
+#include <vhost/platform.h>
+#include <vhost/blockdev.h>
+#include <vhost/intrusive_list.h>
+#include <vhost/server.h>
+
+#include <virtio/virtio_blk.h>
 
 struct vhd_bdev
 {

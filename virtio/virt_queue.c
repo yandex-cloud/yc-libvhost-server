@@ -3,8 +3,8 @@
 #include <unistd.h>
 #include <sys/eventfd.h>
 
-#include "vhost-server/platform.h"
-#include "vhost-server/virt_queue.h"
+#include <vhost/platform.h>
+#include "virt_queue.h"
 
 ////////////////////////////////////////////////////////////////////////////////
 

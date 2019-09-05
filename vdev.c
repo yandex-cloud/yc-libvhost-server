@@ -10,11 +10,12 @@
 #include <pthread.h>
 #include <stdatomic.h>
 
-#include "vhost-server/platform.h"
-#include "vhost-server/event.h"
-#include "vhost-server/vdev.h"
-#include "vhost-server/virt_queue.h"
-#include "vhost-server/server.h"
+#include <vhost/platform.h>
+#include <vhost/event.h>
+#include <vhost/vdev.h>
+#include <vhost/server.h>
+
+#include <virtio/virt_queue.h>
 
 static LIST_HEAD(, vhd_vdev) g_vdevs = LIST_HEAD_INITIALIZER(g_vdevs);
 
