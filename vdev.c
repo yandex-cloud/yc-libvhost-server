@@ -62,6 +62,8 @@ static int net_recv_msg(int fd, struct vhost_user_msg *msg,
     /* Receive header for new request. */
     iov.iov_base = msg;
     iov.iov_len = VHOST_MSG_HDR_SIZE;
+
+    memset(&msgh, 0, sizeof(msgh));
     msgh.msg_name = NULL;
     msgh.msg_namelen = 0;
     msgh.msg_iov = &iov;
