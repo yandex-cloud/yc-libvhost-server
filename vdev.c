@@ -121,6 +121,8 @@ static int net_send_msg(int fd, const struct vhost_user_msg *msg)
 
     iov.iov_base = (void*)msg;
     iov.iov_len = VHOST_MSG_HDR_SIZE + msg->size;
+    
+    memset(&msgh, 0, sizeof(msgh));
     msgh.msg_name = NULL;
     msgh.msg_namelen = 0;
     msgh.msg_iov = &iov;
