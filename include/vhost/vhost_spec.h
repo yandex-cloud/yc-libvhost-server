@@ -58,6 +58,7 @@ extern "C" {
  * of file descriptors.
  */
 #define VHOST_USER_MEM_REGIONS_MAX 8
+#define VHOST_USER_MAX_FDS VHOST_USER_MEM_REGIONS_MAX
 
 /* Define request types. */
 enum {

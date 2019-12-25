@@ -44,20 +44,22 @@ static const struct vhd_event_ops g_conn_sock_ops = {
 };
 
 /* Receive and store the message from the socket. Fill in the file
- * descriptor array. Also update the fdn argument with the number
- * of the file descriptors received. Return number of bytes received or
+ * descriptor array. Return number of bytes received or
  * negative error code in case of error.
  */
-static int net_recv_msg(int fd, struct vhost_user_msg *msg,
-        int *fds, int *fdn)
+static int net_recv_msg(int fd, struct vhost_user_msg *msg, int *fds, size_t fdmax)
 {
     struct msghdr msgh;
     struct iovec iov;
     int len;
     int payload_len;
-    int num;
-    char control[CMSG_SPACE(sizeof(int) * VHOST_USER_MEM_REGIONS_MAX)];
     struct cmsghdr *cmsg;
+
+    VHD_VERIFY(fdmax <= VHOST_USER_MAX_FDS);
+    char control[CMSG_SPACE(sizeof(int) * fdmax)];
+
+    /* Poison control buffer to catch wrong number of fds more easily */
+    memset(control, 0xff, sizeof(control));
 
     /* Receive header for new request. */
     iov.iov_base = msg;
@@ -82,16 +84,15 @@ static int net_recv_msg(int fd, struct vhost_user_msg *msg,
     }
 
     /* Fill in file descriptors, if any. */
-    *fdn = 0;
-    num = msgh.msg_controllen / CMSG_SPACE(sizeof(int));
     cmsg = CMSG_FIRSTHDR(&msgh);
     while (cmsg) {
         if ((cmsg->cmsg_level == SOL_SOCKET) &&
                 (cmsg->cmsg_type == SCM_RIGHTS)) {
-            memcpy(fds, CMSG_DATA(cmsg), num * sizeof(int));
-            *fdn = num;
+            memcpy(fds, CMSG_DATA(cmsg), fdmax);
             break;
         }
+
+        cmsg = CMSG_NXTHDR(&msgh, cmsg);
     }
 
     /* Request payload data for the request. */
@@ -203,8 +204,8 @@ static int map_guest_region(
     region->uva = user_addr;
     region->pages = size / PAGE_SIZE;
 
-    VHD_LOG_DEBUG("Guest region %d mapped to %p, gpa 0x%llx, pages %lu",
-        index, region->hva, (unsigned long long)region->gpa, (unsigned long)region->pages);
+    VHD_LOG_DEBUG("Guest region %d mapped to %p, gpa 0x%llx, pages %lu, fd = %d",
+        index, region->hva, (unsigned long long)region->gpa, (unsigned long)region->pages, region->fd);
 
     return 0;
 }
@@ -427,7 +428,7 @@ static int vhost_reset_owner(struct vhd_vdev* vdev, struct vhost_user_msg* msg)
     return ENOTSUP;
 }
 
-static int vhost_set_mem_table(struct vhd_vdev* vdev, struct vhost_user_msg* msg, int* fds, size_t fdn)
+static int vhost_set_mem_table(struct vhd_vdev* vdev, struct vhost_user_msg* msg, int* fds)
 {
     VHD_LOG_TRACE();
 
@@ -435,7 +436,7 @@ static int vhost_set_mem_table(struct vhd_vdev* vdev, struct vhost_user_msg* msg
     struct vhost_user_mem_desc *desc;
 
     desc = &msg->payload.mem_desc;
-    if (fdn != desc->nregions || desc->nregions > VHOST_USER_MEM_REGIONS_MAX) {
+    if (desc->nregions > VHOST_USER_MEM_REGIONS_MAX) {
         VHD_LOG_ERROR("Invalid number if memory regions %d", desc->nregions);
         return EINVAL;
     }
@@ -450,7 +451,7 @@ static int vhost_set_mem_table(struct vhd_vdev* vdev, struct vhost_user_msg* msg
         if (error) {
             /* Close all fds that were left unprocessed.
              * Already mapped will be handled by unmap_all */
-            for (; i < fdn; ++i) {
+            for (; i < desc->nregions; ++i) {
                 close(fds[i]);
             }
 
@@ -520,7 +521,7 @@ static struct vhd_vring* get_vring_not_enabled(struct vhd_vdev* vdev, int index)
 
 enum vring_desc_type { VRING_KICKFD, VRING_CALLFD, VRING_ERRFD };
 
-static int vhost_set_vring_fd_common(struct vhd_vdev* vdev, struct vhost_user_msg* msg, int* fds, int fdn, enum vring_desc_type type)
+static int vhost_set_vring_fd_common(struct vhd_vdev* vdev, struct vhost_user_msg* msg, int fd, enum vring_desc_type type)
 {
     VHD_LOG_DEBUG("payload = 0x%llx\n", (unsigned long long) msg->payload.u64);
 
@@ -532,42 +533,37 @@ static int vhost_set_vring_fd_common(struct vhd_vdev* vdev, struct vhost_user_ms
         return ENOTSUP;
     }
 
-    if (fdn != 1) {
-        VHD_LOG_ERROR("incorrect number of descriptors in auxillary data (%d)", fdn);
-        return EINVAL;
-    }
-
     struct vhd_vring* vring = get_vring(vdev, vring_idx);
     if (!vring) {
         return EINVAL;
     }
 
     switch (type) {
-    case VRING_KICKFD: vring->kickfd = fds[0]; break;
-    case VRING_CALLFD: vring->callfd = fds[0]; break;
-    case VRING_ERRFD:  vring->errfd = fds[0];  break;
+    case VRING_KICKFD: vring->kickfd = fd; break;
+    case VRING_CALLFD: vring->callfd = fd; break;
+    case VRING_ERRFD:  vring->errfd = fd;  break;
     default: VHD_ASSERT(0);
     }
 
     return 0;
 }
 
-static int vhost_set_vring_call(struct vhd_vdev* vdev, struct vhost_user_msg* msg, int* fds, int fdn)
+static int vhost_set_vring_call(struct vhd_vdev* vdev, struct vhost_user_msg* msg, int* fds)
 {
     VHD_LOG_DEBUG("payload = 0x%llx", (unsigned long long)msg->payload.u64);
-    return vhost_set_vring_fd_common(vdev, msg, fds, fdn, VRING_CALLFD);
+    return vhost_set_vring_fd_common(vdev, msg, fds[0], VRING_CALLFD);
 }
 
-static int vhost_set_vring_kick(struct vhd_vdev* vdev, struct vhost_user_msg* msg, int* fds, int fdn)
+static int vhost_set_vring_kick(struct vhd_vdev* vdev, struct vhost_user_msg* msg, int* fds)
 {
     VHD_LOG_DEBUG("payload = 0x%llx", (unsigned long long)msg->payload.u64);
-    return vhost_set_vring_fd_common(vdev, msg, fds, fdn, VRING_KICKFD);
+    return vhost_set_vring_fd_common(vdev, msg, fds[0], VRING_KICKFD);
 }
 
-static int vhost_set_vring_err(struct vhd_vdev* vdev, struct vhost_user_msg* msg, int* fds, int fdn)
+static int vhost_set_vring_err(struct vhd_vdev* vdev, struct vhost_user_msg* msg, int* fds)
 {
     VHD_LOG_DEBUG("payload = 0x%llx", (unsigned long long)msg->payload.u64);
-    return vhost_set_vring_fd_common(vdev, msg, fds, fdn, VRING_ERRFD);
+    return vhost_set_vring_fd_common(vdev, msg, fds[0], VRING_ERRFD);
 }
 
 static int vhost_set_vring_num(struct vhd_vdev* vdev, struct vhost_user_msg* msg)
@@ -727,7 +723,7 @@ static int vhost_ack_request_if_needed(struct vhd_vdev* vdev, const struct vhost
 /* 
  * Return 0 in case of success, otherwise return error code.
  */
-static int vhost_handle_request(struct vhd_vdev* vdev, struct vhost_user_msg *msg, int *fds, size_t fdn)
+static int vhost_handle_request(struct vhd_vdev* vdev, struct vhost_user_msg *msg, int *fds)
 {
     int ret;
 
@@ -761,7 +757,7 @@ static int vhost_handle_request(struct vhd_vdev* vdev, struct vhost_user_msg *ms
             ret = vhost_set_config(vdev, msg);
             break;
         case VHOST_USER_SET_MEM_TABLE:
-            ret = vhost_set_mem_table(vdev, msg, fds, fdn);
+            ret = vhost_set_mem_table(vdev, msg, fds);
             break;
         case VHOST_USER_GET_QUEUE_NUM:
             ret = vhost_get_queue_num(vdev, msg);
@@ -772,13 +768,13 @@ static int vhost_handle_request(struct vhd_vdev* vdev, struct vhost_user_msg *ms
          */
 
         case VHOST_USER_SET_VRING_CALL:
-            ret = vhost_set_vring_call(vdev, msg, fds, fdn);
+            ret = vhost_set_vring_call(vdev, msg, fds);
             break;
         case VHOST_USER_SET_VRING_KICK:
-            ret = vhost_set_vring_kick(vdev, msg, fds, fdn);
+            ret = vhost_set_vring_kick(vdev, msg, fds);
             break;
         case VHOST_USER_SET_VRING_ERR:
-            ret = vhost_set_vring_err(vdev, msg, fds, fdn);
+            ret = vhost_set_vring_err(vdev, msg, fds);
             break;
         case VHOST_USER_SET_VRING_NUM:
             ret = vhost_set_vring_num(vdev, msg);
@@ -955,18 +951,17 @@ static int conn_read(void* data)
 {
     int len;
     struct vhost_user_msg msg;
-    int fds[VHOST_USER_MEM_REGIONS_MAX];
-    int fdn = 0;
+    int fds[VHOST_USER_MAX_FDS];
 
     struct vhd_vdev* vdev = (struct vhd_vdev*)data;
     VHD_ASSERT(vdev);
 
-    len = net_recv_msg(vdev->connfd, &msg, fds, &fdn);
+    len = net_recv_msg(vdev->connfd, &msg, fds, VHOST_USER_MAX_FDS);
     if (len < 0) {
         return len;
     }
 
-    return vhost_handle_request(vdev, &msg, fds, fdn);
+    return vhost_handle_request(vdev, &msg, fds);
 }
 
 static int conn_close(void* data)
