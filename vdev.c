@@ -182,12 +182,21 @@ static int map_guest_region(
         return EINVAL;
     }
 
+    uint32_t pages = (uint32_t)(size >> PAGE_SHIFT);
+
     region = &memmap->regions[index];
     if (region->hva != NULL) {
-        VHD_LOG_ERROR("Region %d already mapped to %p", index, region->hva);
-        return EBUSY;
+        /* qemu blindly sends region updates when internal mappings are updated even if vhost-specific regions were not modified.
+         * If the region was not remapped in GPA space, just close duplicate fd and skip it. Otherwise - complain. */
+        if (region->gpa == guest_addr && region->pages == pages) {
+            close(fd);
+            goto mapped;
+        } else {
+            VHD_LOG_ERROR("Region %d already mapped to %p. New gpa 0x%llx, pages %lu",
+                    index, region->hva, (unsigned long long)guest_addr, (unsigned long)pages);
+            return EBUSY;
+        }
     }
-
 
     vaddr = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, offset);
     if (vaddr == MAP_FAILED) {
@@ -202,10 +211,11 @@ static int map_guest_region(
     region->hva = vaddr;
     region->gpa = guest_addr;
     region->uva = user_addr;
-    region->pages = size / PAGE_SIZE;
+    region->pages = pages;
 
-    VHD_LOG_DEBUG("Guest region %d mapped to %p, gpa 0x%llx, pages %lu, fd = %d",
-        index, region->hva, (unsigned long long)region->gpa, (unsigned long)region->pages, region->fd);
+mapped:
+    VHD_LOG_DEBUG("Guest region %d mapped to %p, gpa 0x%llx, uva 0x%llx, pages %lu, fd = %d",
+        index, region->hva, (unsigned long long)region->gpa, (unsigned long long)region->uva, (unsigned long)region->pages, region->fd);
 
     return 0;
 }
