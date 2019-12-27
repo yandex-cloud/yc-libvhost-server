@@ -34,11 +34,8 @@ static uint64_t vblk_get_features(struct vhd_vdev* vdev)
 
 static int vblk_set_features(struct vhd_vdev* vdev, uint64_t features)
 {
-    if (features & ~VIRTIO_BLK_DEFAULT_FEATURES) {
-        return -EINVAL;
-    }
-
-    vdev->negotiated_device_features = features;
+    VHD_UNUSED(vdev);
+    VHD_UNUSED(features);
     return 0;
 }
 

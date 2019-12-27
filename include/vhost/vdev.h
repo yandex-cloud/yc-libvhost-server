@@ -110,8 +110,8 @@ struct vhd_vdev
      */
     uint64_t supported_protocol_features;
     uint64_t negotiated_protocol_features;
-    uint64_t supported_device_features;
-    uint64_t negotiated_device_features;
+    uint64_t supported_features;
+    uint64_t negotiated_features;
 
     /** Maximum amount of request queues this device can support */
     uint32_t max_queues; /* Set by device backend as a limit of what we can support*/

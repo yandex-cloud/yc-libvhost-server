@@ -87,8 +87,8 @@ static int net_recv_msg(int fd, struct vhost_user_msg *msg, int *fds, size_t fdm
     cmsg = CMSG_FIRSTHDR(&msgh);
     while (cmsg) {
         if ((cmsg->cmsg_level == SOL_SOCKET) &&
-                (cmsg->cmsg_type == SCM_RIGHTS)) {
-            memcpy(fds, CMSG_DATA(cmsg), fdmax);
+            (cmsg->cmsg_type == SCM_RIGHTS)) {
+            memcpy(fds, CMSG_DATA(cmsg), sizeof(int) * fdmax);
             break;
         }
 
@@ -325,7 +325,7 @@ void* virtio_map_guest_phys_range(struct virtio_mm_ctx* mm, uint64_t gpa, uint32
  * Vhost protocol handling
  */
 
-static const uint64_t g_default_device_features = 
+static const uint64_t g_default_features =
     (1UL << VHOST_USER_F_PROTOCOL_FEATURES);
 
 static const uint64_t g_default_protocol_features =
@@ -336,6 +336,12 @@ static const uint64_t g_default_protocol_features =
 
 static int vring_io_event(void* ctx);
 static int vring_close_event(void* ctx);
+static int vring_set_enable(struct vhd_vring* vring, bool do_enable);
+
+static inline bool has_feature(uint64_t features_qword, size_t feature_bit)
+{
+    return features_qword & (1ull << feature_bit);
+}
 
 static int vhost_send(struct vhd_vdev* vdev, const struct vhost_user_msg *msg)
 {
@@ -395,17 +401,26 @@ static int vhost_get_features(struct vhd_vdev* vdev, struct vhost_user_msg* msg)
 {
     VHD_LOG_TRACE();
 
-    uint64_t features = g_default_device_features | vhd_vdev_get_features(vdev);
-    return vhost_send_reply(vdev, msg, features);
+    vdev->supported_features = g_default_features | vhd_vdev_get_features(vdev);
+    return vhost_send_reply(vdev, msg, vdev->supported_features);
 }
 
 static int vhost_set_features(struct vhd_vdev* vdev, struct vhost_user_msg* msg)
 {
     VHD_LOG_TRACE();
 
-    /* Devices don't know about VHOST_USER_F_PROTOCOL_FEATURES */
-    uint64_t feats = msg->payload.u64 & ~(1ULL << VHOST_USER_F_PROTOCOL_FEATURES);
-    return vhd_vdev_set_features(vdev, feats);
+    uint64_t requested_features = msg->payload.u64;
+    vdev->negotiated_features = requested_features & vdev->supported_features;
+
+    if (0 != (requested_features & ~vdev->supported_features)) {
+        VHD_LOG_WARN("Master attempts to set device features we don't support: "
+                     "supported 0x%lx, requested 0x%lx, negotiated 0x%lx",
+                     vdev->supported_features,
+                     requested_features,
+                     vdev->negotiated_features);
+    }
+
+    return 0;
 }
 
 static int vhost_set_owner(struct vhd_vdev* vdev, struct vhost_user_msg* msg)
@@ -528,7 +543,7 @@ enum vring_desc_type { VRING_KICKFD, VRING_CALLFD, VRING_ERRFD };
 
 static int vhost_set_vring_fd_common(struct vhd_vdev* vdev, struct vhost_user_msg* msg, int fd, enum vring_desc_type type)
 {
-    VHD_LOG_DEBUG("payload = 0x%llx\n", (unsigned long long) msg->payload.u64);
+    VHD_LOG_DEBUG("payload = 0x%llx", (unsigned long long) msg->payload.u64);
 
     uint8_t vring_idx = msg->payload.u64 & VHOST_VRING_IDX_MASK;
     bool has_fd = (msg->payload.u64 & VHOST_VRING_INVALID_FD) == 0;
@@ -544,9 +559,29 @@ static int vhost_set_vring_fd_common(struct vhd_vdev* vdev, struct vhost_user_ms
     }
 
     switch (type) {
-    case VRING_KICKFD: vring->kickfd = fd; break;
-    case VRING_CALLFD: vring->callfd = fd; break;
-    case VRING_ERRFD:  vring->errfd = fd;  break;
+    case VRING_KICKFD: {
+        vring->kickfd = fd;
+
+        /* If we did not negotiate VHOST_USER_F_PROTOCOL_FEATURES then vring should start automatically
+         * when we get VHOST_USER_SET_VRING_KICK from guest.
+         * Otherwise we should wait for explicit VHOST_USER_SET_VRING_ENABLE(1) */
+        if (!has_feature(vdev->negotiated_features, VHOST_USER_F_PROTOCOL_FEATURES)) {
+            return vring_set_enable(vring, true);
+        }
+
+        break;
+    }
+
+    case VRING_CALLFD: {
+        vring->callfd = fd;
+        break;
+    }
+
+    case VRING_ERRFD: {
+        vring->errfd = fd;
+        break;
+    }
+
     default: VHD_ASSERT(0);
     }
 
@@ -555,19 +590,19 @@ static int vhost_set_vring_fd_common(struct vhd_vdev* vdev, struct vhost_user_ms
 
 static int vhost_set_vring_call(struct vhd_vdev* vdev, struct vhost_user_msg* msg, int* fds)
 {
-    VHD_LOG_DEBUG("payload = 0x%llx", (unsigned long long)msg->payload.u64);
+    VHD_LOG_DEBUG("payload = 0x%llx, fd = %d", (unsigned long long)msg->payload.u64, fds[0]);
     return vhost_set_vring_fd_common(vdev, msg, fds[0], VRING_CALLFD);
 }
 
 static int vhost_set_vring_kick(struct vhd_vdev* vdev, struct vhost_user_msg* msg, int* fds)
 {
-    VHD_LOG_DEBUG("payload = 0x%llx", (unsigned long long)msg->payload.u64);
+    VHD_LOG_DEBUG("payload = 0x%llx, fd = %d", (unsigned long long)msg->payload.u64, fds[0]);
     return vhost_set_vring_fd_common(vdev, msg, fds[0], VRING_KICKFD);
 }
 
 static int vhost_set_vring_err(struct vhd_vdev* vdev, struct vhost_user_msg* msg, int* fds)
 {
-    VHD_LOG_DEBUG("payload = 0x%llx", (unsigned long long)msg->payload.u64);
+    VHD_LOG_DEBUG("payload = 0x%llx, fd = %d", (unsigned long long)msg->payload.u64, fds[0]);
     return vhost_set_vring_fd_common(vdev, msg, fds[0], VRING_ERRFD);
 }
 
@@ -612,7 +647,20 @@ static int vhost_get_vring_base(struct vhd_vdev* vdev, struct vhost_user_msg* ms
         return EINVAL;
     }
 
-    return vhost_send_reply(vdev, msg, vring->vq.last_avail);
+    uint16_t vq_base = vring->vq.last_avail;
+
+    /* If we did not negotiate VHOST_USER_F_PROTOCOL_FEATURES then vring should stop automatically
+     * when we get VHOST_USER_GET_VRING_BASE from guest.
+     * Otherwise we should wait for explicit VHOST_USER_SET_VRING_ENABLE(0) */
+    if (!has_feature(vdev->negotiated_features, VHOST_USER_F_PROTOCOL_FEATURES)) {
+        int error = vring_set_enable(vring, false);
+        if (error) {
+            VHD_LOG_ERROR("Could not disable vring: %d", error);
+            return error;
+        }
+    }
+
+    return vhost_send_reply(vdev, msg, vq_base);
 }
 
 static int vhost_set_vring_addr(struct vhd_vdev* vdev, struct vhost_user_msg* msg)
@@ -655,44 +703,7 @@ static int vhost_set_vring_enable(struct vhd_vdev* vdev, struct vhost_user_msg* 
         return EINVAL;
     }
 
-    if (vrstate->num == 1 && !vring->is_enabled) {
-        int res = virtio_virtq_attach(&vring->vq,
-                                      vring->client_info.desc_addr,
-                                      vring->client_info.avail_addr,
-                                      vring->client_info.used_addr,
-                                      vring->client_info.num,
-                                      vring->client_info.base,
-                                      vring->callfd);
-        if (res != 0) {
-            VHD_LOG_ERROR("virtq attach failed: %d", res);
-            return res;
-        }
-
-        static const struct vhd_event_ops g_vring_ops = {
-            .read = vring_io_event,
-            .close = vring_close_event,
-        };
-
-        vring->kickev.priv = vring;
-        vring->kickev.ops = &g_vring_ops;
-        res = vhd_attach_event(vdev->rq, vring->kickfd, &vring->kickev);
-        if (res != 0) {
-            VHD_LOG_ERROR("Could not create vring event from kickfd: %d", res);
-            virtio_virtq_release(&vring->vq);
-            return res;
-        }
-
-        vring->is_enabled = true;
-    } else if (vrstate->num == 0 && vring->is_enabled) {
-        vhd_detach_event(vdev->rq, vring->kickfd);
-        virtio_virtq_release(&vring->vq);
-        vring->is_enabled = false;
-    } else {
-        VHD_LOG_WARN("strange VRING_ENABLE call from client (vring is already %s)",
-            vring->is_enabled ? "enabled" : "disabled");
-    }
-
-    return 0;
+    return vring_set_enable(vring, vrstate->num == 1);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -700,7 +711,7 @@ static int vhost_set_vring_enable(struct vhd_vdev* vdev, struct vhost_user_msg* 
 static int vhost_ack_request_if_needed(struct vhd_vdev* vdev, const struct vhost_user_msg* msg, int ret)
 {
     /* If REPLY_ACK protocol feature was not negotiated then we have nothing to do */
-    if (!(vdev->negotiated_protocol_features & VHOST_USER_PROTOCOL_F_REPLY_ACK)) {
+    if (!has_feature(vdev->negotiated_protocol_features, VHOST_USER_PROTOCOL_F_REPLY_ACK)) {
         return 0;
     }
 
@@ -1157,6 +1168,51 @@ static int vring_close_event(void* ctx)
     VHD_UNUSED(ctx);
 
     /* TODO: not sure how we should react */
+    return 0;
+}
+
+static int vring_set_enable(struct vhd_vring* vring, bool do_enable)
+{
+    if (do_enable == vring->is_enabled) {
+        VHD_LOG_WARN("strange VRING_ENABLE call from client (vring is already %s)",
+            vring->is_enabled ? "enabled" : "disabled");
+        return 0;
+    }
+
+    if (do_enable) {
+        int res = virtio_virtq_attach(&vring->vq,
+                                      vring->client_info.desc_addr,
+                                      vring->client_info.avail_addr,
+                                      vring->client_info.used_addr,
+                                      vring->client_info.num,
+                                      vring->client_info.base,
+                                      vring->callfd);
+        if (res != 0) {
+            VHD_LOG_ERROR("virtq attach failed: %d", res);
+            return res;
+        }
+
+        static const struct vhd_event_ops g_vring_ops = {
+            .read = vring_io_event,
+            .close = vring_close_event,
+        };
+
+        vring->kickev.priv = vring;
+        vring->kickev.ops = &g_vring_ops;
+        res = vhd_attach_event(vring->vdev->rq, vring->kickfd, &vring->kickev);
+        if (res != 0) {
+            VHD_LOG_ERROR("Could not create vring event from kickfd: %d", res);
+            virtio_virtq_release(&vring->vq);
+            return res;
+        }
+
+        vring->is_enabled = true;
+    } else {
+        vhd_detach_event(vring->vdev->rq, vring->kickfd);
+        virtio_virtq_release(&vring->vq);
+        vring->is_enabled = false;
+    }
+
     return 0;
 }
 
