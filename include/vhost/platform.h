@@ -85,7 +85,7 @@
         fprintf(stderr, "ERROR: %s:%d: " fmt "\n", __FUNCTION__, __LINE__, ##__VA_ARGS__); \
     } while (0)
 
-#define VHD_LOG_TRACE() VHD_LOG_DEBUG("\n");
+#define VHD_LOG_TRACE() VHD_LOG_DEBUG("");
 
 static inline void vhd_noreturn _vhd_verify_helper(
     const char* what,
