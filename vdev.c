@@ -393,13 +393,8 @@ static int vhost_set_features(struct vhd_vdev* vdev, struct vhost_user_msg* msg)
 {
     VHD_LOG_TRACE();
 
-    if (!(msg->payload.u64 & VHOST_USER_F_PROTOCOL_FEATURES)) {
-        VHD_LOG_ERROR("We don't support clients that can't negotiate protocol features");
-        return ENOTSUP;
-    }
-
     /* Devices don't know about VHOST_USER_F_PROTOCOL_FEATURES */
-    uint64_t feats = msg->payload.u64 & ~VHOST_USER_F_PROTOCOL_FEATURES;
+    uint64_t feats = msg->payload.u64 & ~(1ULL << VHOST_USER_F_PROTOCOL_FEATURES);
     return vhd_vdev_set_features(vdev, feats);
 }
 
