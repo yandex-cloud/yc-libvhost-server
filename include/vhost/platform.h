@@ -34,7 +34,7 @@
 #ifdef __GNUC__
 #   define __STRINGIFY(x)           #x
 #   define vhd_noreturn             __attribute__((noreturn))
-#   define vhd_typeof               typeof
+#   define vhd_typeof               __typeof
 #   define VHD_PACKED               __attribute__((packed))
 
 #   define VHD_CONTAINEROF(ptr, type, member) ({                \
@@ -120,11 +120,12 @@ static inline void vhd_noreturn _vhd_verify_helper(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#define __VHD_ALIGN_MASK(x,mask)    (((x) + (mask)) & ~(mask))
-#define VHD_ALIGN_UP(x, a)          __VHD_ALIGN_MASK(x, (vhd_typeof(x))(a) - 1)
-#define VHD_IS_ALIGNED(x, a)        (!((x) & ((vhd_typeof(x))(a) - 1)))
-
-#define VHD_NEW(type)               vhd_zalloc(sizeof(type))
+#define __VHD_ALIGN_UP_MASK(x, mask)    (((x) + (mask)) & ~(mask))
+#define VHD_ALIGN_UP(x, a)              __VHD_ALIGN_UP_MASK(x, (vhd_typeof(x))(a) - 1)
+#define VHD_ALIGN_DOWN(x, a)            ((x) & ~((vhd_typeof(x))(a) - 1))
+#define VHD_ALIGN(x, a)                 VHD_ALIGN_DOWN(x, a)
+#define VHD_IS_ALIGNED(x, a)            (!((x) & ((vhd_typeof(x))(a) - 1)))
+#define VHD_NEW(type)                   vhd_zalloc(sizeof(type))
 
 static inline void* vhd_alloc(size_t bytes)
 {

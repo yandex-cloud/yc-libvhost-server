@@ -133,8 +133,8 @@ static int handle_inout(struct virtio_blk_dev* dev,
     bio->vq = vq;
     bio->iov = iov;
     bio->bdev_io.type = (req->type == VIRTIO_BLK_T_IN ? VHD_BDEV_READ : VHD_BDEV_WRITE);
-    bio->bdev_io.first_block = SECTORS_TO_BLOCKS(dev, req->sector);
-    bio->bdev_io.total_blocks = SECTORS_TO_BLOCKS(dev, total_sectors);
+    bio->bdev_io.first_sector = req->sector;
+    bio->bdev_io.total_sectors = total_sectors;
     bio->bdev_io.sglist.nbuffers = ndatabufs;
     bio->bdev_io.sglist.buffers = (struct vhd_buffer*)pdata;
     bio->bdev_io.completion_handler = complete_io;
@@ -265,10 +265,16 @@ int virtio_blk_init_dev(
     dev->block_shift = __builtin_ctz(bdev->block_size >> VIRTIO_BLK_SECTOR_SHIFT);
     dev->dispatch = dispatch;
     dev->bdev = bdev;
+
     dev->config.capacity = BLOCKS_TO_SECTORS(dev, bdev->total_blocks);
-    dev->config.size_max = BLOCKS_TO_SECTORS(dev, bdev->total_blocks);
-    dev->config.blk_size = bdev->block_size;
+    dev->config.blk_size = VHD_SECTOR_SIZE;
     dev->config.numqueues = bdev->num_queues;
+
+    dev->config.topology.physical_block_exp = dev->block_shift;
+    dev->config.topology.alignment_offset = 0;
+    /* TODO: can get that from bdev info */
+    dev->config.topology.min_io_size = 1;
+    dev->config.topology.opt_io_size = 0;
 
     return 0;
 }

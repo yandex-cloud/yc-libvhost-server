@@ -6,6 +6,9 @@
 extern "C" {
 #endif
 
+#define VHD_SECTOR_SHIFT    (9)
+#define VHD_SECTOR_SIZE     (1ull << VHD_SECTOR_SHIFT)
+
 struct vhd_request_queue;
 struct vhd_vdev;
 
@@ -40,8 +43,8 @@ struct vhd_bdev_io
 {
     enum vhd_bdev_io_type type;
 
-    uint64_t first_block;
-    uint64_t total_blocks;
+    uint64_t first_sector;
+    uint64_t total_sectors;
     struct vhd_sglist sglist;
 
     void (*completion_handler) (struct vhd_bdev_io* bio, enum vhd_bdev_io_result res);
