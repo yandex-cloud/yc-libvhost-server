@@ -574,6 +574,10 @@ static int vhost_set_vring_fd_common(struct vhd_vdev* vdev, struct vhost_user_ms
 
     case VRING_CALLFD: {
         vring->callfd = fd;
+        if (vring->is_enabled) {
+            virtq_set_notify_fd(&vring->vq, fd);
+        }
+
         break;
     }
 
@@ -1185,12 +1189,13 @@ static int vring_set_enable(struct vhd_vring* vring, bool do_enable)
                                       vring->client_info.avail_addr,
                                       vring->client_info.used_addr,
                                       vring->client_info.num,
-                                      vring->client_info.base,
-                                      vring->callfd);
+                                      vring->client_info.base);
         if (res != 0) {
             VHD_LOG_ERROR("virtq attach failed: %d", res);
             return res;
         }
+
+        virtq_set_notify_fd(&vring->vq, vring->callfd);
 
         static const struct vhd_event_ops g_vring_ops = {
             .read = vring_io_event,

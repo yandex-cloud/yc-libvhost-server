@@ -57,7 +57,8 @@ struct virtio_virtq
      * Broken status is sticky and so far cannot be repared. */
     bool broken;
 
-    /* eventfd for used buffers notification */
+    /* eventfd for used buffers notification.
+     * can be reset after virtq is started. */
     int notify_fd;
 };
 
@@ -66,8 +67,7 @@ int virtio_virtq_attach(struct virtio_virtq* vq,
                         void* avail_addr,
                         void* used_addr,
                         int qsz,
-                        int avail_base,
-                        int notify_fd);
+                        int avail_base);
 
 void virtio_virtq_release(struct virtio_virtq* vq);
 
@@ -82,6 +82,8 @@ int virtq_dequeue_many(struct virtio_virtq* vq,
 void virtq_commit_buffers(struct virtio_virtq* vq, struct virtio_iov* iov);
 
 void virtq_notify(struct virtio_virtq* vq);
+
+void virtq_set_notify_fd(struct virtio_virtq* vq, int fd);
 
 #ifdef __cplusplus
 }

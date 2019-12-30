@@ -63,14 +63,12 @@ static int map_buffer(struct virtio_virtq* vq, struct virtio_mm_ctx* mm, uint64_
     return add_buffer(vq, addr, len, write_only);
 }
 
-
 int virtio_virtq_attach(struct virtio_virtq* vq,
                         void* desc_addr,
                         void* avail_addr,
                         void* used_addr,
                         int qsz,
-                        int avail_base,
-                        int notify_fd)
+                        int avail_base)
 {
     VHD_VERIFY(vq);
     VHD_VERIFY(desc_addr);
@@ -87,7 +85,9 @@ int virtio_virtq_attach(struct virtio_virtq* vq,
     vq->broken = false;
     vq->buffers = vhd_calloc(qsz, sizeof(vq->buffers[0]));
     vq->next_buffer = 0;
-    vq->notify_fd = notify_fd;
+
+    /* Notify fd is set separately */
+    vq->notify_fd = -1;
 
     return 0;
 }
@@ -299,5 +299,18 @@ void virtq_notify(struct virtio_virtq* vq)
     VHD_VERIFY(vq);
 
     /* TODO: check for notification mask! */
-    eventfd_write(vq->notify_fd, 1);
+    if (vq->notify_fd != -1) {
+        eventfd_write(vq->notify_fd, 1);
+    }
+}
+
+void virtq_set_notify_fd(struct virtio_virtq* vq, int fd)
+{
+    VHD_VERIFY(vq);
+
+    if (vq->notify_fd != -1 && vq->notify_fd != fd) {
+        close(vq->notify_fd);
+    }
+
+    vq->notify_fd = fd;
 }
