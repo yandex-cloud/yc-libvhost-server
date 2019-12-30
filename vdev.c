@@ -1161,10 +1161,10 @@ static int vring_io_event(void* ctx)
         return -EINVAL;
     }
 
-    int res = vhd_vdev_dispatch_requests(vring->vdev, vring);
+    /* Clear vring event now, before processing virtq.
+     * Otherwise we might lose events if guest has managed to signal eventfd again while we were processing */
     vhd_clear_eventfd(vring->kickfd);
-
-    return res;
+    return vhd_vdev_dispatch_requests(vring->vdev, vring);
 }
 
 static int vring_close_event(void* ctx)
