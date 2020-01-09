@@ -30,6 +30,14 @@
 #   define countof(a) (sizeof(a) / sizeof(*a))
 #endif
 
+#ifdef __cplusplus
+#   define VHD_STATIC_ASSERT(pred) static_assert((pred), __STRINGIFY(pred))
+#elif (__STDC_VERSION__ >= 201112L)
+#   define VHD_STATIC_ASSERT(pred)  _Static_assert((pred), __STRINGIFY(pred))
+#else
+#   error Implement me
+#endif
+
 // TODO: compiler-specifics for non-gcc?
 #ifdef __GNUC__
 #   define __STRINGIFY(x)           #x
@@ -37,20 +45,24 @@
 #   define VHD_TYPEOF               __typeof
 #   define VHD_PACKED               __attribute__((packed))
 
+/* Return 0-based index of first least significant bit set in 32-bit value */
+static inline int vhd_find_first_bit32(uint32_t val) {
+    VHD_STATIC_ASSERT(sizeof(val) == sizeof(int));
+    return __builtin_ctz(val);
+}
+
+/* Return 0-based index of first least significant bit set in 64-bit value */
+static inline int vhd_find_first_bit64(uint64_t val) {
+    VHD_STATIC_ASSERT(sizeof(val) == sizeof(long long));
+    return __builtin_ctzll(val);
+}
+
 #else
 #   error Implement me
 #endif
 
 #if !defined(MIN)
 #   define MIN(num1, num2) ((num1) < (num2) ? (num1) : (num2))
-#endif
-
-#ifdef __cplusplus
-#   define VHD_STATIC_ASSERT(pred) static_assert((pred), __STRINGIFY(pred))
-#elif (__STDC_VERSION__ >= 201112L)
-#   define VHD_STATIC_ASSERT(pred)  _Static_assert((pred), __STRINGIFY(pred))
-#else
-#   error Implement me
 #endif
 
 #define VHD_UNUSED(var) ((void)(var))

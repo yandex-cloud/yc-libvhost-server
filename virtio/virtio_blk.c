@@ -262,7 +262,7 @@ int virtio_blk_init_dev(
         return -EINVAL;
     }
 
-    dev->block_shift = __builtin_ctz(bdev->block_size >> VIRTIO_BLK_SECTOR_SHIFT);
+    dev->block_shift = vhd_find_first_bit32(bdev->block_size >> VIRTIO_BLK_SECTOR_SHIFT);
     dev->dispatch = dispatch;
     dev->bdev = bdev;
 
