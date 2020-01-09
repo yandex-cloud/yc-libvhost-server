@@ -37,9 +37,6 @@
 #   define vhd_typeof               __typeof
 #   define VHD_PACKED               __attribute__((packed))
 
-#   define VHD_CONTAINEROF(ptr, type, member) ({                \
-        const typeof(((type *)0)->member)*__mptr = (ptr);       \
-        (type *)((char *)__mptr - offsetof(type, member)); })
 #else
 #   error Implement me
 #endif
