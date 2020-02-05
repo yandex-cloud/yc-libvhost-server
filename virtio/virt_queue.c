@@ -224,7 +224,7 @@ int virtq_dequeue_many(struct virtio_virtq* vq,
 
             /* We explicitly make a local copy here to avoid any possible TOCTOU problems. */
             memcpy(&desc, vq->desc + descnum, sizeof(desc));
-            VHD_LOG_DEBUG("%d: addr = 0x%llx, len = %d\n", i, (unsigned long long) desc.addr, desc.len);
+            VHD_LOG_DEBUG("%d: addr = 0x%llx, len = %d", i, (unsigned long long) desc.addr, desc.len);
 
             if (desc.flags & VIRTQ_DESC_F_INDIRECT) {
                 /* 2.4.5.3.1: A driver MUST NOT set both VIRTQ_DESC_F_INDIRECT and VIRTQ_DESC_F_NEXT in flags */

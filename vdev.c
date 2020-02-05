@@ -242,7 +242,7 @@ static void unmap_guest_region(struct vhd_guest_memory_region* reg)
 
     ret = munmap(reg->hva, reg->pages * PAGE_SIZE);
     if (ret != 0) {
-        VHD_LOG_ERROR("failed to unmap guest region at %p\n", reg->hva);
+        VHD_LOG_ERROR("failed to unmap guest region at %p", reg->hva);
     }
 
     close(reg->fd);
