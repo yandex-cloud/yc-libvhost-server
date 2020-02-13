@@ -864,6 +864,13 @@ static int change_device_state(struct vhd_vdev* vdev, enum vhd_vdev_state new_st
         case VDEV_CONNECTED:
             /* We're terminating existing connection and going back to listen mode */
             vhd_del_vhost_event(vdev->connfd);
+            vhd_guest_memory_unmap_all(&vdev->guest_memmap);
+            vdev->is_owned = false;
+
+            for (uint32_t i = 0; i < vdev->max_queues; ++i) {
+                vhd_vring_uninit(vdev->vrings + i);
+            }
+
             close(vdev->connfd);
             vdev->connfd = -1; /* Not nessesary, just defensive */
             /* Fall thru */
@@ -1238,11 +1245,11 @@ void vhd_vring_init(struct vhd_vring* vring, int id, struct vhd_vdev* vdev)
 
 void vhd_vring_uninit(struct vhd_vring* vring)
 {
-    if (!vring) {
+    if (!vring || !vring->is_enabled) {
         return;
     }
 
-    virtio_virtq_release(&vring->vq);
+    vring_set_enable(vring, false);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
