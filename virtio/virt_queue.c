@@ -85,6 +85,7 @@ int virtio_virtq_attach(struct virtio_virtq* vq,
     vq->broken = false;
     vq->buffers = vhd_calloc(qsz, sizeof(vq->buffers[0]));
     vq->next_buffer = 0;
+    pthread_mutex_init(&vq->lock, NULL);
 
     /* Notify fd is set separately */
     vq->notify_fd = -1;
@@ -95,6 +96,7 @@ int virtio_virtq_attach(struct virtio_virtq* vq,
 void virtio_virtq_release(struct virtio_virtq* vq)
 {
     if (vq) {
+        pthread_mutex_destroy(&vq->lock);
         vhd_free(vq->buffers);
     }
 }
@@ -284,12 +286,14 @@ void virtq_commit_buffers(struct virtio_virtq* vq, struct virtio_iov* iov)
 
     /* Put buffer head index and len into used ring */
     struct virtq_iov_private* priv = containerof(iov, struct virtq_iov_private, iov);
+    pthread_mutex_lock(&vq->lock);
     struct virtq_used_elem* used = &vq->used->ring[vq->used->idx % vq->qsz];
     used->id = priv->used_head;
     used->len = priv->used_len;
 
     vhd_smp_wmb();
     vq->used->idx++;
+    pthread_mutex_unlock(&vq->lock);
 
     free_iov(priv);
 }

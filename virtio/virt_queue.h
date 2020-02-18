@@ -1,5 +1,7 @@
 #pragma once
 
+#include <pthread.h>
+
 #include <vhost/platform.h>
 #include <vhost/types.h>
 
@@ -60,6 +62,9 @@ struct virtio_virtq
     /* eventfd for used buffers notification.
      * can be reset after virtq is started. */
     int notify_fd;
+
+    /* mutex to protect virtq from concurrent completion */
+    pthread_mutex_t lock;
 };
 
 int virtio_virtq_attach(struct virtio_virtq* vq,
