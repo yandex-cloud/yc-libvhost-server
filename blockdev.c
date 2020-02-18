@@ -132,6 +132,8 @@ static void aligned_read_completion(struct vhd_bdev_io* bio, enum vhd_bdev_io_re
             iores = VHD_BDEV_IOERR;
             goto complete;
         }
+        /* interrupt wait after enqueuing new request */
+        vhd_stop_queue(req->dev->vdev.rq);
 
         return;
     }
