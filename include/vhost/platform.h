@@ -133,7 +133,6 @@ static inline void VHD_NORETURN _vhd_verify_helper(
 #define VHD_ALIGN_UP(x, a)              __VHD_ALIGN_UP_MASK(x, (VHD_TYPEOF(x))(a) - 1)
 #define VHD_ALIGN_DOWN(x, a)            ((x) & ~((VHD_TYPEOF(x))(a) - 1))
 #define VHD_IS_ALIGNED(x, a)            (!((x) & ((VHD_TYPEOF(x))(a) - 1)))
-#define VHD_NEW(type)                   vhd_zalloc(sizeof(type))
 
 static inline void* vhd_alloc(size_t bytes)
 {
