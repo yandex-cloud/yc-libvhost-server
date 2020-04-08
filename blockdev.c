@@ -181,7 +181,7 @@ static int vblk_handle_request(struct virtio_blk_dev* vblk, struct vhd_bdev_io* 
     uint64_t aligned_sectors_count = (bio->total_sectors + (bio->first_sector - aligned_sector)) << VHD_SECTOR_SHIFT;
     aligned_sectors_count = VHD_ALIGN_UP(aligned_sectors_count, dev->bdev->block_size) >> VHD_SECTOR_SHIFT;
 
-    if (aligned_sector != bio->first_sector || aligned_sectors_count != bio->total_sectors) {
+    if (vblk->bdev->handle_unaligned && (aligned_sector != bio->first_sector || aligned_sectors_count != bio->total_sectors)) {
         return aligned_read(dev, aligned_sector, aligned_sectors_count, bio);
     }
 

@@ -72,6 +72,9 @@ struct vhd_bdev_info
 
     /* Device size in blocks */
     uint64_t total_blocks;
+
+    /* Handle unaligned requests in library */
+    bool handle_unaligned;
 };
 
 /**
