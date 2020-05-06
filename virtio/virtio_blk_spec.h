@@ -39,13 +39,13 @@ struct VHD_PACKED virtio_blk_config {
     le64 capacity;
     le32 size_max;
     le32 seg_max;
-    struct virtio_blk_geometry {
+    struct VHD_PACKED virtio_blk_geometry {
         le16 cylinders;
         u8 heads;
         u8 sectors;
     } geometry;
     le32 blk_size;
-    struct virtio_blk_topology {
+    struct VHD_PACKED virtio_blk_topology {
         // # of logical blocks per physical block (log2)
         u8 physical_block_exp;
         // offset of first aligned logical block
