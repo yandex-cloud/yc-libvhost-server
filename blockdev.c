@@ -226,7 +226,7 @@ error_out:
     return NULL;
 }
 
-void vhd_unregister_blockdev(struct vhd_vdev* vdev)
+void vhd_unregister_blockdev(struct vhd_vdev* vdev, void (*unregister_complete)(void*), void* arg)
 {
     if (!vdev) {
         return;
@@ -237,4 +237,9 @@ void vhd_unregister_blockdev(struct vhd_vdev* vdev)
     LIST_REMOVE(bdev, blockdevs);
     vhd_vdev_uninit(vdev);
     vhd_free(bdev);
+
+    /* TODO: this will be stored and called after all inflight requests complete */
+    if (unregister_complete) {
+        unregister_complete(arg);
+    }
 }

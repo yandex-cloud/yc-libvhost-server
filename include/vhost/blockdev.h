@@ -92,7 +92,7 @@ struct vhd_vdev* vhd_register_blockdev(struct vhd_bdev_info* bdev, struct vhd_re
 /**
  * Unregister vhost block device.
  */
-void vhd_unregister_blockdev(struct vhd_vdev* vdev);
+void vhd_unregister_blockdev(struct vhd_vdev* vdev, void (*unregister_complete)(void*), void* arg);
 
 #ifdef __cplusplus
 }
