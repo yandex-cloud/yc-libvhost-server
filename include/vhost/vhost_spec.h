@@ -93,6 +93,8 @@ enum {
     VHOST_USER_POSTCOPY_ADVISE = 28,
     VHOST_USER_POSTCOPY_LISTEN = 29,
     VHOST_USER_POSTCOPY_END = 30,
+    VHOST_USER_GET_INFLIGHT_FD = 31,
+    VHOST_USER_SET_INFLIGHT_FD = 32,
 };
 
 struct vhost_user_mem_region {
@@ -129,6 +131,29 @@ struct vhost_user_config_space {
     uint8_t payload[VHOST_USER_CONFIG_SPACE_MAX];
 } __attribute__((packed));
 
+struct vhost_user_inflight_desc {
+    uint64_t mmap_size;
+    uint64_t mmap_offset;
+    uint16_t num_queues;
+    uint16_t queue_size;
+} __attribute__((packed));
+
+struct inflight_split_desc {
+    uint8_t inflight;
+    uint8_t padding[5];
+    uint16_t next;
+    uint64_t counter;
+} __attribute__((packed));
+
+struct inflight_split_region {
+    uint64_t features;
+    uint16_t version;
+    uint16_t desc_num;
+    uint16_t last_batch_head;
+    uint16_t used_idx;
+    struct inflight_split_desc desc[0];
+} __attribute__((packed));
+
 struct vhost_user_msg {
     uint32_t req;
     uint32_t flags;
@@ -150,6 +175,8 @@ struct vhost_user_msg {
         struct vhost_user_vring_addr vring_addr;
         /* VHOST_USER_SET_VRING_KICK, VHOST_USER_SET_VRING_CALL */
         uint8_t index;
+        /* VHOST_USER_GET_INFLIGHT_FD, VHOST_USER_SET_INFLIGHT_FD */
+        struct vhost_user_inflight_desc inflight_desc;
     } payload;
 } __attribute__((packed));
 

@@ -20,6 +20,9 @@
 
 static LIST_HEAD(, vhd_vdev) g_vdevs = LIST_HEAD_INITIALIZER(g_vdevs);
 
+static void vhd_vdev_inflight_cleanup(struct vhd_vdev* vdev);
+static uint64_t vring_inflight_buf_size(int num);
+
 ////////////////////////////////////////////////////////////////////////////////
 
 static int server_read(void* sock);
@@ -730,6 +733,123 @@ static int vhost_set_vring_enable(struct vhd_vdev* vdev, struct vhost_user_msg* 
     return vring_set_enable(vring, vrstate->num == 1);
 }
 
+static void inflight_split_region_init(struct inflight_split_region *region,
+        uint16_t qsize)
+{
+    region->features = 0;
+    region->version = 1;
+    region->desc_num = qsize;
+    region->last_batch_head = 0;
+    region->used_idx = 0;
+}
+
+static int inflight_mmap_region(struct vhd_vdev* vdev, int fd, uint64_t size)
+{
+    void *buf;
+
+    buf = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if (buf == MAP_FAILED) {
+        VHD_LOG_ERROR("can't mmap fd = %d, size = %lu", fd, size);
+        return errno;
+    }
+    vdev->inflightfd = fd;
+    vdev->inflight_mem = buf;
+    vdev->inflight_size = size;
+
+    return 0;
+}
+
+static int vhost_get_inflight_fd(struct vhd_vdev* vdev, struct vhost_user_msg* msg, int *fds)
+{
+    VHD_LOG_TRACE();
+
+    struct vhost_user_inflight_desc *idesc;
+    uint64_t size;
+    int fd;
+    int ret;
+    void* buf;
+    int i;
+
+    /* TODO: should it be carefully cleanup? Could we get this command
+     * during vringq processing? */
+    vhd_vdev_inflight_cleanup(vdev);
+
+    idesc = &msg->payload.inflight_desc;
+
+    /* Calculate the size of the inflight buffer. */
+    size = vring_inflight_buf_size(idesc->queue_size);
+    size *= idesc->num_queues;
+
+    fd = memfd_create("vhost_get_inflight_fd", MFD_CLOEXEC);
+    if (fd == -1) {
+        VHD_LOG_ERROR("can't create memfd object");
+        return errno;
+    }
+    ret = ftruncate(fd, size);
+    if (ret == -1) {
+        VHD_LOG_ERROR("can't truncate fd = %d, to size = %lu",
+                fd, size);
+        ret = errno;
+        goto fail_inflight_fd;
+    }
+    ret = inflight_mmap_region(vdev, fd, size);
+    if (ret) {
+        goto fail_inflight_fd;
+    }
+    memset(vdev->inflight_mem, 0, vdev->inflight_size);
+
+    /* Prepare reply to the master side. */
+    idesc->mmap_size = size;
+    idesc->mmap_offset = 0;
+    fds[0] = fd;
+
+    /* Initialize the inflight region for each virtqueue. */
+    buf = vdev->inflight_mem;
+    size = vring_inflight_buf_size(idesc->queue_size);
+    for (i = 0; i < idesc->num_queues; i++) {
+        inflight_split_region_init(buf, idesc->queue_size);
+        buf = (void *)((uint64_t)buf + size);
+    }
+
+    msg->flags = VHOST_USER_MSG_FLAGS_REPLY;
+    ret = vhost_send_fds(vdev, msg, fds, 1);
+    if (ret) {
+        VHD_LOG_ERROR("can't send reply to get_inflight_fd command");
+        goto fail_inflight_unmap;
+    }
+
+    return 0;
+
+fail_inflight_unmap:
+    munmap(vdev->inflight_mem, vdev->inflight_size);
+    vdev->inflightfd = -1;
+    vdev->inflight_mem = NULL;
+
+fail_inflight_fd:
+    close(fd);
+
+    return ret;
+}
+
+static int vhost_set_inflight_fd(struct vhd_vdev* vdev, struct vhost_user_msg* msg, int *fds)
+{
+    VHD_LOG_TRACE();
+
+    struct vhost_user_inflight_desc *idesc;
+    int ret;
+
+    vhd_vdev_inflight_cleanup(vdev);
+
+    idesc = &msg->payload.inflight_desc;
+    ret = inflight_mmap_region(vdev, fds[0], idesc->mmap_size);
+    if (ret) {
+        /* Make clean up in case of error. */
+        close(fds[0]);
+    }
+
+    return ret;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 static int vhost_ack_request_if_needed(struct vhd_vdev* vdev, const struct vhost_user_msg* msg, int ret)
@@ -850,6 +970,12 @@ static int vhost_handle_request(struct vhd_vdev* vdev, struct vhost_user_msg *ms
         case VHOST_USER_POSTCOPY_END:
             VHD_LOG_WARN("Command = %d, not supported", msg->req);
             ret = ENOTSUP;
+            break;
+        case VHOST_USER_GET_INFLIGHT_FD:
+            ret = vhost_get_inflight_fd(vdev, msg, fds);
+            break;
+        case VHOST_USER_SET_INFLIGHT_FD:
+            ret = vhost_set_inflight_fd(vdev, msg, fds);
             break;
         case VHOST_USER_NONE:
         default:
@@ -1147,6 +1273,10 @@ int vhd_vdev_init_server(
         vhd_vring_init(vdev->vrings + i, i, vdev);
     }
 
+    vdev->inflightfd = -1;
+    vdev->inflight_mem = NULL;
+    vdev->inflight_size = 0;
+
     LIST_INSERT_HEAD(&g_vdevs, vdev, vdev_list);
 
     vdev->state = VDEV_INITIALIZED; /* Initial state */
@@ -1157,6 +1287,21 @@ int vhd_vdev_init_server(
     }
 
     return ret;
+}
+
+static void vhd_vdev_inflight_cleanup(struct vhd_vdev* vdev)
+{
+    if (vdev->inflightfd == -1) {
+        /* Nothing to clean up. */
+        return;
+    }
+
+    munmap(vdev->inflight_mem, vdev->inflight_size);
+    close(vdev->inflightfd);
+
+    /* Reset fields to its default values. */
+    vdev->inflightfd = -1;
+    vdev->inflight_mem = NULL;
 }
 
 void vhd_vdev_uninit(struct vhd_vdev* vdev)
@@ -1170,6 +1315,8 @@ void vhd_vdev_uninit(struct vhd_vdev* vdev)
     for (uint32_t i = 0; i < vdev->max_queues; ++i) {
         vhd_vring_uninit(vdev->vrings + i);
     }
+
+    vhd_vdev_inflight_cleanup(vdev);
 
     LIST_REMOVE(vdev, vdev_list);
     vhd_free(vdev->vrings);
@@ -1277,4 +1424,15 @@ void vhd_vring_uninit(struct vhd_vring* vring)
 void* vhd_vdev_get_priv(struct vhd_vdev* vdev)
 {
     return vdev->priv;
+}
+
+/* Return size of per queue inflight buffer. */
+static uint64_t vring_inflight_buf_size(int num)
+{
+    uint64_t size;
+
+    size = sizeof(struct inflight_split_region) +
+        num * sizeof(struct inflight_split_desc);
+
+    return size;
 }
