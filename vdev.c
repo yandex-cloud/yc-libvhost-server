@@ -9,6 +9,7 @@
 #include <sys/mman.h>
 #include <pthread.h>
 #include <stdatomic.h>
+#include <alloca.h>
 
 #include <vhost/platform.h>
 #include <vhost/event.h>
@@ -114,22 +115,34 @@ static int net_recv_msg(int fd, struct vhost_user_msg *msg, int *fds, size_t fdm
 /* Send message to master. Return number of bytes sent or negative
  * error code in case of error.
  */
-static int net_send_msg(int fd, const struct vhost_user_msg *msg)
+static int net_send_msg_fds(int fd, const struct vhost_user_msg* msg,
+        int *fds, int fdn)
 {
     struct msghdr msgh;
     struct iovec iov;
     int len;
+    char *control;
+    struct cmsghdr *cmsgh;
+    int fdsize;
 
     iov.iov_base = (void*)msg;
     iov.iov_len = VHOST_MSG_HDR_SIZE + msg->size;
     
     memset(&msgh, 0, sizeof(msgh));
-    msgh.msg_name = NULL;
-    msgh.msg_namelen = 0;
     msgh.msg_iov = &iov;
     msgh.msg_iovlen = 1;
-    msgh.msg_control = NULL;
-    msgh.msg_controllen = 0;
+    if (fdn) {
+        /* Prepare file descriptors for sending. */
+        fdsize = sizeof(*fds) * fdn;
+        control = alloca(CMSG_SPACE(fdsize));
+        msgh.msg_control = control;
+        msgh.msg_controllen = CMSG_SPACE(fdsize);
+        cmsgh = CMSG_FIRSTHDR(&msgh);
+        cmsgh->cmsg_len = CMSG_LEN(fdsize);
+        cmsgh->cmsg_level = SOL_SOCKET;
+        cmsgh->cmsg_type = SCM_RIGHTS;
+        memcpy(CMSG_DATA(cmsgh), fds, fdsize);
+    }
     len = sendmsg(fd, &msgh, 0);
     if (len < 0) {
         VHD_LOG_ERROR("sendmsg() failed: %d", errno);
@@ -343,15 +356,22 @@ static inline bool has_feature(uint64_t features_qword, size_t feature_bit)
     return features_qword & (1ull << feature_bit);
 }
 
-static int vhost_send(struct vhd_vdev* vdev, const struct vhost_user_msg *msg)
+static int vhost_send_fds(struct vhd_vdev* vdev, const struct vhost_user_msg *msg,
+        int *fds, int fdn)
 {
-    int len = net_send_msg(vdev->connfd, msg);
+    int len;
+
+    len = net_send_msg_fds(vdev->connfd, msg, fds, fdn);
     if (len < 0) {
         return len;
-    } else {
-        VHD_ASSERT(len == VHOST_MSG_HDR_SIZE + msg->size);
-        return 0;
     }
+
+    return 0;
+}
+
+static int vhost_send(struct vhd_vdev* vdev, const struct vhost_user_msg *msg)
+{
+    return vhost_send_fds(vdev, msg, NULL, 0);
 }
 
 static int vhost_send_reply(struct vhd_vdev* vdev, const struct vhost_user_msg* msgin, uint64_t u64)
