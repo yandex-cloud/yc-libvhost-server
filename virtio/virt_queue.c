@@ -418,7 +418,7 @@ static int virtq_dequeue_one(struct virtio_virtq* vq,
 
         /* We explicitly make a local copy here to avoid any possible TOCTOU problems. */
         memcpy(&desc, vq->desc + descnum, sizeof(desc));
-        VHD_LOG_DEBUG("%d: addr = 0x%llx, len = %d", head, (unsigned long long) desc.addr, desc.len);
+        VHD_LOG_DEBUG("head = %d: addr = 0x%llx, len = %d", head, (unsigned long long) desc.addr, desc.len);
 
         if (desc.flags & VIRTQ_DESC_F_INDIRECT) {
             /* 2.4.5.3.1: A driver MUST NOT set both VIRTQ_DESC_F_INDIRECT and VIRTQ_DESC_F_NEXT in flags */
@@ -483,6 +483,7 @@ void virtq_commit_buffers(struct virtio_virtq* vq, struct virtio_iov* iov)
 
     virtq_inflight_used_commit(vq, used->id);
     pthread_mutex_unlock(&vq->lock);
+    VHD_LOG_DEBUG("head = %d", priv->used_head);
 
     free_iov(priv);
 }
