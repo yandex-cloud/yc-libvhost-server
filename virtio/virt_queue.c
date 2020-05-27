@@ -21,6 +21,10 @@ struct virtq_iov_private
     struct virtio_iov iov;
 };
 
+static int virtq_dequeue_one(struct virtio_virtq* vq,
+        struct virtio_mm_ctx* mm, uint16_t head,
+        virtq_handle_buffers_cb handle_buffers_cb, void* arg);
+
 static struct virtq_iov_private* alloc_iov(uint16_t nvecs)
 {
     size_t size = sizeof(struct virtq_iov_private) + sizeof(struct vhd_buffer) * nvecs;
@@ -187,6 +191,9 @@ int virtq_dequeue_many(struct virtio_virtq* vq,
                        void* arg)
 {
     int res;
+    uint16_t head;
+    uint16_t i;
+    uint16_t num_avail;
 
     if (virtq_is_broken(vq)) {
         VHD_LOG_ERROR("virtqueue is broken, cannot process");
@@ -195,7 +202,7 @@ int virtq_dequeue_many(struct virtio_virtq* vq,
 
     /* Limit this run to initial number of advertised descriptors.
      * TODO: limit it better in client */
-    uint16_t num_avail = vq->avail->idx - vq->last_avail;
+    num_avail = vq->avail->idx - vq->last_avail;
     if (!num_avail) {
         return 0;
     }
@@ -206,74 +213,13 @@ int virtq_dequeue_many(struct virtio_virtq* vq,
 
     /* TODO: disable extra notifies from this point */
 
-    for (uint16_t i = 0; i < num_avail; ++i) {
-        uint16_t head;
-        uint16_t descnum;
-        uint16_t chain_len = 0;
-        struct virtq_desc desc;
-
-        /* Reset stored vectors position */
-        vq->next_buffer = 0;
-
+    for (i = 0; i < num_avail; ++i) {
         /* Grab next descriptor head */
         head = vq->avail->ring[vq->last_avail % vq->qsz];
-        descnum = head;
-    
-        /* Walk descriptor chain */
-        do {
-            /* Check that descriptor is in-bounds */
-            if (descnum >= vq->qsz) {
-                VHD_LOG_ERROR("Descriptor num %d is out-of-bounds", descnum);
-                res = -EINVAL;
-                goto queue_broken;
-            }
-
-            /* We explicitly make a local copy here to avoid any possible TOCTOU problems. */
-            memcpy(&desc, vq->desc + descnum, sizeof(desc));
-            VHD_LOG_DEBUG("%d: addr = 0x%llx, len = %d", i, (unsigned long long) desc.addr, desc.len);
-
-            if (desc.flags & VIRTQ_DESC_F_INDIRECT) {
-                /* 2.4.5.3.1: A driver MUST NOT set both VIRTQ_DESC_F_INDIRECT and VIRTQ_DESC_F_NEXT in flags */
-                if (desc.flags & VIRTQ_DESC_F_NEXT) {
-                    VHD_LOG_ERROR("Can't handle indirect descriptors and next flag");
-                    res = -EINVAL;
-                    goto queue_broken;
-                }
-
-                res = walk_indirect_table(vq, mm, &desc);
-                if (res != 0) {
-                    goto queue_broken;
-                }
-
-                /* Descriptor chain should always terminate on indirect,
-                 * which means we should not see NEXT flag anymore, and we have checked exactly that above.
-                 * We document our assumption with an assert here. */
-                VHD_ASSERT((desc.flags & VIRTQ_DESC_F_NEXT) == 0);
-
-            } else {
-                res = map_buffer(vq, mm, desc.addr, desc.len, desc.flags & VIRTQ_DESC_F_WRITE);
-                if (res != 0) {
-                    /* We always reserve space beforehand, so this is a descriptor loop */
-                    VHD_LOG_ERROR("Descriptor loop found, vring is broken");
-                    res = -EINVAL;
-                    goto queue_broken;
-                }
-            }
-
-            /* next desc is not touched if loop terminated */
-            descnum = desc.next;
-            chain_len++;
-        } while (desc.flags & VIRTQ_DESC_F_NEXT);
-
-        /* Create iov copy from stored buffer for client handling */
-        struct virtq_iov_private* priv = alloc_iov(vq->next_buffer);
-        memcpy(priv->iov.buffers, vq->buffers, priv->iov.nvecs * sizeof(vq->buffers[0]));
-        priv->used_head = head;
-        priv->used_len = chain_len;
-
-        /* Send this over to handler */
-        handle_buffers_cb(arg, vq, &priv->iov);
-        vq->last_avail++;
+        res = virtq_dequeue_one(vq, mm, head, handle_buffers_cb, arg);
+        if (res) {
+            goto queue_broken;
+        }
     }
 
     /* TODO: restore notifier mask here */
@@ -282,6 +228,76 @@ int virtq_dequeue_many(struct virtio_virtq* vq,
 queue_broken:
     mark_broken(vq);
     return res;
+}
+
+static int virtq_dequeue_one(struct virtio_virtq* vq,
+        struct virtio_mm_ctx* mm, uint16_t head,
+        virtq_handle_buffers_cb handle_buffers_cb, void* arg)
+{
+    uint16_t descnum;
+    uint16_t chain_len = 0;
+    struct virtq_desc desc;
+    int res;
+
+    /* Reset stored vectors position */
+    vq->next_buffer = 0;
+
+    descnum = head;
+    /* Walk descriptor chain */
+    do {
+        /* Check that descriptor is in-bounds */
+        if (descnum >= vq->qsz) {
+            VHD_LOG_ERROR("Descriptor num %d is out-of-bounds", descnum);
+            return -EINVAL;
+        }
+
+        /* We explicitly make a local copy here to avoid any possible TOCTOU problems. */
+        memcpy(&desc, vq->desc + descnum, sizeof(desc));
+        VHD_LOG_DEBUG("%d: addr = 0x%llx, len = %d", head, (unsigned long long) desc.addr, desc.len);
+
+        if (desc.flags & VIRTQ_DESC_F_INDIRECT) {
+            /* 2.4.5.3.1: A driver MUST NOT set both VIRTQ_DESC_F_INDIRECT and VIRTQ_DESC_F_NEXT in flags */
+            if (desc.flags & VIRTQ_DESC_F_NEXT) {
+                VHD_LOG_ERROR("Can't handle indirect descriptors and next flag");
+                return -EINVAL;
+            }
+
+            res = walk_indirect_table(vq, mm, &desc);
+            if (res != 0) {
+                return res;
+            }
+
+            /* Descriptor chain should always terminate on indirect,
+             * which means we should not see NEXT flag anymore, and we have checked exactly that above.
+             * We document our assumption with an assert here. */
+            VHD_ASSERT((desc.flags & VIRTQ_DESC_F_NEXT) == 0);
+
+        } else {
+            res = map_buffer(vq, mm, desc.addr, desc.len, desc.flags & VIRTQ_DESC_F_WRITE);
+            if (res != 0) {
+                /* We always reserve space beforehand, so this is a descriptor loop */
+                VHD_LOG_ERROR("Descriptor loop found, vring is broken");
+                return -EINVAL;
+            }
+        }
+
+        /* next desc is not touched if loop terminated */
+        descnum = desc.next;
+        chain_len++;
+    } while (desc.flags & VIRTQ_DESC_F_NEXT);
+
+    /* Create iov copy from stored buffer for client handling */
+    struct virtq_iov_private* priv = alloc_iov(vq->next_buffer);
+    memcpy(priv->iov.buffers, vq->buffers, priv->iov.nvecs * sizeof(vq->buffers[0]));
+    priv->used_head = head;
+    priv->used_len = chain_len;
+
+    /* Send this over to handler */
+    handle_buffers_cb(arg, vq, &priv->iov);
+
+    vq->last_avail++;
+
+    return 0;
 }
 
 void virtq_commit_buffers(struct virtio_virtq* vq, struct virtio_iov* iov)
