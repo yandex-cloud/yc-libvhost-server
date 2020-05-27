@@ -22,6 +22,7 @@ static LIST_HEAD(, vhd_vdev) g_vdevs = LIST_HEAD_INITIALIZER(g_vdevs);
 
 static void vhd_vdev_inflight_cleanup(struct vhd_vdev* vdev);
 static uint64_t vring_inflight_buf_size(int num);
+static void vring_inflight_addr_init(struct vhd_vring* vring);
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -1358,12 +1359,16 @@ static int vring_set_enable(struct vhd_vring* vring, bool do_enable)
     }
 
     if (do_enable) {
-        int res = virtio_virtq_attach(&vring->vq,
-                                      vring->client_info.desc_addr,
-                                      vring->client_info.avail_addr,
-                                      vring->client_info.used_addr,
-                                      vring->client_info.num,
-                                      vring->client_info.base);
+        int res;
+
+        vring_inflight_addr_init(vring);
+        res = virtio_virtq_attach(&vring->vq,
+                vring->client_info.desc_addr,
+                vring->client_info.avail_addr,
+                vring->client_info.used_addr,
+                vring->client_info.num,
+                vring->client_info.base,
+                vring->client_info.inflight_addr);
         if (res != 0) {
             VHD_LOG_ERROR("virtq attach failed: %d", res);
             return res;
@@ -1435,4 +1440,29 @@ static uint64_t vring_inflight_buf_size(int num)
         num * sizeof(struct inflight_split_desc);
 
     return size;
+}
+
+static void vring_inflight_addr_init(struct vhd_vring* vring)
+{
+    struct inflight_split_region* mem;
+    uint64_t size;
+    uint64_t qsize;
+    uint8_t idx;
+
+    vring->client_info.inflight_addr = NULL;
+
+    mem = vring->vdev->inflight_mem;
+    if (!mem) {
+        return;
+    }
+    size = vring->vdev->inflight_size;
+    idx = vring->id;
+    qsize = vring_inflight_buf_size(vring->client_info.num);
+    if (qsize * (idx + 1) > size) {
+        VHD_LOG_WARN("inflight buffer for queue %d ends at %lu and doesn't fit in buffer of size %lu",
+                idx, qsize * (idx + 1), size);
+        return;
+    }
+
+    vring->client_info.inflight_addr = (void *)mem + qsize * idx;
 }

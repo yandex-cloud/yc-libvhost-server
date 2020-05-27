@@ -68,7 +68,8 @@ int virtio_virtq_attach(struct virtio_virtq* vq,
                         void* avail_addr,
                         void* used_addr,
                         int qsz,
-                        int avail_base)
+                        int avail_base,
+                        void* inflight_addr)
 {
     VHD_VERIFY(vq);
     VHD_VERIFY(desc_addr);
@@ -86,6 +87,9 @@ int virtio_virtq_attach(struct virtio_virtq* vq,
     vq->buffers = vhd_calloc(qsz, sizeof(vq->buffers[0]));
     vq->next_buffer = 0;
     pthread_mutex_init(&vq->lock, NULL);
+
+    /* Inflight initialization. */
+    vq->inflight_region = inflight_addr;
 
     /* Notify fd is set separately */
     vq->notify_fd = -1;

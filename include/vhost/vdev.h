@@ -223,6 +223,7 @@ struct vhd_vring
         void* used_addr;
         int num;
         int base;
+        void* inflight_addr;
     } client_info;
 
     /* vring id, acts as an index in its owning device */

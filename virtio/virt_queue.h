@@ -4,6 +4,7 @@
 
 #include <vhost/platform.h>
 #include <vhost/types.h>
+#include <vhost/vhost_spec.h>
 
 #include "virtio_spec.h"
 
@@ -65,6 +66,9 @@ struct virtio_virtq
 
     /* mutex to protect virtq from concurrent completion */
     pthread_mutex_t lock;
+
+    /* inflight information */
+    struct inflight_split_region *inflight_region;
 };
 
 int virtio_virtq_attach(struct virtio_virtq* vq,
@@ -72,7 +76,8 @@ int virtio_virtq_attach(struct virtio_virtq* vq,
                         void* avail_addr,
                         void* used_addr,
                         int qsz,
-                        int avail_base);
+                        int avail_base,
+                        void* inflight_addr);
 
 void virtio_virtq_release(struct virtio_virtq* vq);
 
