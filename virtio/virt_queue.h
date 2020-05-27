@@ -71,6 +71,7 @@ struct virtio_virtq
     uint64_t req_cnt;
     struct inflight_split_region *inflight_region;
     bool inflight_notify;
+    bool inflight_check;
 };
 
 int virtio_virtq_attach(struct virtio_virtq* vq,

@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+#include <alloca.h>
 #include <sys/eventfd.h>
 
 #include <vhost/platform.h>
@@ -183,6 +184,8 @@ int virtio_virtq_attach(struct virtio_virtq* vq,
     /* Inflight initialization. */
     vq->inflight_region = inflight_addr;
     vq->inflight_notify = false;
+    /* Make check on the first virtq dequeue. */
+    vq->inflight_check = true;
     virtq_inflight_reconnect_update(vq);
 
     /* Notify fd is set separately */
@@ -197,6 +200,66 @@ void virtio_virtq_release(struct virtio_virtq* vq)
         pthread_mutex_destroy(&vq->lock);
         vhd_free(vq->buffers);
     }
+}
+
+struct inflight_resubmit {
+    uint64_t counter;
+    uint16_t head;
+};
+
+static int inflight_resubmit_compare(const void *first, const void *second)
+{
+    struct inflight_resubmit *left = (struct inflight_resubmit *)first;
+    struct inflight_resubmit *right = (struct inflight_resubmit *)second;
+
+    if (left->counter < right->counter) {
+        return -1;
+    }
+    /* Can't return 0, since counter values are always different. */
+
+    return 1;
+}
+
+/* Resubmit inflight requests on the virtqueue start. */
+static int virtq_inflight_resubmit(struct virtio_virtq* vq,
+                       struct virtio_mm_ctx* mm,
+                       virtq_handle_buffers_cb handle_buffers_cb,
+                       void* arg)
+{
+    uint16_t desc_num;
+    uint16_t cnt;
+    struct inflight_resubmit *resubmit_array;
+    int i;
+    int res;
+
+    if (!vq->inflight_region) {
+        return 0;
+    }
+
+    desc_num = vq->inflight_region->desc_num;
+    cnt = 0;
+    resubmit_array = alloca(sizeof(*resubmit_array) * desc_num);
+    for (i = 0; i < desc_num; i++) {
+        if (vq->inflight_region->desc[i].inflight) {
+            resubmit_array[cnt].counter = vq->inflight_region->desc[i].counter;
+            resubmit_array[cnt].head = i;
+            cnt++;
+        }
+    }
+    qsort(resubmit_array, cnt, sizeof(*resubmit_array),
+            inflight_resubmit_compare);
+
+    res = 0;
+    VHD_LOG_DEBUG("cnt = %d inflight requests should be resubmitted", cnt);
+    for (i = 0; i < cnt; i++) {
+        res = virtq_dequeue_one(vq, mm, resubmit_array[i].head,
+                handle_buffers_cb, arg);
+        if (res) {
+            break;
+        }
+    }
+
+    return res;
 }
 
 bool virtq_is_broken(struct virtio_virtq* vq)
@@ -288,6 +351,16 @@ int virtq_dequeue_many(struct virtio_virtq* vq,
     if (virtq_is_broken(vq)) {
         VHD_LOG_ERROR("virtqueue is broken, cannot process");
         return -ENODEV;
+    }
+
+    if (vq->inflight_check) {
+        /* Check for the inflight requests once at the start. */
+        VHD_LOG_DEBUG("resubmit inflight requests, if any");
+        res = virtq_inflight_resubmit(vq, mm, handle_buffers_cb, arg);
+        if (res) {
+            goto queue_broken;
+        }
+        vq->inflight_check = false;
     }
 
     /* Limit this run to initial number of advertised descriptors.
