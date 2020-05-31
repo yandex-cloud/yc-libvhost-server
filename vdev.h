@@ -1,7 +1,7 @@
 #pragma once
 
 #include "event.h"
-#include "intrusive_list.h"
+#include "queue.h"
 
 #include "virtio/virt_queue.h"
 
