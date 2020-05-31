@@ -4,6 +4,7 @@
 #include <alloca.h>
 #include <sys/eventfd.h>
 
+#include "atomic.h"
 #include "virt_queue.h"
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -369,9 +370,8 @@ int virtq_dequeue_many(struct virtio_virtq* vq,
         return 0;
     }
 
-    /* Make sure that further desc reads do not pass avail->idx read.
-     * Not nessesary on x86_64, which is why rmb is really defined as a compiler barrier. */
-    vhd_smp_rmb();
+    /* Make sure that further desc reads do not pass avail->idx read. */
+    smp_rmb();                  /* barrier pair [A] */
 
     /* TODO: disable extra notifies from this point */
 
@@ -477,7 +477,7 @@ void virtq_commit_buffers(struct virtio_virtq* vq, struct virtio_iov* iov)
 
     virtq_inflight_used_update(vq, used->id);
 
-    vhd_smp_wmb();
+    smp_wmb();                  /* barrier pair [A] */
     vq->used->idx++;
 
     virtq_inflight_used_commit(vq, used->id);
