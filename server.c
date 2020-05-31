@@ -100,9 +100,6 @@ struct vhd_request_queue
 {
     struct vhd_event_loop* evloop;
 
-    /* TODO: RCU lock would have been nice.. */
-    pthread_spinlock_t lock;
-
     TAILQ_HEAD(, vhd_bio) submission;
 
     vhd_bio_list completion;
@@ -150,12 +147,6 @@ struct vhd_request_queue* vhd_create_request_queue(void)
         return NULL;
     }
 
-    int res = pthread_spin_init(&rq->lock, PTHREAD_PROCESS_PRIVATE);
-    if (res != 0) {
-        vhd_release_request_queue(rq);
-        return NULL;
-    }
-
     TAILQ_INIT(&rq->submission);
 
     SLIST_INIT(&rq->completion);
@@ -165,7 +156,6 @@ struct vhd_request_queue* vhd_create_request_queue(void)
 
 void vhd_release_request_queue(struct vhd_request_queue* rq)
 {
-    pthread_spin_destroy(&rq->lock);
     assert(TAILQ_EMPTY(&rq->submission));
     assert(SLIST_EMPTY(&rq->completion));
     vhd_bh_delete(rq->completion_bh);
@@ -212,18 +202,13 @@ void vhd_stop_queue(struct vhd_request_queue* rq)
 
 bool vhd_dequeue_request(struct vhd_request_queue* rq, struct vhd_request* out_req)
 {
-    struct vhd_bio *bio;
-
-    pthread_spin_lock(&rq->lock);
-    bio = TAILQ_FIRST(&rq->submission);
-    if (bio) {
-        TAILQ_REMOVE(&rq->submission, bio, submission_link);
-    }
-    pthread_spin_unlock(&rq->lock);
+    struct vhd_bio *bio = TAILQ_FIRST(&rq->submission);
 
     if (!bio) {
         return false;
     }
+
+    TAILQ_REMOVE(&rq->submission, bio, submission_link);
 
     out_req->vdev = bio->vdev;
     out_req->bio = &bio->bdev_io;
@@ -237,9 +222,7 @@ int vhd_enqueue_block_request(struct vhd_request_queue* rq,
     bio->rq = rq;
     bio->vdev = vdev;
 
-    pthread_spin_lock(&rq->lock);
     TAILQ_INSERT_TAIL(&rq->submission, bio, submission_link);
-    pthread_spin_unlock(&rq->lock);
     return 0;
 }
 
