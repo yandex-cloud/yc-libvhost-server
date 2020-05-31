@@ -51,23 +51,11 @@ static inline bool is_valid(struct vhd_event_loop* evloop)
 
 static int handle_one_event(struct vhd_event_ctx* ev, int event_code)
 {
-    VHD_ASSERT(ev);
-    VHD_ASSERT(ev->ops);
-
-    int ret = 0;
-
-    /* Make sure to handle close events before I/O to avoid reading from broken connection */
-    if ((event_code & EPOLLERR) || (event_code & (EPOLLHUP | EPOLLRDHUP))) {
-        if (ev->ops->close) {
-            ret = ev->ops->close(ev->priv);
-        }
-    } else if (event_code & EPOLLIN) {
-        if (ev->ops->read) {
-            ret = ev->ops->read(ev->priv);
-        }
+    if ((event_code & (EPOLLIN | EPOLLERR | EPOLLRDHUP)) && ev->ops->read) {
+        return ev->ops->read(ev->priv);
     }
 
-    return ret;
+    return 0;
 }
 
 static int handle_events(struct vhd_event_loop* evloop, int nevents)

@@ -82,9 +82,6 @@ bool vhd_event_loop_terminated(struct vhd_event_loop* evloop);
  */
 struct vhd_event_ops
 {
-    /** Event source is closing */
-    int (*close)(void* ctx);
-
     /** Data is available for reading */
     int (*read)(void* ctx);
 };

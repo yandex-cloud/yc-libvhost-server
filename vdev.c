@@ -24,25 +24,21 @@ static void vring_inflight_addr_init(struct vhd_vring* vring);
 ////////////////////////////////////////////////////////////////////////////////
 
 static int server_read(void* sock);
-static int server_close(void* sock);
 
 /*
  * Event callbacks for vhost vdev listen socket
  */
 static const struct vhd_event_ops g_server_sock_ops = {
     .read = server_read,
-    .close = server_close,
 };
 
 static int conn_read(void* data);
-static int conn_close(void* data);
 
 /*
  * Event callbacks for vhost vdev client connection
  */
 static const struct vhd_event_ops g_conn_sock_ops = {
     .read = conn_read,
-    .close = conn_close
 };
 
 /* Receive and store the message from the socket. Fill in the file
@@ -75,7 +71,9 @@ static int net_recv_msg(int fd, struct vhost_user_msg *msg, int *fds, size_t fdm
     msgh.msg_control = control;
     msgh.msg_controllen = sizeof(control);
     len = recvmsg(fd, &msgh, 0);
-    if (len < 0) {
+    if (len == 0) {
+        return 0;
+    } else if (len < 0) {
         VHD_LOG_ERROR("recvmsg() failed. Error code = %d, %s",
                 errno, strerror(errno));
         return -errno;
@@ -350,7 +348,6 @@ static const uint64_t g_default_protocol_features =
     (1UL << VHOST_USER_PROTOCOL_F_INFLIGHT_SHMFD);
 
 static int vring_io_event(void* ctx);
-static int vring_close_event(void* ctx);
 static int vring_set_enable(struct vhd_vring* vring, bool do_enable);
 
 static inline bool has_feature(uint64_t features_qword, size_t feature_bit)
@@ -1111,39 +1108,22 @@ close_client:
     return ret;
 }
 
-static int server_close(void* data)
-{
-    VHD_UNUSED(data);
-
-    /* We ignore close on server socket */
-    return 0;
-}
-
 static int conn_read(void* data)
 {
     int len;
     struct vhost_user_msg msg;
     int fds[VHOST_USER_MAX_FDS];
-
-    struct vhd_vdev* vdev = (struct vhd_vdev*)data;
-    VHD_ASSERT(vdev);
+    struct vhd_vdev *vdev = data;
 
     len = net_recv_msg(vdev->connfd, &msg, fds, VHOST_USER_MAX_FDS);
-    if (len < 0) {
-        return len;
+    if (len <= 0) {
+        VHD_LOG_DEBUG("Close connection with client, sock = %d",
+                      vdev->connfd);
+
+        return change_device_state(vdev, VDEV_LISTENING);
     }
 
     return vhost_handle_request(vdev, &msg, fds);
-}
-
-static int conn_close(void* data)
-{
-    struct vhd_vdev* vdev = (struct vhd_vdev*)data;
-    VHD_ASSERT(vdev);
-
-    VHD_LOG_DEBUG("Close connection with client, sock = %d", vdev->connfd);
-
-    return change_device_state(vdev, VDEV_LISTENING);
 }
 
 /* Prepare the sock path for the server. Return 0 if the requested path
@@ -1340,14 +1320,6 @@ static int vring_io_event(void* ctx)
     return vhd_vdev_dispatch_requests(vring->vdev, vring);
 }
 
-static int vring_close_event(void* ctx)
-{
-    VHD_UNUSED(ctx);
-
-    /* TODO: not sure how we should react */
-    return 0;
-}
-
 static int vring_set_enable(struct vhd_vring* vring, bool do_enable)
 {
     if (do_enable == vring->is_enabled) {
@@ -1376,7 +1348,6 @@ static int vring_set_enable(struct vhd_vring* vring, bool do_enable)
 
         static const struct vhd_event_ops g_vring_ops = {
             .read = vring_io_event,
-            .close = vring_close_event,
         };
 
         vring->kickev.priv = vring;
