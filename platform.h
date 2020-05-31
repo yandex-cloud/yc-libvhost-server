@@ -185,22 +185,6 @@ static inline int memfd_create(const char *name, unsigned int flags)
 }
 #endif
 
-////////////////////////////////////////////////////////////////////////////////
-
-static inline void vhd_compiler_barrier(void)
-{
-    __asm volatile(""
-                   :
-                   :
-                   : "memory");
-}
-
-#define vhd_smp_mb  __sync_synchronize()
-
-/* We assume only x86_64 where rmb and wmb are noops for normal memory types */
-#define vhd_smp_rmb() vhd_compiler_barrier()
-#define vhd_smp_wmb() vhd_compiler_barrier()
-
 /* A wrapper to yield hardware thread in case of cpu-level multithreading */
 static inline void vhd_yield_cpu(void)
 {
