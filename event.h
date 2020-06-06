@@ -129,6 +129,17 @@ void vhd_set_eventfd(int fd);
  */
 int vhd_del_event(struct vhd_event_loop* evloop, int fd);
 
+struct vhd_bh;
+typedef void vhd_bh_cb(void *opaque);
+
+struct vhd_bh *vhd_bh_new(struct vhd_event_loop *ctx,
+                          vhd_bh_cb *cb, void *opaque);
+void vhd_bh_schedule_oneshot(struct vhd_event_loop *ctx,
+                             vhd_bh_cb *cb, void *opaque);
+void vhd_bh_schedule(struct vhd_bh *bh);
+void vhd_bh_cancel(struct vhd_bh *bh);
+void vhd_bh_delete(struct vhd_bh *bh);
+
 #ifdef __cplusplus
 }
 #endif
