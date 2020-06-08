@@ -64,13 +64,12 @@ static int handle_events(struct vhd_event_loop* evloop, int nevents)
     struct epoll_event* events = evloop->events;
 
     for (int i = 0; i < nevents; i++) {
-        if (events[i].data.fd == evloop->interruptfd) {
+        struct vhd_event_ctx* ev = events[i].data.ptr;
+        if (!ev) {
             /* We were interrupted, handle other events normally and ignore this one */
             vhd_clear_eventfd(evloop->interruptfd);
             continue;
         }
-
-        struct vhd_event_ctx* ev = events[i].data.ptr;
         if (handle_one_event(ev, events[i].events)) {
             nerr++;
         }
@@ -99,7 +98,6 @@ struct vhd_event_loop* vhd_create_event_loop(size_t max_events)
     /* Register interrupt eventfd, make sure it is level-triggered */
     struct epoll_event ev = {0};
     ev.events = EPOLLIN;
-    ev.data.fd = interruptfd;
     if (epoll_ctl(epollfd, EPOLL_CTL_ADD, interruptfd, &ev) == -1) {
         VHD_LOG_ERROR("Can't add event: %d", errno);
         goto error_out;
@@ -214,7 +212,6 @@ int vhd_add_event(struct vhd_event_loop* evloop, int fd, struct vhd_event_ctx* c
 
     struct epoll_event ev;
     ev.events = EPOLLIN | EPOLLHUP | EPOLLRDHUP;
-    ev.data.fd = fd;
     ev.data.ptr = ctx;
     if (epoll_ctl(evloop->epollfd, EPOLL_CTL_ADD, fd, &ev) == -1) {
         VHD_LOG_ERROR("Can't add event: %d", errno);
