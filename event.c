@@ -15,6 +15,7 @@ struct vhd_event_loop
 
     /* eventfd we use to cancel epoll_wait if needed */
     int interruptfd;
+    atomic_bool notified;
 
     /* vhd_terminate_event_loop has been completed */
     atomic_bool is_terminated;
@@ -23,6 +24,14 @@ struct vhd_event_loop
     struct epoll_event* events;
     size_t max_events;
 };
+
+static void notify_accept(struct vhd_event_loop *evloop)
+{
+    if (atomic_read(&evloop->notified)) {
+        vhd_clear_eventfd(evloop->interruptfd);
+        atomic_xchg(&evloop->notified, false);
+    }
+}
 
 static int handle_one_event(struct vhd_event_ctx* ev, int event_code)
 {
@@ -41,8 +50,6 @@ static int handle_events(struct vhd_event_loop* evloop, int nevents)
     for (int i = 0; i < nevents; i++) {
         struct vhd_event_ctx* ev = events[i].data.ptr;
         if (!ev) {
-            /* We were interrupted, handle other events normally and ignore this one */
-            vhd_clear_eventfd(evloop->interruptfd);
             continue;
         }
         if (handle_one_event(ev, events[i].events)) {
@@ -81,6 +88,7 @@ struct vhd_event_loop* vhd_create_event_loop(size_t max_events)
     struct vhd_event_loop* evloop = vhd_alloc(sizeof(*evloop));
     evloop->epollfd = epollfd;
     evloop->interruptfd = interruptfd;
+    atomic_set(&evloop->notified, false);
     evloop->is_terminated = false;
     evloop->max_events = max_events + 1; /* +1 for interrupt eventfd */
     evloop->events = vhd_calloc(sizeof(evloop->events[0]), evloop->max_events);
@@ -111,6 +119,8 @@ int vhd_run_event_loop(struct vhd_event_loop* evloop, int timeout_ms)
         return -errno;
     }
 
+    notify_accept(evloop);
+
     int nerr = handle_events(evloop, nev);
     if (nerr) {
         VHD_LOG_WARN("Got %d events, can't handle %d events", nev, nerr);
@@ -122,7 +132,9 @@ int vhd_run_event_loop(struct vhd_event_loop* evloop, int timeout_ms)
 
 void vhd_interrupt_event_loop(struct vhd_event_loop* evloop)
 {
-    vhd_set_eventfd(evloop->interruptfd);
+    if (!atomic_xchg(&evloop->notified, true)) {
+        vhd_set_eventfd(evloop->interruptfd);
+    }
 }
 
 bool vhd_event_loop_terminated(struct vhd_event_loop* evloop)
