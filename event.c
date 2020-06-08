@@ -239,10 +239,14 @@ int vhd_del_event(struct vhd_event_loop* evloop, int fd)
 void vhd_clear_eventfd(int fd)
 {
     eventfd_t unused;
-    eventfd_read(fd, &unused);
+    while (eventfd_read(fd, &unused) && errno == EINTR) {
+        ;
+    }
 }
 
 void vhd_set_eventfd(int fd)
 {
-    eventfd_write(fd, 1);
+    while (eventfd_write(fd, 1) && errno == EINTR) {
+        ;
+    }
 }
