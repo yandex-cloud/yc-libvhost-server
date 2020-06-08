@@ -24,7 +24,7 @@
 /*
  * Atomically insert a new list head
  */
-#define SLIST_INSERT_HEAD_ATOMIC(head, elm, field) do {                           \
+#define SLIST_INSERT_HEAD_ATOMIC(head, elm, field)      ({                        \
     typeof(elm) old_slh_first;                                                    \
     do {                                                                          \
         /* Grab the current head and make the new element point to it */          \
@@ -34,7 +34,7 @@
         /* Repeat until slh_first matches old_slh_first at the time of cmpxchg */ \
     } while (atomic_cmpxchg(&(head)->slh_first, old_slh_first, (elm)) !=          \
              old_slh_first);                                                      \
-} while (0)
+    old_slh_first;      })
 
 /*
  * Atomically move the list into 'dest' leaving 'src' empty
