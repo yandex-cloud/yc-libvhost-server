@@ -26,13 +26,13 @@
         struct type * _Atomic slh_first; /* first element */    \
     }
 
-#define SLIST_INSERT_HEAD_ATOMIC(head, elm, field) do {                  \
+#define SLIST_INSERT_HEAD_ATOMIC(head, elm, field)      ({               \
     typeof(elm) old_slh_first;                                           \
     do {                                                                 \
         old_slh_first = (elm)->field.sle_next = (head)->slh_first;       \
     } while (atomic_cmpxchg(&(head)->slh_first, old_slh_first, (elm)) != \
              old_slh_first);                                             \
-} while (/*CONSTCOND*/0)
+    old_slh_first;      })
 
 #define SLIST_MOVE_ATOMIC(dest, src) do {                            \
     (dest)->slh_first = atomic_xchg(&(src)->slh_first, NULL);        \
