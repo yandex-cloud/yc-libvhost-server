@@ -67,6 +67,94 @@ static int map_buffer(struct virtio_virtq* vq, struct virtio_mm_ctx* mm, uint64_
     return add_buffer(vq, addr, len, write_only);
 }
 
+/* Modify inflight descriptor after dequeue request from the available
+ * ring.
+ */
+static void virtq_inflight_avail_update(struct virtio_virtq* vq,
+        uint16_t head)
+{
+    if (!vq->inflight_region) {
+        return;
+    }
+
+    vq->inflight_region->desc[head].counter = vq->req_cnt;
+    vq->req_cnt++;
+    vq->inflight_region->desc[head].inflight = 1;
+}
+
+/* Prepare the inflight descriptor for commit. */
+static void virtq_inflight_used_update(struct virtio_virtq* vq,
+        uint16_t head)
+{
+    if (!vq->inflight_region) {
+        return;
+    }
+
+    vq->inflight_region->desc[head].next = vq->inflight_region->last_batch_head;
+    vq->inflight_region->last_batch_head = head;
+}
+
+/* Post commit inflight descriptor handling. */
+static void virtq_inflight_used_commit(struct virtio_virtq* vq,
+        uint16_t head)
+{
+    if (!vq->inflight_region) {
+        return;
+    }
+
+    vq->inflight_region->desc[head].inflight = 0;
+    vhd_smp_wmb();
+    vq->inflight_region->used_idx = vq->used->idx;
+}
+
+/* If the value of ``used_idx`` does not match the ``idx`` value of
+ * used ring (means the inflight field of ``inflight_split_desc``
+ * entries in last batch may be incorrect).
+ */
+static void virtq_inflight_reconnect_update(struct virtio_virtq* vq)
+{
+    int batch_size;
+    uint16_t idx;
+
+    vq->req_cnt = 0;
+    if (!vq->inflight_region) {
+        return;
+    }
+
+    /* Initialize the global req counter for the inflight descriptors. */
+    for (idx = 0; idx < vq->inflight_region->desc_num; idx++) {
+        if (vq->inflight_region->desc[idx].counter > vq->req_cnt) {
+            vq->req_cnt = vq->inflight_region->desc[idx].counter;
+        }
+    }
+    vq->req_cnt++;
+
+    batch_size = vq->used->idx - vq->inflight_region->used_idx;
+    if (!batch_size) {
+        /* Last batch was sent successfully. Nothing to update. */
+        return;
+    }
+
+    /* TODO: We should send a notify when the notify_fd will be
+     * initialized since the last_batch commit was incomplete.
+     * Disconnect happened before the notify event. There is
+     * still a very small gap where the virtq_inflight_used_commit()
+     * routine completed successfully and after it the daemon
+     * stops and didn't send a notify. In this case the last_batch
+     * will be in the correct state and no notify will be sent.
+     * Need to simulate and investigate it more precisely.
+     */
+    vq->inflight_notify = true;
+
+    idx = vq->inflight_region->last_batch_head;
+    while (batch_size) {
+        vq->inflight_region->desc[idx].inflight = 0;
+        idx = vq->inflight_region->desc[idx].next;
+        batch_size--;
+    }
+    vq->inflight_region->used_idx = vq->used->idx;
+}
+
 int virtio_virtq_attach(struct virtio_virtq* vq,
                         void* desc_addr,
                         void* avail_addr,
@@ -94,6 +182,8 @@ int virtio_virtq_attach(struct virtio_virtq* vq,
 
     /* Inflight initialization. */
     vq->inflight_region = inflight_addr;
+    vq->inflight_notify = false;
+    virtq_inflight_reconnect_update(vq);
 
     /* Notify fd is set separately */
     vq->notify_fd = -1;
@@ -220,6 +310,8 @@ int virtq_dequeue_many(struct virtio_virtq* vq,
         if (res) {
             goto queue_broken;
         }
+
+        virtq_inflight_avail_update(vq, head);
     }
 
     /* TODO: restore notifier mask here */
@@ -311,8 +403,12 @@ void virtq_commit_buffers(struct virtio_virtq* vq, struct virtio_iov* iov)
     used->id = priv->used_head;
     used->len = priv->used_len;
 
+    virtq_inflight_used_update(vq, used->id);
+
     vhd_smp_wmb();
     vq->used->idx++;
+
+    virtq_inflight_used_commit(vq, used->id);
     pthread_mutex_unlock(&vq->lock);
 
     free_iov(priv);
@@ -337,4 +433,13 @@ void virtq_set_notify_fd(struct virtio_virtq* vq, int fd)
     }
 
     vq->notify_fd = fd;
+
+    /* TODO: We should send a notify here, because the previous disconnect
+     * happened before the notify event.
+     * Maybe we shouldn't handle it, but it looks like a correct way to handle.
+     */
+    if (vq->inflight_notify) {
+        virtq_notify(vq);
+    }
+    vq->inflight_notify = false;
 }

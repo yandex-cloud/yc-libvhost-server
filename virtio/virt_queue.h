@@ -68,7 +68,9 @@ struct virtio_virtq
     pthread_mutex_t lock;
 
     /* inflight information */
+    uint64_t req_cnt;
     struct inflight_split_region *inflight_region;
+    bool inflight_notify;
 };
 
 int virtio_virtq_attach(struct virtio_virtq* vq,
