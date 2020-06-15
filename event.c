@@ -67,7 +67,7 @@ struct vhd_event_loop
     atomic_bool notified;
 
     /* vhd_terminate_event_loop has been completed */
-    atomic_bool is_terminated;
+    bool is_terminated;
 
     /* preallocated events buffer */
     struct epoll_event* events;
@@ -330,13 +330,18 @@ void vhd_interrupt_event_loop(struct vhd_event_loop* evloop)
 
 bool vhd_event_loop_terminated(struct vhd_event_loop* evloop)
 {
-    return atomic_load_acquire(&evloop->is_terminated);
+    return evloop->is_terminated;
+}
+
+void evloop_stop_bh(void *opaque)
+{
+    struct vhd_event_loop *evloop = opaque;
+    evloop->is_terminated = true;
 }
 
 void vhd_terminate_event_loop(struct vhd_event_loop* evloop)
 {
-    atomic_store_release(&evloop->is_terminated, true);
-    vhd_interrupt_event_loop(evloop);
+    vhd_bh_schedule_oneshot(evloop, evloop_stop_bh, evloop);
 }
 
 /*
