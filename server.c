@@ -29,8 +29,7 @@ static void* vhost_evloop_func(void* arg)
             break;
         }
     }
-    
-    free_vhost_event_loop();
+
     return NULL;
 }
 
@@ -66,6 +65,7 @@ void vhd_stop_vhost_server(void)
 
     vhd_terminate_event_loop(g_vhost_evloop);
     pthread_join(g_vhost_thread, NULL);
+    free_vhost_event_loop();
 }
 
 int vhd_add_vhost_event(int fd, void* priv, const struct vhd_event_ops* ops, struct vhd_event_ctx* ctx)
