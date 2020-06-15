@@ -104,7 +104,13 @@ static void virtq_inflight_used_commit(struct virtio_virtq* vq,
     }
 
     vq->inflight_region->desc[head].inflight = 0;
-    vhd_smp_wmb();
+    /*
+     * Make sure used_idx is stored after the desc content, so that the next
+     * incarnation of the vhost backend sees consistent values regardless of
+     * where the current one dies.  There's no concurrent access to the
+     * inflight region so only a compiler barrier is necessary.
+     */
+    barrier();
     vq->inflight_region->used_idx = vq->used->idx;
 }
 
