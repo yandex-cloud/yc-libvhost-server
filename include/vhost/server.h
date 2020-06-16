@@ -1,6 +1,6 @@
 #pragma once
 
-#include <vhost/platform.h>
+#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -8,8 +8,6 @@ extern "C" {
 
 struct vhd_event_ops;
 struct vhd_event_ctx;
-struct vhd_vdev;
-struct vhd_bdev_io;
 
 /**
  * Start vhost server
@@ -95,6 +93,9 @@ void vhd_stop_queue(struct vhd_request_queue* rq);
  * Dequeue next request.
  */
 bool vhd_dequeue_request(struct vhd_request_queue* rq, struct vhd_request* out_req);
+
+struct vhd_vdev;
+struct vhd_bdev_io;
 
 /**
  * Enqueue block IO request
