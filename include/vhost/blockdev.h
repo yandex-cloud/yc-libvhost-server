@@ -50,11 +50,7 @@ struct vhd_bdev_io
     void (*completion_handler) (struct vhd_bdev_io* bio, enum vhd_bdev_io_result res);
 };
 
-static inline void vhd_complete_bio(struct vhd_bdev_io* bio, enum vhd_bdev_io_result res)
-{
-    VHD_VERIFY(bio && bio->completion_handler);
-    bio->completion_handler(bio, res);
-}
+void vhd_complete_bio(struct vhd_bdev_io* bio, enum vhd_bdev_io_result res);
 
 /**
  * Client-supplied block device backend definition
