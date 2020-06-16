@@ -6,9 +6,6 @@
 extern "C" {
 #endif
 
-struct vhd_event_ops;
-struct vhd_event_ctx;
-
 /**
  * Start vhost server
  *
@@ -26,18 +23,6 @@ int vhd_start_vhost_server(void);
  * Stop vhost event thread which means no new vhost connections are possible
  */
 void vhd_stop_vhost_server(void);
-
-/**
- * Add event source to vhost server event loop
- *
- * Return 0 on success or negative error code.
- */
-int vhd_add_vhost_event(int fd, void* priv, const struct vhd_event_ops* ops, struct vhd_event_ctx* ctx);
-
-/**
- * Delete event source from vhost server event loop
- */
-void vhd_del_vhost_event(int fd);
 
 /**
  * Request instance stored in request queue
@@ -72,12 +57,6 @@ struct vhd_request_queue* vhd_create_request_queue(void);
 void vhd_release_request_queue(struct vhd_request_queue* rq);
 
 /**
- * Attach event to request queue event loop
- */
-int vhd_attach_event(struct vhd_request_queue* rq, int fd, struct vhd_event_ctx* ev);
-void vhd_detach_event(struct vhd_request_queue* rq, int fd);
-
-/**
  * Run queue in calling thread.
  * Will block until any of the devices enqueue requests.
  */
@@ -93,14 +72,6 @@ void vhd_stop_queue(struct vhd_request_queue* rq);
  * Dequeue next request.
  */
 bool vhd_dequeue_request(struct vhd_request_queue* rq, struct vhd_request* out_req);
-
-struct vhd_vdev;
-struct vhd_bdev_io;
-
-/**
- * Enqueue block IO request
- */
-int vhd_enqueue_block_request(struct vhd_request_queue* rq, struct vhd_vdev* vdev, struct vhd_bdev_io* bio);
 
 #ifdef __cplusplus
 }

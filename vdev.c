@@ -14,7 +14,7 @@
 #include <vhost/platform.h>
 #include <vhost/event.h>
 #include <vhost/vdev.h>
-#include "vhost/server.h"
+#include "server_internal.h"
 
 #include <virtio/virt_queue.h>
 

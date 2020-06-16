@@ -1,6 +1,6 @@
 #include <pthread.h>
 
-#include "vhost/server.h"
+#include "server_internal.h"
 #include <vhost/intrusive_list.h>
 #include <vhost/event.h>
 #include <vhost/vdev.h>
