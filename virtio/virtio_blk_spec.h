@@ -4,7 +4,7 @@
 
 #pragma once
 
-#include "vhost/platform.h"
+#include "platform.h"
 
 /* TODO: move to common virtio spec header */
 typedef uint8_t  u8;

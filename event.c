@@ -5,7 +5,7 @@
 #include <sys/epoll.h>
 #include <sys/eventfd.h>
 
-#include <vhost/platform.h>
+#include "platform.h"
 #include <vhost/event.h>
 
 enum event_loop_state

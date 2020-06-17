@@ -1,6 +1,5 @@
 #include <string.h>
 
-#include <vhost/platform.h>
 #include "vhost/blockdev.h"
 
 #include "virtio_blk.h"

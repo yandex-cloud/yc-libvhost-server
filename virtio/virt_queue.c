@@ -4,7 +4,6 @@
 #include <alloca.h>
 #include <sys/eventfd.h>
 
-#include <vhost/platform.h>
 #include "virt_queue.h"
 
 ////////////////////////////////////////////////////////////////////////////////
