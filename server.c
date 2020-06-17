@@ -2,7 +2,7 @@
 
 #include "platform.h"
 #include "server_internal.h"
-#include <vhost/intrusive_list.h>
+#include "intrusive_list.h"
 #include "event.h"
 #include "vhost/blockdev.h"
 

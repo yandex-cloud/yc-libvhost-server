@@ -10,7 +10,6 @@
 #include <errno.h>
 #include <unistd.h>
 
-#include <sys/queue.h>
 #include <sys/syscall.h>
 
 #define PAGE_SHIFT  12

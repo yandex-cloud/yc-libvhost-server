@@ -1,5 +1,4 @@
 #include "vhost/blockdev.h"
-#include <vhost/intrusive_list.h>
 #include "server_internal.h"
 #include "vdev.h"
 
