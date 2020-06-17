@@ -11,7 +11,7 @@
 #include <stdatomic.h>
 #include <alloca.h>
 
-#include <vhost/event.h>
+#include "event.h"
 #include "vdev.h"
 #include "server_internal.h"
 

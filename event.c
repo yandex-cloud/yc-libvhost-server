@@ -6,7 +6,7 @@
 #include <sys/eventfd.h>
 
 #include "platform.h"
-#include <vhost/event.h>
+#include "event.h"
 
 enum event_loop_state
 {

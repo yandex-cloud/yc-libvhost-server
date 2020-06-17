@@ -1,6 +1,6 @@
 #pragma once
 
-#include <vhost/event.h>
+#include "event.h"
 #include <vhost/intrusive_list.h>
 #include <vhost/vhost_spec.h>
 
