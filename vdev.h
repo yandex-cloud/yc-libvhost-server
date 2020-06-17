@@ -2,7 +2,6 @@
 
 #include "event.h"
 #include <vhost/intrusive_list.h>
-#include <vhost/vhost_spec.h>
 
 #include <virtio/virt_queue.h>
 
