@@ -1,7 +1,7 @@
 #include "vhost/blockdev.h"
 #include <vhost/intrusive_list.h>
 #include "server_internal.h"
-#include "vhost/vdev.h"
+#include "vdev.h"
 
 #include <virtio/virtio_blk.h>
 

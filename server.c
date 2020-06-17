@@ -1,9 +1,9 @@
 #include <pthread.h>
 
+#include "platform.h"
 #include "server_internal.h"
 #include <vhost/intrusive_list.h>
 #include <vhost/event.h>
-#include <vhost/vdev.h>
 #include "vhost/blockdev.h"
 
 #define VHOST_EVENT_LOOP_EVENTS 128

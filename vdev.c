@@ -12,7 +12,7 @@
 #include <alloca.h>
 
 #include <vhost/event.h>
-#include <vhost/vdev.h>
+#include "vdev.h"
 #include "server_internal.h"
 
 #include <virtio/virt_queue.h>
