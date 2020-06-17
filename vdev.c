@@ -11,11 +11,8 @@
 #include <stdatomic.h>
 #include <alloca.h>
 
-#include "event.h"
 #include "vdev.h"
 #include "server_internal.h"
-
-#include <virtio/virt_queue.h>
 
 static LIST_HEAD(, vhd_vdev) g_vdevs = LIST_HEAD_INITIALIZER(g_vdevs);
 

@@ -3,7 +3,7 @@
 #include "event.h"
 #include "intrusive_list.h"
 
-#include <virtio/virt_queue.h>
+#include "virtio/virt_queue.h"
 
 #ifdef __cplusplus
 extern "C" {
