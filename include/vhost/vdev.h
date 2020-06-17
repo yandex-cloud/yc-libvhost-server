@@ -14,6 +14,9 @@ struct vhd_vdev;
 struct vhd_vring;
 struct vhd_request_queue;
 
+typedef uint64_t vhd_paddr_t;
+typedef uint64_t vhd_uaddr_t;
+
 /**
  * TODO: need a separate unit for this
  */
@@ -256,14 +259,6 @@ void vhd_vring_init(struct vhd_vring* vring, int id, struct vhd_vdev* vdev);
  * Release vring resoucres
  */
 void vhd_vring_uninit(struct vhd_vring* vring);
-
-////////////////////////////////////////////////////////////////////////////////
-
-//
-// TODO: public API
-//
-
-void* vhd_vdev_get_priv(struct vhd_vdev* vdev);
 
 #ifdef __cplusplus
 }

@@ -1,13 +1,12 @@
 #pragma once
 
-#include <vhost/vdev.h>
+#include <stdint.h>
+
+#include "vhost/types.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-#define VHD_SECTOR_SHIFT    (9)
-#define VHD_SECTOR_SIZE     (1ull << VHD_SECTOR_SHIFT)
 
 struct vhd_request_queue;
 struct vhd_vdev;
@@ -35,6 +34,9 @@ enum vhd_bdev_io_result
     VHD_BDEV_SUCCESS = 0,
     VHD_BDEV_IOERR,
 };
+
+#define VHD_SECTOR_SHIFT    (9)
+#define VHD_SECTOR_SIZE     (1ull << VHD_SECTOR_SHIFT)
 
 /**
  * In-flight blockdev io request
@@ -89,6 +91,11 @@ struct vhd_vdev* vhd_register_blockdev(struct vhd_bdev_info* bdev, struct vhd_re
  * Unregister vhost block device.
  */
 void vhd_unregister_blockdev(struct vhd_vdev* vdev, void (*unregister_complete)(void*), void* arg);
+
+/**
+ * Get private data associated with vdev
+ */
+void* vhd_vdev_get_priv(struct vhd_vdev* vdev);
 
 #ifdef __cplusplus
 }

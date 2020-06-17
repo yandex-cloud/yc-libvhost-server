@@ -3,7 +3,7 @@
 #include <pthread.h>
 
 #include <vhost/platform.h>
-#include <vhost/types.h>
+#include "vhost/types.h"
 #include <vhost/vhost_spec.h>
 
 #include "virtio_spec.h"

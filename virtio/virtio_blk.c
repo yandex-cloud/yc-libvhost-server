@@ -1,8 +1,7 @@
 #include <string.h>
 
 #include <vhost/platform.h>
-#include <vhost/types.h>
-#include <vhost/blockdev.h>
+#include "vhost/blockdev.h"
 
 #include "virtio_blk.h"
 #include "virtio_blk_spec.h"
@@ -49,6 +48,26 @@ static void complete_io(struct vhd_bdev_io* bdev_io, enum vhd_bdev_io_result res
     virtq_notify(bio->vq);
 
     vhd_free(bio);
+}
+
+static inline bool vhd_buffer_is_read_only(const struct vhd_buffer* buf)
+{
+    return !buf->write_only;
+}
+
+static inline bool vhd_buffer_is_write_only(const struct vhd_buffer* buf)
+{
+    return buf->write_only;
+}
+
+static inline bool vhd_buffer_can_read(const struct vhd_buffer* buf)
+{
+    return vhd_buffer_is_read_only(buf);
+}
+
+static inline bool vhd_buffer_can_write(const struct vhd_buffer* buf)
+{
+    return vhd_buffer_is_write_only(buf);
 }
 
 static bool check_status_buffer(struct vhd_buffer* buf)
