@@ -9,13 +9,10 @@
 #include <assert.h>
 #include <errno.h>
 #include <unistd.h>
-
 #include <sys/syscall.h>
 
 #define PAGE_SHIFT  12
 #define PAGE_SIZE   (1ul << PAGE_SHIFT)
-
-long syscall(long number, ...);
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -179,12 +176,14 @@ static inline void vhd_free(void* p)
  * The support for the memfd_create syscall is introduced in glibc-2.27.
  * Right now we are using xenial with glibc-2.23.
  */
+#ifndef MFD_CLOEXEC
 #define MFD_CLOEXEC                0x0001U
 
 static inline int memfd_create(const char *name, unsigned int flags)
 {
     return syscall(__NR_memfd_create, name, flags);
 }
+#endif
 
 ////////////////////////////////////////////////////////////////////////////////
 
