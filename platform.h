@@ -157,15 +157,3 @@ static inline int memfd_create(const char *name, unsigned int flags)
     return syscall(__NR_memfd_create, name, flags);
 }
 #endif
-
-/* A wrapper to yield hardware thread in case of cpu-level multithreading */
-static inline void vhd_yield_cpu(void)
-{
-#if defined(__x86_64__)
-    __asm__ volatile("pause");
-#else
-#   error "Don't know how to pause on this architecture"
-#endif
-}
-
-////////////////////////////////////////////////////////////////////////////////
