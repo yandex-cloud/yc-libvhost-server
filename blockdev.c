@@ -1,6 +1,7 @@
 #include "vhost/blockdev.h"
 #include "server_internal.h"
 #include "vdev.h"
+#include "logging.h"
 
 #include "virtio/virtio_blk.h"
 

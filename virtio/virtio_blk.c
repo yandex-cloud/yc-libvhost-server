@@ -6,6 +6,7 @@
 #include "virtio_blk_spec.h"
 
 #include "virt_queue.h"
+#include "logging.h"
 
 #define SECTORS_TO_BLOCKS(dev, sectors) ((sectors) >> (dev)->block_shift)
 #define BLOCKS_TO_SECTORS(dev, blocks)  ((blocks) << (dev)->block_shift)

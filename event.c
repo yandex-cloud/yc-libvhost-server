@@ -7,6 +7,7 @@
 
 #include "platform.h"
 #include "event.h"
+#include "logging.h"
 
 enum event_loop_state
 {

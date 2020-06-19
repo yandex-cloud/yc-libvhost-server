@@ -5,6 +5,7 @@
 #include "queue.h"
 #include "event.h"
 #include "vhost/blockdev.h"
+#include "logging.h"
 
 #define VHOST_EVENT_LOOP_EVENTS 128
 
