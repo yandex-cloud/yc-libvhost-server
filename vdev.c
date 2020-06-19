@@ -13,6 +13,7 @@
 
 #include "vdev.h"
 #include "server_internal.h"
+#include "logging.h"
 
 static LIST_HEAD(, vhd_vdev) g_vdevs = LIST_HEAD_INITIALIZER(g_vdevs);
 
