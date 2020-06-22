@@ -83,8 +83,7 @@ struct bdev_aligned_req
     struct vhd_bdev* dev;
 };
 
-static void aligned_write_completion(struct vhd_bio* aligned_bio,
-                                     enum vhd_bdev_io_result iores)
+static void aligned_write_completion(struct vhd_bio* aligned_bio)
 {
     struct bdev_aligned_req* req =
         containerof(aligned_bio, struct bdev_aligned_req, aligned_bio);
@@ -93,15 +92,16 @@ static void aligned_write_completion(struct vhd_bio* aligned_bio,
     vhd_free(req->aligned_buf.base);
     vhd_free(req);
 
-    unaligned_bio->completion_handler(unaligned_bio, iores);
+    unaligned_bio->status = aligned_bio->status;
+    unaligned_bio->completion_handler(unaligned_bio);
 }
 
-static void aligned_read_completion(struct vhd_bio* aligned_bio,
-                                    enum vhd_bdev_io_result iores)
+static void aligned_read_completion(struct vhd_bio* aligned_bio)
 {
     struct bdev_aligned_req* req =
         containerof(aligned_bio, struct bdev_aligned_req, aligned_bio);
     struct vhd_bio* unaligned_bio = req->unaligned_bio;
+    enum vhd_bdev_io_result iores = aligned_bio->status;
 
     if (iores != VHD_BDEV_SUCCESS) {
         goto complete;
@@ -149,7 +149,8 @@ static void aligned_read_completion(struct vhd_bio* aligned_bio,
     }
 
 complete:
-    unaligned_bio->completion_handler(unaligned_bio, iores);
+    unaligned_bio->status = iores;
+    unaligned_bio->completion_handler(unaligned_bio);
     vhd_free(req->aligned_buf.base);
     vhd_free(req);
 }
@@ -205,7 +206,8 @@ static int vblk_handle_request(struct virtio_blk_dev* vblk, struct vhd_bio* bio)
 void vhd_complete_bio(struct vhd_bdev_io* bdev_io, enum vhd_bdev_io_result res)
 {
     struct vhd_bio *bio = containerof(bdev_io, struct vhd_bio, bdev_io);
-    bio->completion_handler(bio, res);
+    bio->status = res;
+    bio->completion_handler(bio);
 }
 
 struct vhd_vdev* vhd_register_blockdev(struct vhd_bdev_info* bdev, struct vhd_request_queue* rq, void* priv)
