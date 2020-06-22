@@ -20,6 +20,16 @@ struct virtio_blk_io
     struct vhd_bdev_io bdev_io;
 };
 
+static uint8_t translate_status(enum vhd_bdev_io_result status)
+{
+    switch (status) {
+    case VHD_BDEV_SUCCESS:
+        return VIRTIO_BLK_S_OK;
+    default:
+        return VIRTIO_BLK_S_IOERR;
+    }
+}
+
 static void set_status(struct virtio_iov* iov, uint8_t status)
 {
     *((uint8_t*)iov->buffers[iov->nvecs - 1].base) = status;
@@ -42,7 +52,7 @@ static void complete_io(struct vhd_bdev_io* bdev_io, enum vhd_bdev_io_result res
 
     struct virtio_blk_io* bio = containerof(bdev_io, struct virtio_blk_io, bdev_io);
 
-    set_status(bio->iov, (res == VHD_BDEV_SUCCESS ? VIRTIO_BLK_S_OK : VIRTIO_BLK_S_IOERR));
+    set_status(bio->iov, translate_status(res));
 
     virtq_commit_buffers(bio->vq, bio->iov);
     virtq_notify(bio->vq);
