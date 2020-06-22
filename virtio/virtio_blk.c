@@ -47,11 +47,11 @@ static void fail_request(struct virtio_virtq* vq, struct virtio_iov* iov)
     abort_request(vq, iov);
 }
 
-static void complete_io(struct vhd_bio* bio, enum vhd_bdev_io_result res)
+static void complete_io(struct vhd_bio* bio)
 {
     struct virtio_blk_io* vbio = containerof(bio, struct virtio_blk_io, bio);
 
-    set_status(vbio->iov, translate_status(res));
+    set_status(vbio->iov, translate_status(bio->status));
 
     virtq_commit_buffers(vbio->vq, vbio->iov);
     virtq_notify(vbio->vq);
