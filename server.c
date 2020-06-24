@@ -100,13 +100,8 @@ struct vhd_request_queue
 
     /* TODO: RCU lock would have been nice.. */
     pthread_spinlock_t lock;
-    TAILQ_HEAD(, vhd_request_entry) requests;
-};
 
-struct vhd_request_entry
-{
-    struct vhd_request data;
-    TAILQ_ENTRY(vhd_request_entry) link;
+    TAILQ_HEAD(, vhd_bio) submission;
 };
 
 struct vhd_request_queue* vhd_create_request_queue(void)
@@ -125,17 +120,16 @@ struct vhd_request_queue* vhd_create_request_queue(void)
         return NULL;
     }
 
-    TAILQ_INIT(&rq->requests);
+    TAILQ_INIT(&rq->submission);
     return rq;
 }
 
 void vhd_release_request_queue(struct vhd_request_queue* rq)
 {
-    if (rq) {
-        pthread_spin_destroy(&rq->lock);
-        vhd_free_event_loop(rq->evloop);
-        vhd_free(rq);
-    }
+    pthread_spin_destroy(&rq->lock);
+    assert(TAILQ_EMPTY(&rq->submission));
+    vhd_free_event_loop(rq->evloop);
+    vhd_free(rq);
 }
 
 int vhd_attach_event(struct vhd_request_queue* rq, int fd, struct vhd_event_ctx* ev)
@@ -177,24 +171,21 @@ void vhd_stop_queue(struct vhd_request_queue* rq)
 
 bool vhd_dequeue_request(struct vhd_request_queue* rq, struct vhd_request* out_req)
 {
-    VHD_VERIFY(rq);
-    VHD_VERIFY(out_req);
-
-    struct vhd_request_entry* r = NULL;
+    struct vhd_bio *bio;
 
     pthread_spin_lock(&rq->lock);
-    if (!TAILQ_EMPTY(&rq->requests)) {
-        r = TAILQ_FIRST(&rq->requests);
-        TAILQ_REMOVE(&rq->requests, r, link);
+    bio = TAILQ_FIRST(&rq->submission);
+    if (bio) {
+        TAILQ_REMOVE(&rq->submission, bio, submission_link);
     }
     pthread_spin_unlock(&rq->lock);
 
-    if (!r) {
+    if (!bio) {
         return false;
     }
 
-    *out_req = r->data;
-    vhd_free(r);
+    out_req->vdev = bio->vdev;
+    out_req->bio = &bio->bdev_io;
 
     return true;
 }
@@ -202,15 +193,10 @@ bool vhd_dequeue_request(struct vhd_request_queue* rq, struct vhd_request* out_r
 int vhd_enqueue_block_request(struct vhd_request_queue* rq,
                               struct vhd_vdev* vdev, struct vhd_bio* bio)
 {
-    VHD_VERIFY(rq);
-    VHD_VERIFY(bio);
-
-    struct vhd_request_entry* r = vhd_zalloc(sizeof(*r));
-    r->data.bio = &bio->bdev_io;
-    r->data.vdev = vdev;
+    bio->vdev = vdev;
 
     pthread_spin_lock(&rq->lock);
-    TAILQ_INSERT_TAIL(&rq->requests, r, link);
+    TAILQ_INSERT_TAIL(&rq->submission, bio, submission_link);
     pthread_spin_unlock(&rq->lock);
     return 0;
 }
