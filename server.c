@@ -93,6 +93,8 @@ void vhd_del_vhost_event(int fd)
 // Request queues
 //
 
+typedef SLIST_HEAD_ATOMIC(, vhd_bio) vhd_bio_list;
+
 /* TODO: bounded queue */
 struct vhd_request_queue
 {
@@ -102,7 +104,41 @@ struct vhd_request_queue
     pthread_spinlock_t lock;
 
     TAILQ_HEAD(, vhd_bio) submission;
+
+    vhd_bio_list completion;
+    struct vhd_bh *completion_bh;
 };
+
+static void rq_complete_bh(void *opaque)
+{
+    struct vhd_request_queue *rq = opaque;
+    vhd_bio_list bio_list, bio_list_reverse;
+
+    SLIST_INIT(&bio_list);
+    SLIST_INIT(&bio_list_reverse);
+    /* steal completion list from rq, swap for a fresh one */
+    SLIST_MOVE_ATOMIC(&bio_list_reverse, &rq->completion);
+
+    /* the list was filled LIFO, we want the completions FIFO */
+    for (;;) {
+        struct vhd_bio *bio = SLIST_FIRST(&bio_list_reverse);
+        if (!bio) {
+            break;
+        }
+        SLIST_REMOVE_HEAD(&bio_list_reverse, completion_link);
+        SLIST_INSERT_HEAD(&bio_list, bio, completion_link);
+    }
+
+    for (;;) {
+        struct vhd_bio *bio = SLIST_FIRST(&bio_list);
+        if (!bio) {
+            break;
+        }
+        SLIST_REMOVE_HEAD(&bio_list, completion_link);
+
+        bio->completion_handler(bio);
+    }
+}
 
 struct vhd_request_queue* vhd_create_request_queue(void)
 {
@@ -121,6 +157,9 @@ struct vhd_request_queue* vhd_create_request_queue(void)
     }
 
     TAILQ_INIT(&rq->submission);
+
+    SLIST_INIT(&rq->completion);
+    rq->completion_bh = vhd_bh_new(rq->evloop, rq_complete_bh, rq);
     return rq;
 }
 
@@ -128,6 +167,8 @@ void vhd_release_request_queue(struct vhd_request_queue* rq)
 {
     pthread_spin_destroy(&rq->lock);
     assert(TAILQ_EMPTY(&rq->submission));
+    assert(SLIST_EMPTY(&rq->completion));
+    vhd_bh_delete(rq->completion_bh);
     vhd_free_event_loop(rq->evloop);
     vhd_free(rq);
 }
@@ -193,6 +234,7 @@ bool vhd_dequeue_request(struct vhd_request_queue* rq, struct vhd_request* out_r
 int vhd_enqueue_block_request(struct vhd_request_queue* rq,
                               struct vhd_vdev* vdev, struct vhd_bio* bio)
 {
+    bio->rq = rq;
     bio->vdev = vdev;
 
     pthread_spin_lock(&rq->lock);
@@ -201,9 +243,15 @@ int vhd_enqueue_block_request(struct vhd_request_queue* rq,
     return 0;
 }
 
+/*
+ * can be called from arbitrary thread; will schedule completion on the rq
+ * event loop
+ */
 void vhd_complete_bio(struct vhd_bdev_io* bdev_io, enum vhd_bdev_io_result status)
 {
     struct vhd_bio *bio = containerof(bdev_io, struct vhd_bio, bdev_io);
+    struct vhd_request_queue *rq = bio->rq;
     bio->status = status;
-    bio->completion_handler(bio);
+    SLIST_INSERT_HEAD_ATOMIC(&rq->completion, bio, completion_link);
+    vhd_bh_schedule(rq->completion_bh);
 }
