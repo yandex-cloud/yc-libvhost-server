@@ -186,7 +186,6 @@ int virtio_virtq_attach(struct virtio_virtq* vq,
     vq->broken = false;
     vq->buffers = vhd_calloc(qsz, sizeof(vq->buffers[0]));
     vq->next_buffer = 0;
-    pthread_mutex_init(&vq->lock, NULL);
 
     /* Inflight initialization. */
     vq->inflight_region = inflight_addr;
@@ -203,10 +202,7 @@ int virtio_virtq_attach(struct virtio_virtq* vq,
 
 void virtio_virtq_release(struct virtio_virtq* vq)
 {
-    if (vq) {
-        pthread_mutex_destroy(&vq->lock);
-        vhd_free(vq->buffers);
-    }
+    vhd_free(vq->buffers);
 }
 
 struct inflight_resubmit {
@@ -477,7 +473,6 @@ void virtq_commit_buffers(struct virtio_virtq* vq, struct virtio_iov* iov)
 
     /* Put buffer head index and len into used ring */
     struct virtq_iov_private* priv = containerof(iov, struct virtq_iov_private, iov);
-    pthread_mutex_lock(&vq->lock);
     struct virtq_used_elem* used = &vq->used->ring[vq->used->idx % vq->qsz];
     used->id = priv->used_head;
     used->len = priv->used_len;
@@ -488,7 +483,6 @@ void virtq_commit_buffers(struct virtio_virtq* vq, struct virtio_iov* iov)
     vq->used->idx++;
 
     virtq_inflight_used_commit(vq, used->id);
-    pthread_mutex_unlock(&vq->lock);
     VHD_LOG_DEBUG("head = %d", priv->used_head);
 
     free_iov(priv);

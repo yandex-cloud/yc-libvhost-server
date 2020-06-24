@@ -63,9 +63,6 @@ struct virtio_virtq
      * can be reset after virtq is started. */
     int notify_fd;
 
-    /* mutex to protect virtq from concurrent completion */
-    pthread_mutex_t lock;
-
     /* inflight information */
     uint64_t req_cnt;
     struct inflight_split_region *inflight_region;
