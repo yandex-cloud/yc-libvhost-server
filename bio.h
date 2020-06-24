@@ -13,16 +13,19 @@ extern "C" {
 #endif
 
 struct vhd_vdev;
+struct vhd_request_queue;
 
 struct vhd_bio {
     struct vhd_bdev_io bdev_io;
 
     enum vhd_bdev_io_result status;
     struct vhd_vdev *vdev;
+    struct vhd_request_queue *rq;
 
     void (*completion_handler)(struct vhd_bio* bio);
 
     TAILQ_ENTRY(vhd_bio) submission_link;
+    SLIST_ENTRY(vhd_bio) completion_link;
 };
 
 #ifdef __cplusplus
