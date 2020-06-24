@@ -52,9 +52,9 @@ static int net_recv_msg(int fd, struct vhost_user_msg *msg, int *fds, size_t fdm
     int len;
     int payload_len;
     struct cmsghdr *cmsg;
+    char control[CMSG_SPACE(sizeof(int) * VHOST_USER_MAX_FDS)];
 
     VHD_VERIFY(fdmax <= VHOST_USER_MAX_FDS);
-    char control[CMSG_SPACE(sizeof(int) * fdmax)];
 
     /* Poison control buffer to catch wrong number of fds more easily */
     memset(control, 0xff, sizeof(control));
