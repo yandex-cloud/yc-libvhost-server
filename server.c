@@ -198,15 +198,6 @@ bool vhd_dequeue_request(struct vhd_request_queue* rq, struct vhd_request* out_r
     return true;
 }
 
-int vhd_enqueue_request(struct vhd_request_queue* rq, struct vhd_request_entry* r)
-{
-    pthread_spin_lock(&rq->lock);
-    TAILQ_INSERT_TAIL(&rq->requests, r, link);
-    pthread_spin_unlock(&rq->lock);
-
-    return 0;
-}
-
 int vhd_enqueue_block_request(struct vhd_request_queue* rq, struct vhd_vdev* vdev, struct vhd_bdev_io* bio)
 {
     VHD_VERIFY(rq);
@@ -216,5 +207,8 @@ int vhd_enqueue_block_request(struct vhd_request_queue* rq, struct vhd_vdev* vde
     r->data.bio = bio;
     r->data.vdev = vdev;
 
-    return vhd_enqueue_request(rq, r);
+    pthread_spin_lock(&rq->lock);
+    TAILQ_INSERT_TAIL(&rq->requests, r, link);
+    pthread_spin_unlock(&rq->lock);
+    return 0;
 }
