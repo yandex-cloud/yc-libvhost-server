@@ -252,6 +252,12 @@ void vhd_complete_bio(struct vhd_bdev_io* bdev_io, enum vhd_bdev_io_result statu
     struct vhd_bio *bio = containerof(bdev_io, struct vhd_bio, bdev_io);
     struct vhd_request_queue *rq = bio->rq;
     bio->status = status;
-    SLIST_INSERT_HEAD_ATOMIC(&rq->completion, bio, completion_link);
-    vhd_bh_schedule(rq->completion_bh);
+
+    /*
+     * if this is not the first completion on the list scheduling the bh can be
+     * skipped because the first one must have done so
+     */
+    if (!SLIST_INSERT_HEAD_ATOMIC(&rq->completion, bio, completion_link)) {
+        vhd_bh_schedule(rq->completion_bh);
+    }
 }
