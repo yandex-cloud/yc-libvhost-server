@@ -214,3 +214,10 @@ int vhd_enqueue_block_request(struct vhd_request_queue* rq,
     pthread_spin_unlock(&rq->lock);
     return 0;
 }
+
+void vhd_complete_bio(struct vhd_bdev_io* bdev_io, enum vhd_bdev_io_result status)
+{
+    struct vhd_bio *bio = containerof(bdev_io, struct vhd_bio, bdev_io);
+    bio->status = status;
+    bio->completion_handler(bio);
+}

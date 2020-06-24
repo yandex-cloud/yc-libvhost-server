@@ -203,13 +203,6 @@ static int vblk_handle_request(struct virtio_blk_dev* vblk, struct vhd_bio* bio)
     return vhd_enqueue_block_request(dev->vdev.rq, &dev->vdev, bio);
 }
 
-void vhd_complete_bio(struct vhd_bdev_io* bdev_io, enum vhd_bdev_io_result res)
-{
-    struct vhd_bio *bio = containerof(bdev_io, struct vhd_bio, bdev_io);
-    bio->status = res;
-    bio->completion_handler(bio);
-}
-
 struct vhd_vdev* vhd_register_blockdev(struct vhd_bdev_info* bdev, struct vhd_request_queue* rq, void* priv)
 {
     int res = 0;

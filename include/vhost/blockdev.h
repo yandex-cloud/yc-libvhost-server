@@ -50,8 +50,6 @@ struct vhd_bdev_io
     struct vhd_sglist sglist;
 };
 
-void vhd_complete_bio(struct vhd_bdev_io* bio, enum vhd_bdev_io_result res);
-
 /**
  * Client-supplied block device backend definition
  */

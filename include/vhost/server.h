@@ -2,6 +2,8 @@
 
 #include <stdbool.h>
 
+#include "blockdev.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -81,6 +83,13 @@ void vhd_stop_queue(struct vhd_request_queue* rq);
  * Dequeue next request.
  */
 bool vhd_dequeue_request(struct vhd_request_queue* rq, struct vhd_request* out_req);
+
+/*
+ * Complete the processing of the request.  The backend calls this to indicate
+ * that it's done with the request and the library may signal completion to the
+ * guest driver and dispose of the request.
+ */
+void vhd_complete_bio(struct vhd_bdev_io* bio, enum vhd_bdev_io_result status);
 
 #ifdef __cplusplus
 }
