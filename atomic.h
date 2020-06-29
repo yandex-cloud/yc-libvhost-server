@@ -27,7 +27,7 @@
  * to recheck if we ever build for another arch.
  */
 #ifndef __x86_64__
-#error Verify smp_read_barrier_depends doesn't incur extra costs
+#error Verify smp_read_barrier_depends incurs no extra costs
 #endif
 #define smp_read_barrier_depends()      \
     ({ barrier(); atomic_thread_fence(memory_order_consume); })
@@ -50,7 +50,7 @@
  * smp_read_barrier_depends, see above.
  */
 #ifndef __x86_64__
-#error Verify atomic_rcu_read doesn't incur extra costs
+#error Verify atomic_rcu_read incurs no extra costs
 #endif
 #define atomic_rcu_read(ptr)    \
     atomic_load_explicit(ptr, memory_order_consume)
