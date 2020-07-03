@@ -6,6 +6,15 @@
 extern "C" {
 #endif
 
+enum LogLevel {
+    LOG_ERROR = 0,
+    LOG_WARNING = 1,
+    LOG_INFO = 2,
+    LOG_DEBUG = 3
+};
+
+typedef void (*log_function)(enum LogLevel level, const char* format, ...);
+
 /**
  * Start vhost server
  *
@@ -15,7 +24,7 @@ extern "C" {
  *
  * Return 0 on success or negative error code.
  */
-int vhd_start_vhost_server(void);
+int vhd_start_vhost_server(log_function log_fn);
 
 /**
  * Stop vhost server
