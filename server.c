@@ -34,11 +34,13 @@ static void* vhost_evloop_func(void* arg)
     return NULL;
 }
 
-int vhd_start_vhost_server(void)
+int vhd_start_vhost_server(log_function log_fn)
 {
     if (g_vhost_evloop != NULL) {
         return 0;
     }
+
+    g_log_fn = log_fn;
 
     g_vhost_evloop = vhd_create_event_loop(VHOST_EVENT_LOOP_EVENTS);
     if (!g_vhost_evloop) {
