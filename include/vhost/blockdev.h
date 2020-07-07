@@ -48,8 +48,6 @@ struct vhd_bdev_io
     uint64_t first_sector;
     uint64_t total_sectors;
     struct vhd_sglist sglist;
-
-    void (*completion_handler) (struct vhd_bdev_io* bio, enum vhd_bdev_io_result res);
 };
 
 void vhd_complete_bio(struct vhd_bdev_io* bio, enum vhd_bdev_io_result res);

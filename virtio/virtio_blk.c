@@ -47,10 +47,9 @@ static void fail_request(struct virtio_virtq* vq, struct virtio_iov* iov)
     abort_request(vq, iov);
 }
 
-static void complete_io(struct vhd_bdev_io* bdev_io, enum vhd_bdev_io_result res)
+static void complete_io(struct vhd_bio* bio, enum vhd_bdev_io_result res)
 {
-    struct virtio_blk_io* vbio = containerof(bdev_io, struct virtio_blk_io,
-                                             bio.bdev_io);
+    struct virtio_blk_io* vbio = containerof(bio, struct virtio_blk_io, bio);
 
     set_status(vbio->iov, translate_status(res));
 
@@ -167,7 +166,7 @@ static int handle_inout(struct virtio_blk_dev* dev,
     vbio->bio.bdev_io.total_sectors = total_sectors;
     vbio->bio.bdev_io.sglist.nbuffers = ndatabufs;
     vbio->bio.bdev_io.sglist.buffers = pdata;
-    vbio->bio.bdev_io.completion_handler = complete_io;
+    vbio->bio.completion_handler = complete_io;
 
     int res = dev->dispatch(dev, &vbio->bio);
     if (res != 0) {

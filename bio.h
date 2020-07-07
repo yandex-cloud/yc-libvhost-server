@@ -13,6 +13,8 @@ extern "C" {
 
 struct vhd_bio {
     struct vhd_bdev_io bdev_io;
+
+    void (*completion_handler)(struct vhd_bio* bio, enum vhd_bdev_io_result res);
 };
 
 #ifdef __cplusplus

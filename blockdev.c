@@ -83,12 +83,12 @@ struct bdev_aligned_req
     struct vhd_bdev* dev;
 };
 
-static void aligned_write_completion(struct vhd_bdev_io* aligned_bio,
+static void aligned_write_completion(struct vhd_bio* aligned_bio,
                                      enum vhd_bdev_io_result iores)
 {
     struct bdev_aligned_req* req =
         containerof(aligned_bio, struct bdev_aligned_req, aligned_bio);
-    struct vhd_bdev_io* unaligned_bio = &req->unaligned_bio->bdev_io;
+    struct vhd_bio* unaligned_bio = req->unaligned_bio;
 
     vhd_free(req->aligned_buf.base);
     vhd_free(req);
@@ -96,31 +96,32 @@ static void aligned_write_completion(struct vhd_bdev_io* aligned_bio,
     unaligned_bio->completion_handler(unaligned_bio, iores);
 }
 
-static void aligned_read_completion(struct vhd_bdev_io* aligned_bio,
+static void aligned_read_completion(struct vhd_bio* aligned_bio,
                                     enum vhd_bdev_io_result iores)
 {
     struct bdev_aligned_req* req =
         containerof(aligned_bio, struct bdev_aligned_req, aligned_bio);
-    struct vhd_bdev_io* unaligned_bio = &req->unaligned_bio->bdev_io;
+    struct vhd_bio* unaligned_bio = req->unaligned_bio;
 
     if (iores != VHD_BDEV_SUCCESS) {
         goto complete;
     }
 
     size_t bufnum = 0;
-    size_t bytes = unaligned_bio->total_sectors << VHD_SECTOR_SHIFT;
+    size_t bytes = unaligned_bio->bdev_io.total_sectors << VHD_SECTOR_SHIFT;
     void* pdata = req->aligned_buf.base +
-        ((unaligned_bio->first_sector - aligned_bio->first_sector)
-         << VHD_SECTOR_SHIFT);
+        ((unaligned_bio->bdev_io.first_sector -
+          aligned_bio->bdev_io.first_sector) << VHD_SECTOR_SHIFT);
 
     while (bytes > 0) {
-        VHD_VERIFY(bufnum < unaligned_bio->sglist.nbuffers);
-        struct vhd_buffer* pbuf = unaligned_bio->sglist.buffers + bufnum;
+        VHD_VERIFY(bufnum < unaligned_bio->bdev_io.sglist.nbuffers);
+        struct vhd_buffer* pbuf = unaligned_bio->bdev_io.sglist.buffers +
+            bufnum;
         size_t to_copy = (bytes > pbuf->len ? pbuf->len : bytes);
 
-        if (unaligned_bio->type == VHD_BDEV_READ) {
+        if (unaligned_bio->bdev_io.type == VHD_BDEV_READ) {
             memcpy(pbuf->base, pdata, to_copy);
-        } else if (unaligned_bio->type == VHD_BDEV_WRITE) {
+        } else if (unaligned_bio->bdev_io.type == VHD_BDEV_WRITE) {
             memcpy(pdata, pbuf->base, to_copy);
         } else {
             VHD_VERIFY(0);
@@ -131,12 +132,11 @@ static void aligned_read_completion(struct vhd_bdev_io* aligned_bio,
         ++bufnum;
     }
 
-    if (unaligned_bio->type == VHD_BDEV_WRITE) {
-        aligned_bio->type = VHD_BDEV_WRITE;
+    if (unaligned_bio->bdev_io.type == VHD_BDEV_WRITE) {
+        aligned_bio->bdev_io.type = VHD_BDEV_WRITE;
         aligned_bio->completion_handler = aligned_write_completion;
         int error = vhd_enqueue_block_request(req->dev->vdev.rq,
-                                              &req->dev->vdev,
-                                              &req->aligned_bio);
+                                              &req->dev->vdev, aligned_bio);
         if (error) {
             VHD_LOG_ERROR("Failed to enqueue aligned write request: %d", error);
             iores = VHD_BDEV_IOERR;
@@ -169,7 +169,7 @@ static int aligned_read(struct vhd_bdev* dev,
     req->aligned_bio.bdev_io.type = VHD_BDEV_READ;
     req->aligned_bio.bdev_io.first_sector = aligned_sector;
     req->aligned_bio.bdev_io.total_sectors = aligned_sectors_count;
-    req->aligned_bio.bdev_io.completion_handler = aligned_read_completion;
+    req->aligned_bio.completion_handler = aligned_read_completion;
     req->aligned_bio.bdev_io.sglist.nbuffers = 1;
     req->aligned_bio.bdev_io.sglist.buffers = &req->aligned_buf;
 
@@ -202,9 +202,9 @@ static int vblk_handle_request(struct virtio_blk_dev* vblk, struct vhd_bio* bio)
     return vhd_enqueue_block_request(dev->vdev.rq, &dev->vdev, bio);
 }
 
-void vhd_complete_bio(struct vhd_bdev_io* bio, enum vhd_bdev_io_result res)
+void vhd_complete_bio(struct vhd_bdev_io* bdev_io, enum vhd_bdev_io_result res)
 {
-    VHD_VERIFY(bio && bio->completion_handler);
+    struct vhd_bio *bio = containerof(bdev_io, struct vhd_bio, bdev_io);
     bio->completion_handler(bio, res);
 }
 
