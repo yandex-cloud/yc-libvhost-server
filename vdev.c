@@ -261,15 +261,7 @@ static void unmap_guest_region(struct vhd_guest_memory_region* reg)
     memset(reg, 0, sizeof(*reg));
 }
 
-void vhd_guest_memory_unmap(struct vhd_guest_memory_map* map, int region_idx)
-{
-    VHD_VERIFY(map);
-    VHD_VERIFY(region_idx < VHOST_USER_MEM_REGIONS_MAX);
-
-    unmap_guest_region(&map->regions[region_idx]);
-}
-
-void vhd_guest_memory_unmap_all(struct vhd_guest_memory_map* map)
+static void vhd_guest_memory_unmap_all(struct vhd_guest_memory_map* map)
 {
     VHD_VERIFY(map);
 
