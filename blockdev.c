@@ -82,9 +82,11 @@ struct bdev_aligned_req
     struct vhd_bdev* dev;
 };
 
-static void aligned_write_completion(struct vhd_bdev_io* bio, enum vhd_bdev_io_result iores)
+static void aligned_write_completion(struct vhd_bdev_io* aligned_bio,
+                                     enum vhd_bdev_io_result iores)
 {
-    struct bdev_aligned_req* req = containerof(bio, struct bdev_aligned_req, aligned_bio);
+    struct bdev_aligned_req* req =
+        containerof(aligned_bio, struct bdev_aligned_req, aligned_bio);
     struct vhd_bdev_io* unaligned_bio = req->unaligned_bio;
 
     vhd_free(req->aligned_buf.base);
@@ -93,26 +95,31 @@ static void aligned_write_completion(struct vhd_bdev_io* bio, enum vhd_bdev_io_r
     unaligned_bio->completion_handler(unaligned_bio, iores);
 }
 
-static void aligned_read_completion(struct vhd_bdev_io* bio, enum vhd_bdev_io_result iores)
+static void aligned_read_completion(struct vhd_bdev_io* aligned_bio,
+                                    enum vhd_bdev_io_result iores)
 {
-    struct bdev_aligned_req* req = containerof(bio, struct bdev_aligned_req, aligned_bio);
+    struct bdev_aligned_req* req =
+        containerof(aligned_bio, struct bdev_aligned_req, aligned_bio);
+    struct vhd_bdev_io* unaligned_bio = req->unaligned_bio;
+
     if (iores != VHD_BDEV_SUCCESS) {
         goto complete;
     }
 
     size_t bufnum = 0;
-    size_t bytes = req->unaligned_bio->total_sectors << VHD_SECTOR_SHIFT;
+    size_t bytes = unaligned_bio->total_sectors << VHD_SECTOR_SHIFT;
     void* pdata = req->aligned_buf.base +
-        ((req->unaligned_bio->first_sector - req->aligned_bio.first_sector) << VHD_SECTOR_SHIFT);
+        ((unaligned_bio->first_sector - aligned_bio->first_sector)
+         << VHD_SECTOR_SHIFT);
 
     while (bytes > 0) {
-        VHD_VERIFY(bufnum < req->unaligned_bio->sglist.nbuffers);
-        struct vhd_buffer* pbuf = req->unaligned_bio->sglist.buffers + bufnum;
+        VHD_VERIFY(bufnum < unaligned_bio->sglist.nbuffers);
+        struct vhd_buffer* pbuf = unaligned_bio->sglist.buffers + bufnum;
         size_t to_copy = (bytes > pbuf->len ? pbuf->len : bytes);
 
-        if (req->unaligned_bio->type == VHD_BDEV_READ) {
+        if (unaligned_bio->type == VHD_BDEV_READ) {
             memcpy(pbuf->base, pdata, to_copy);
-        } else if (req->unaligned_bio->type == VHD_BDEV_WRITE) {
+        } else if (unaligned_bio->type == VHD_BDEV_WRITE) {
             memcpy(pdata, pbuf->base, to_copy);
         } else {
             VHD_VERIFY(0);
@@ -123,10 +130,11 @@ static void aligned_read_completion(struct vhd_bdev_io* bio, enum vhd_bdev_io_re
         ++bufnum;
     }
 
-    if (req->unaligned_bio->type == VHD_BDEV_WRITE) {
-        req->aligned_bio.type = VHD_BDEV_WRITE;
-        req->aligned_bio.completion_handler = aligned_write_completion;
-        int error = vhd_enqueue_block_request(req->dev->vdev.rq, &req->dev->vdev, &req->aligned_bio);
+    if (unaligned_bio->type == VHD_BDEV_WRITE) {
+        aligned_bio->type = VHD_BDEV_WRITE;
+        aligned_bio->completion_handler = aligned_write_completion;
+        int error = vhd_enqueue_block_request(req->dev->vdev.rq,
+                                              &req->dev->vdev, aligned_bio);
         if (error) {
             VHD_LOG_ERROR("Failed to enqueue aligned write request: %d", error);
             iores = VHD_BDEV_IOERR;
@@ -139,7 +147,7 @@ static void aligned_read_completion(struct vhd_bdev_io* bio, enum vhd_bdev_io_re
     }
 
 complete:
-    req->unaligned_bio->completion_handler(req->unaligned_bio, iores);
+    unaligned_bio->completion_handler(unaligned_bio, iores);
     vhd_free(req->aligned_buf.base);
     vhd_free(req);
 }
