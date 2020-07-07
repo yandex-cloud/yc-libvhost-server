@@ -5,6 +5,7 @@
 #include "virtio_blk.h"
 #include "virtio_blk_spec.h"
 
+#include "bio.h"
 #include "virt_queue.h"
 #include "logging.h"
 
@@ -17,7 +18,7 @@ struct virtio_blk_io
 {
     struct virtio_virtq* vq;
     struct virtio_iov* iov;
-    struct vhd_bdev_io bdev_io;
+    struct vhd_bio bio;
 };
 
 static uint8_t translate_status(enum vhd_bdev_io_result status)
@@ -48,9 +49,8 @@ static void fail_request(struct virtio_virtq* vq, struct virtio_iov* iov)
 
 static void complete_io(struct vhd_bdev_io* bdev_io, enum vhd_bdev_io_result res)
 {
-    VHD_ASSERT(bdev_io);
-
-    struct virtio_blk_io* vbio = containerof(bdev_io, struct virtio_blk_io, bdev_io);
+    struct virtio_blk_io* vbio = containerof(bdev_io, struct virtio_blk_io,
+                                             bio.bdev_io);
 
     set_status(vbio->iov, translate_status(res));
 
@@ -161,15 +161,15 @@ static int handle_inout(struct virtio_blk_dev* dev,
     struct virtio_blk_io* vbio = vhd_zalloc(sizeof(*vbio));
     vbio->vq = vq;
     vbio->iov = iov;
-    vbio->bdev_io.type = req->type == VIRTIO_BLK_T_IN ? VHD_BDEV_READ :
+    vbio->bio.bdev_io.type = req->type == VIRTIO_BLK_T_IN ? VHD_BDEV_READ :
                              VHD_BDEV_WRITE;
-    vbio->bdev_io.first_sector = req->sector;
-    vbio->bdev_io.total_sectors = total_sectors;
-    vbio->bdev_io.sglist.nbuffers = ndatabufs;
-    vbio->bdev_io.sglist.buffers = pdata;
-    vbio->bdev_io.completion_handler = complete_io;
+    vbio->bio.bdev_io.first_sector = req->sector;
+    vbio->bio.bdev_io.total_sectors = total_sectors;
+    vbio->bio.bdev_io.sglist.nbuffers = ndatabufs;
+    vbio->bio.bdev_io.sglist.buffers = pdata;
+    vbio->bio.bdev_io.completion_handler = complete_io;
 
-    int res = dev->dispatch(dev, &vbio->bdev_io);
+    int res = dev->dispatch(dev, &vbio->bio);
     if (res != 0) {
         VHD_LOG_ERROR("bdev request submission failed with %d", res);
         fail_request(vq, iov);

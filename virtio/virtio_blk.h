@@ -19,7 +19,7 @@ extern "C" {
     */
 
 struct vhd_bdev_info;
-struct vhd_bdev_io;
+struct vhd_bio;
 
 struct virtio_mm_ctx;
 struct virtio_virtq;
@@ -28,7 +28,8 @@ struct virtio_blk_dev;
 /**
  * Virtio block I/O dispatch context.
  */
-typedef int (virtio_blk_io_dispatch) (struct virtio_blk_dev* vblk, struct vhd_bdev_io* io);
+typedef int virtio_blk_io_dispatch(struct virtio_blk_dev* vblk,
+                                   struct vhd_bio* bio);
 
 /**
  * Virtio block device context

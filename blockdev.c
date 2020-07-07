@@ -3,6 +3,7 @@
 #include "vdev.h"
 #include "logging.h"
 
+#include "bio.h"
 #include "virtio/virtio_blk.h"
 
 struct vhd_bdev
@@ -77,8 +78,8 @@ const struct vhd_vdev_type g_virtio_blk_vdev_type = {
 struct bdev_aligned_req
 {
     struct vhd_buffer aligned_buf;
-    struct vhd_bdev_io aligned_bio;
-    struct vhd_bdev_io* unaligned_bio;
+    struct vhd_bio aligned_bio;
+    struct vhd_bio* unaligned_bio;
     struct vhd_bdev* dev;
 };
 
@@ -87,7 +88,7 @@ static void aligned_write_completion(struct vhd_bdev_io* aligned_bio,
 {
     struct bdev_aligned_req* req =
         containerof(aligned_bio, struct bdev_aligned_req, aligned_bio);
-    struct vhd_bdev_io* unaligned_bio = req->unaligned_bio;
+    struct vhd_bdev_io* unaligned_bio = &req->unaligned_bio->bdev_io;
 
     vhd_free(req->aligned_buf.base);
     vhd_free(req);
@@ -100,7 +101,7 @@ static void aligned_read_completion(struct vhd_bdev_io* aligned_bio,
 {
     struct bdev_aligned_req* req =
         containerof(aligned_bio, struct bdev_aligned_req, aligned_bio);
-    struct vhd_bdev_io* unaligned_bio = req->unaligned_bio;
+    struct vhd_bdev_io* unaligned_bio = &req->unaligned_bio->bdev_io;
 
     if (iores != VHD_BDEV_SUCCESS) {
         goto complete;
@@ -134,7 +135,8 @@ static void aligned_read_completion(struct vhd_bdev_io* aligned_bio,
         aligned_bio->type = VHD_BDEV_WRITE;
         aligned_bio->completion_handler = aligned_write_completion;
         int error = vhd_enqueue_block_request(req->dev->vdev.rq,
-                                              &req->dev->vdev, aligned_bio);
+                                              &req->dev->vdev,
+                                              &req->aligned_bio);
         if (error) {
             VHD_LOG_ERROR("Failed to enqueue aligned write request: %d", error);
             iores = VHD_BDEV_IOERR;
@@ -155,7 +157,7 @@ complete:
 static int aligned_read(struct vhd_bdev* dev,
                         uint64_t aligned_sector,
                         uint64_t aligned_sectors_count,
-                        struct vhd_bdev_io* unaligned_bio)
+                        struct vhd_bio* unaligned_bio)
 {
     /* We expect unaligned requests only in rare cases during initial boot.
      * Since our main underlying network storage is high latency\high throughput,
@@ -164,35 +166,36 @@ static int aligned_read(struct vhd_bdev* dev,
     req->aligned_buf.len = aligned_sectors_count << VHD_SECTOR_SHIFT;
     req->aligned_buf.base = vhd_alloc(req->aligned_buf.len);
 
-    req->aligned_bio.type = VHD_BDEV_READ;
-    req->aligned_bio.first_sector = aligned_sector;
-    req->aligned_bio.total_sectors = aligned_sectors_count;
-    req->aligned_bio.completion_handler = aligned_read_completion;
-    req->aligned_bio.sglist.nbuffers = 1;
-    req->aligned_bio.sglist.buffers = &req->aligned_buf;
+    req->aligned_bio.bdev_io.type = VHD_BDEV_READ;
+    req->aligned_bio.bdev_io.first_sector = aligned_sector;
+    req->aligned_bio.bdev_io.total_sectors = aligned_sectors_count;
+    req->aligned_bio.bdev_io.completion_handler = aligned_read_completion;
+    req->aligned_bio.bdev_io.sglist.nbuffers = 1;
+    req->aligned_bio.bdev_io.sglist.buffers = &req->aligned_buf;
 
     req->unaligned_bio = unaligned_bio;
     req->dev = dev;
 
-    return vhd_enqueue_block_request(dev->vdev.rq, &dev->vdev, &req->aligned_bio);
+    return vhd_enqueue_block_request(dev->vdev.rq, &dev->vdev,
+                                     &req->aligned_bio);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-static int vblk_handle_request(struct virtio_blk_dev* vblk, struct vhd_bdev_io* bio)
+static int vblk_handle_request(struct virtio_blk_dev* vblk, struct vhd_bio* bio)
 {
     struct vhd_bdev* dev = VHD_BLOCKDEV_FROM_VBLK(vblk);
     uint64_t block_sectors = dev->bdev->block_size >> VHD_SECTOR_SHIFT;
 
-    uint64_t aligned_start = VHD_ALIGN_DOWN(bio->first_sector,
+    uint64_t aligned_start = VHD_ALIGN_DOWN(bio->bdev_io.first_sector,
                                              block_sectors);
-    uint64_t aligned_count = VHD_ALIGN_UP(bio->total_sectors +
-                                          bio->first_sector,
+    uint64_t aligned_count = VHD_ALIGN_UP(bio->bdev_io.total_sectors +
+                                          bio->bdev_io.first_sector,
                                           block_sectors) - aligned_start;
 
     if (vblk->bdev->handle_unaligned &&
-        (aligned_start != bio->first_sector ||
-         aligned_count != bio->total_sectors)) {
+        (aligned_start != bio->bdev_io.first_sector ||
+         aligned_count != bio->bdev_io.total_sectors)) {
         return aligned_read(dev, aligned_start, aligned_count, bio);
     }
 
