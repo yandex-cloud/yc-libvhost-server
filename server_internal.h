@@ -24,9 +24,10 @@ int vhd_attach_event(struct vhd_request_queue* rq, int fd, struct vhd_event_ctx*
 void vhd_detach_event(struct vhd_request_queue* rq, int fd);
 
 struct vhd_vdev;
-struct vhd_bdev_io;
+struct vhd_bio;
 
 /**
  * Enqueue block IO request
  */
-int vhd_enqueue_block_request(struct vhd_request_queue* rq, struct vhd_vdev* vdev, struct vhd_bdev_io* bio);
+int vhd_enqueue_block_request(struct vhd_request_queue* rq,
+                              struct vhd_vdev* vdev, struct vhd_bio* bio);
