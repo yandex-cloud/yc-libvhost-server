@@ -50,14 +50,14 @@ static void complete_io(struct vhd_bdev_io* bdev_io, enum vhd_bdev_io_result res
 {
     VHD_ASSERT(bdev_io);
 
-    struct virtio_blk_io* bio = containerof(bdev_io, struct virtio_blk_io, bdev_io);
+    struct virtio_blk_io* vbio = containerof(bdev_io, struct virtio_blk_io, bdev_io);
 
-    set_status(bio->iov, translate_status(res));
+    set_status(vbio->iov, translate_status(res));
 
-    virtq_commit_buffers(bio->vq, bio->iov);
-    virtq_notify(bio->vq);
+    virtq_commit_buffers(vbio->vq, vbio->iov);
+    virtq_notify(vbio->vq);
 
-    vhd_free(bio);
+    vhd_free(vbio);
 }
 
 static inline bool vhd_buffer_is_read_only(const struct vhd_buffer* buf)
@@ -158,17 +158,18 @@ static int handle_inout(struct virtio_blk_dev* dev,
         return -EINVAL;
     }
 
-    struct virtio_blk_io* bio = vhd_zalloc(sizeof(*bio));
-    bio->vq = vq;
-    bio->iov = iov;
-    bio->bdev_io.type = (req->type == VIRTIO_BLK_T_IN ? VHD_BDEV_READ : VHD_BDEV_WRITE);
-    bio->bdev_io.first_sector = req->sector;
-    bio->bdev_io.total_sectors = total_sectors;
-    bio->bdev_io.sglist.nbuffers = ndatabufs;
-    bio->bdev_io.sglist.buffers = (struct vhd_buffer*)pdata;
-    bio->bdev_io.completion_handler = complete_io;
+    struct virtio_blk_io* vbio = vhd_zalloc(sizeof(*vbio));
+    vbio->vq = vq;
+    vbio->iov = iov;
+    vbio->bdev_io.type = req->type == VIRTIO_BLK_T_IN ? VHD_BDEV_READ :
+                             VHD_BDEV_WRITE;
+    vbio->bdev_io.first_sector = req->sector;
+    vbio->bdev_io.total_sectors = total_sectors;
+    vbio->bdev_io.sglist.nbuffers = ndatabufs;
+    vbio->bdev_io.sglist.buffers = pdata;
+    vbio->bdev_io.completion_handler = complete_io;
 
-    int res = dev->dispatch(dev, &bio->bdev_io);
+    int res = dev->dispatch(dev, &vbio->bdev_io);
     if (res != 0) {
         VHD_LOG_ERROR("bdev request submission failed with %d", res);
         fail_request(vq, iov);
