@@ -182,15 +182,18 @@ static int aligned_read(struct vhd_bdev* dev,
 static int vblk_handle_request(struct virtio_blk_dev* vblk, struct vhd_bdev_io* bio)
 {
     struct vhd_bdev* dev = VHD_BLOCKDEV_FROM_VBLK(vblk);
+    uint64_t block_sectors = dev->bdev->block_size >> VHD_SECTOR_SHIFT;
 
-    uint64_t aligned_sector = bio->first_sector << VHD_SECTOR_SHIFT;
-    aligned_sector = VHD_ALIGN_DOWN(aligned_sector, dev->bdev->block_size) >> VHD_SECTOR_SHIFT;
+    uint64_t aligned_start = VHD_ALIGN_DOWN(bio->first_sector,
+                                             block_sectors);
+    uint64_t aligned_count = VHD_ALIGN_UP(bio->total_sectors +
+                                          bio->first_sector,
+                                          block_sectors) - aligned_start;
 
-    uint64_t aligned_sectors_count = (bio->total_sectors + (bio->first_sector - aligned_sector)) << VHD_SECTOR_SHIFT;
-    aligned_sectors_count = VHD_ALIGN_UP(aligned_sectors_count, dev->bdev->block_size) >> VHD_SECTOR_SHIFT;
-
-    if (vblk->bdev->handle_unaligned && (aligned_sector != bio->first_sector || aligned_sectors_count != bio->total_sectors)) {
-        return aligned_read(dev, aligned_sector, aligned_sectors_count, bio);
+    if (vblk->bdev->handle_unaligned &&
+        (aligned_start != bio->first_sector ||
+         aligned_count != bio->total_sectors)) {
+        return aligned_read(dev, aligned_start, aligned_count, bio);
     }
 
     return vhd_enqueue_block_request(dev->vdev.rq, &dev->vdev, bio);
