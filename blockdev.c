@@ -88,11 +88,11 @@ static void aligned_write_completion(struct vhd_bio* aligned_bio)
     struct bdev_aligned_req* req =
         containerof(aligned_bio, struct bdev_aligned_req, aligned_bio);
     struct vhd_bio* unaligned_bio = req->unaligned_bio;
+    unaligned_bio->status = aligned_bio->status;
 
     vhd_free(req->aligned_buf.base);
     vhd_free(req);
 
-    unaligned_bio->status = aligned_bio->status;
     unaligned_bio->completion_handler(unaligned_bio);
 }
 
