@@ -175,9 +175,6 @@ struct vhd_guest_memory_region
 
     /* Total guest physical pages this region contains */
     uint32_t pages;
-
-    /* Shared mapping fd */
-    int fd;
 };
 
 /**
@@ -216,7 +213,6 @@ static int map_guest_region(struct vhd_guest_memory_region* region,
     /* Mark memory as defined explicitly */
     VHD_MEMCHECK_DEFINED(vaddr, size);
 
-    region->fd = fd;
     region->hva = vaddr;
     region->gpa = guest_addr;
     region->uva = user_addr;
@@ -248,10 +244,6 @@ static void unmap_guest_region(struct vhd_guest_memory_region* reg)
     if (ret != 0) {
         VHD_LOG_ERROR("failed to unmap guest region at %p", reg->hva);
     }
-
-    close(reg->fd);
-
-    memset(reg, 0, sizeof(*reg));
 }
 
 static void vhd_guest_memory_unmap_all(struct vhd_guest_memory_map* map)
@@ -463,46 +455,46 @@ static void vhost_reset_mem_table(struct vhd_vdev *vdev)
     vdev->guest_memmap = NULL;
 }
 
-static int vhost_set_mem_table(struct vhd_vdev* vdev, struct vhost_user_msg* msg, int* fds)
+static int vhost_set_mem_table(struct vhd_vdev *vdev,
+                               struct vhost_user_msg *msg, int* fds)
 {
     VHD_LOG_TRACE();
 
-    int error = 0;
+    int ret = 0;
     struct vhost_user_mem_desc *desc;
     struct vhd_guest_memory_map *mm;
+    uint32_t i;
 
     vhost_reset_mem_table(vdev);
 
     desc = &msg->payload.mem_desc;
     if (desc->nregions > VHOST_USER_MEM_REGIONS_MAX) {
         VHD_LOG_ERROR("Invalid number if memory regions %d", desc->nregions);
-        return EINVAL;
+        return -EINVAL;
     }
 
     mm = vhd_zalloc(sizeof(*mm));
 
-    for (uint32_t i = 0; i < desc->nregions; i++) {
+    for (i = 0; i < desc->nregions; i++) {
         struct vhost_user_mem_region *region = &desc->regions[i];
-        error = map_guest_region(&mm->regions[i], region->guest_addr,
-                                 region->user_addr, region->size,
-                                 region->mmap_offset, fds[i]);
-        if (error) {
-            /* Close all fds that were left unprocessed.
-             * Already mapped will be handled by unmap_all */
-            for (; i < desc->nregions; ++i) {
-                close(fds[i]);
+        ret = map_guest_region(&mm->regions[i], region->guest_addr,
+                               region->user_addr, region->size,
+                               region->mmap_offset, fds[i]);
+        if (ret < 0) {
+            while (i--) {
+                unmap_guest_region(&mm->regions[i]);
             }
-
-            goto error_unmap;
+            vhd_free(mm);
+            goto out;
         }
     }
 
     vdev->guest_memmap = mm;
-    return 0;
-
-error_unmap:
-    vhd_guest_memory_unmap_all(mm);
-    return error;
+out:
+    for (i = 0; i < desc->nregions; i++) {
+        close(fds[i]);
+    }
+    return ret;
 }
 
 static int vhost_get_config(struct vhd_vdev* vdev, struct vhost_user_msg* msg)
