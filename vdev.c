@@ -474,7 +474,7 @@ static int vhost_set_mem_table(struct vhd_vdev* vdev, struct vhost_user_msg* msg
     for (uint32_t i = 0; i < desc->nregions; i++) {
         struct vhost_user_mem_region *region = &desc->regions[i];
         error = map_guest_region(
-                    &vdev->guest_memmap, i,
+                    vdev->guest_memmap, i,
                     region->guest_addr, region->user_addr,
                     region->size, region->mmap_offset,
                     fds[i]);
@@ -492,7 +492,7 @@ static int vhost_set_mem_table(struct vhd_vdev* vdev, struct vhost_user_msg* msg
     return 0;
 
 error_unmap:
-    vhd_guest_memory_unmap_all(&vdev->guest_memmap);
+    vhd_guest_memory_unmap_all(vdev->guest_memmap);
     return error;
 }
 
@@ -689,9 +689,9 @@ static int vhost_set_vring_addr(struct vhd_vdev* vdev, struct vhost_user_msg* ms
     }
 
     /* TODO: we don't have to do full lookup 3 times, we can do it in 1 */
-    void* desc_addr = map_uva(&vdev->guest_memmap, vraddr->desc_addr);
-    void* used_addr = map_uva(&vdev->guest_memmap, vraddr->used_addr);
-    void* avail_addr = map_uva(&vdev->guest_memmap, vraddr->avail_addr);
+    void* desc_addr = map_uva(vdev->guest_memmap, vraddr->desc_addr);
+    void* used_addr = map_uva(vdev->guest_memmap, vraddr->used_addr);
+    void* avail_addr = map_uva(vdev->guest_memmap, vraddr->avail_addr);
     /* TODO: log_addr */
 
     if (!desc_addr || !used_addr || !avail_addr) {
@@ -997,7 +997,7 @@ static int change_device_state(struct vhd_vdev* vdev, enum vhd_vdev_state new_st
         case VDEV_CONNECTED:
             /* We're terminating existing connection and going back to listen mode */
             vhd_del_vhost_event(vdev->connfd);
-            vhd_guest_memory_unmap_all(&vdev->guest_memmap);
+            vhd_guest_memory_unmap_all(vdev->guest_memmap);
             vdev->is_owned = false;
 
             for (uint32_t i = 0; i < vdev->max_queues; ++i) {
@@ -1234,6 +1234,7 @@ int vhd_vdev_init_server(
     vdev->listenfd = listenfd;
     vdev->connfd = -1;
     vdev->rq = rq;
+    vdev->guest_memmap = vhd_zalloc(sizeof(*vdev->guest_memmap));
 
     vdev->supported_protocol_features = g_default_protocol_features;
     vdev->max_queues = max_queues;
@@ -1287,6 +1288,7 @@ void vhd_vdev_uninit(struct vhd_vdev* vdev)
     }
 
     vhd_vdev_inflight_cleanup(vdev);
+    vhd_free(vdev->guest_memmap);
 
     LIST_REMOVE(vdev, vdev_list);
     vhd_free(vdev->vrings);
