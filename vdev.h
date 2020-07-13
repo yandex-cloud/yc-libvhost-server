@@ -95,11 +95,9 @@ struct vhd_vdev
     struct vhd_guest_memory_map *guest_memmap;
 
     /**
-     * Inflight mappings and file descriptor to support the buffer of shared memory.
-     * This buffer will be used to store information about inflight requests and
-     * restore virtqueue state after reconnect.
+     * Shared memory to store information about inflight requests and restore
+     * virtqueue state after reconnect.
      */
-    int inflightfd;
     struct inflight_split_region* inflight_mem;
     uint64_t inflight_size;
 

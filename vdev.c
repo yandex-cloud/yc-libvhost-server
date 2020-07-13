@@ -740,7 +740,6 @@ static int inflight_mmap_region(struct vhd_vdev* vdev, int fd, uint64_t size)
         VHD_LOG_ERROR("can't mmap fd = %d, size = %lu", fd, size);
         return errno;
     }
-    vdev->inflightfd = fd;
     vdev->inflight_mem = buf;
     vdev->inflight_size = size;
 
@@ -771,18 +770,18 @@ static int vhost_get_inflight_fd(struct vhd_vdev* vdev, struct vhost_user_msg* m
     fd = memfd_create("vhost_get_inflight_fd", MFD_CLOEXEC);
     if (fd == -1) {
         VHD_LOG_ERROR("can't create memfd object");
-        return errno;
+        return -errno;
     }
     ret = ftruncate(fd, size);
     if (ret == -1) {
         VHD_LOG_ERROR("can't truncate fd = %d, to size = %lu",
                 fd, size);
-        ret = errno;
-        goto fail_inflight_fd;
+        ret = -errno;
+        goto out;
     }
     ret = inflight_mmap_region(vdev, fd, size);
     if (ret) {
-        goto fail_inflight_fd;
+        goto out;
     }
     memset(vdev->inflight_mem, 0, vdev->inflight_size);
 
@@ -803,19 +802,12 @@ static int vhost_get_inflight_fd(struct vhd_vdev* vdev, struct vhost_user_msg* m
     ret = vhost_send_fds(vdev, msg, fds, 1);
     if (ret) {
         VHD_LOG_ERROR("can't send reply to get_inflight_fd command");
-        goto fail_inflight_unmap;
+        munmap(vdev->inflight_mem, vdev->inflight_size);
+        vdev->inflight_mem = NULL;
     }
 
-    return 0;
-
-fail_inflight_unmap:
-    munmap(vdev->inflight_mem, vdev->inflight_size);
-    vdev->inflightfd = -1;
-    vdev->inflight_mem = NULL;
-
-fail_inflight_fd:
+out:
     close(fd);
-
     return ret;
 }
 
@@ -830,10 +822,7 @@ static int vhost_set_inflight_fd(struct vhd_vdev* vdev, struct vhost_user_msg* m
 
     idesc = &msg->payload.inflight_desc;
     ret = inflight_mmap_region(vdev, fds[0], idesc->mmap_size);
-    if (ret) {
-        /* Make clean up in case of error. */
-        close(fds[0]);
-    }
+    close(fds[0]);
 
     return ret;
 }
@@ -1244,7 +1233,6 @@ int vhd_vdev_init_server(
         vhd_vring_init(vdev->vrings + i, i, vdev);
     }
 
-    vdev->inflightfd = -1;
     vdev->inflight_mem = NULL;
     vdev->inflight_size = 0;
 
@@ -1262,16 +1250,12 @@ int vhd_vdev_init_server(
 
 static void vhd_vdev_inflight_cleanup(struct vhd_vdev* vdev)
 {
-    if (vdev->inflightfd == -1) {
+    if (!vdev->inflight_mem) {
         /* Nothing to clean up. */
         return;
     }
 
     munmap(vdev->inflight_mem, vdev->inflight_size);
-    close(vdev->inflightfd);
-
-    /* Reset fields to its default values. */
-    vdev->inflightfd = -1;
     vdev->inflight_mem = NULL;
 }
 
