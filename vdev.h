@@ -124,7 +124,7 @@ struct vhd_vdev
      * Memory mappings that relate to this device 
      * TODO: it is wrong to have separate mappings per device, they should really be per-guest
      */
-    struct vhd_guest_memory_map guest_memmap;
+    struct vhd_guest_memory_map *guest_memmap;
 
     /**
      * Inflight mappings and file descriptor to support the buffer of shared memory.
@@ -206,7 +206,7 @@ static inline int vhd_vdev_dispatch_requests(struct vhd_vdev* vdev, struct vhd_v
 static inline struct virtio_mm_ctx* vhd_vdev_mm_ctx(struct vhd_vdev* vdev)
 {
     VHD_ASSERT(vdev);
-    return (struct virtio_mm_ctx*) &vdev->guest_memmap;
+    return (struct virtio_mm_ctx*) vdev->guest_memmap;
 }
 
 /**
