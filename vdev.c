@@ -44,7 +44,8 @@ static const struct vhd_event_ops g_conn_sock_ops = {
  * descriptor array. Return number of bytes received or
  * negative error code in case of error.
  */
-static int net_recv_msg(int fd, struct vhost_user_msg *msg, int *fds, size_t fdmax)
+static int net_recv_msg(int fd, struct vhost_user_msg *msg,
+                        int *fds, size_t *num_fds)
 {
     struct msghdr msgh;
     struct iovec iov;
@@ -52,11 +53,6 @@ static int net_recv_msg(int fd, struct vhost_user_msg *msg, int *fds, size_t fdm
     int payload_len;
     struct cmsghdr *cmsg;
     char control[CMSG_SPACE(sizeof(int) * VHOST_USER_MAX_FDS)];
-
-    VHD_VERIFY(fdmax <= VHOST_USER_MAX_FDS);
-
-    /* Poison control buffer to catch wrong number of fds more easily */
-    memset(control, 0xff, sizeof(control));
 
     /* Receive header for new request. */
     iov.iov_base = msg;
@@ -80,18 +76,22 @@ static int net_recv_msg(int fd, struct vhost_user_msg *msg, int *fds, size_t fdm
         VHD_LOG_ERROR("recvmsg() gets less bytes = %d, than required = %lu",
                 len, VHOST_MSG_HDR_SIZE);
         return -EIO;
+    } else if (msgh.msg_flags & MSG_CTRUNC) {
+        VHD_LOG_ERROR("recvmsg(): file descriptor array truncated");
+        return -ENOBUFS;
     }
 
     /* Fill in file descriptors, if any. */
-    cmsg = CMSG_FIRSTHDR(&msgh);
-    while (cmsg) {
+    for (cmsg = CMSG_FIRSTHDR(&msgh); cmsg; cmsg = CMSG_NXTHDR(&msgh, cmsg)) {
         if ((cmsg->cmsg_level == SOL_SOCKET) &&
             (cmsg->cmsg_type == SCM_RIGHTS)) {
-            memcpy(fds, CMSG_DATA(cmsg), sizeof(int) * fdmax);
+            size_t fdlen = cmsg->cmsg_len - CMSG_LEN(0);
+            if (fdlen / sizeof(int) < *num_fds) {
+                *num_fds = fdlen / sizeof(int);
+            }
+            memcpy(fds, CMSG_DATA(cmsg), *num_fds * sizeof(int));
             break;
         }
-
-        cmsg = CMSG_NXTHDR(&msgh, cmsg);
     }
 
     /* Request payload data for the request. */
@@ -456,7 +456,8 @@ static void vhost_reset_mem_table(struct vhd_vdev *vdev)
 }
 
 static int vhost_set_mem_table(struct vhd_vdev *vdev,
-                               struct vhost_user_msg *msg, int* fds)
+                               struct vhost_user_msg *msg,
+                               int *fds, size_t num_fds)
 {
     VHD_LOG_TRACE();
 
@@ -469,7 +470,12 @@ static int vhost_set_mem_table(struct vhd_vdev *vdev,
 
     desc = &msg->payload.mem_desc;
     if (desc->nregions > VHOST_USER_MEM_REGIONS_MAX) {
-        VHD_LOG_ERROR("Invalid number if memory regions %d", desc->nregions);
+        VHD_LOG_ERROR("Invalid number of memory regions %d", desc->nregions);
+        return -EINVAL;
+    }
+    if (desc->nregions != num_fds) {
+        VHD_LOG_ERROR("#memory regions != #fds: %u != %zu", desc->nregions,
+                      num_fds);
         return -EINVAL;
     }
 
@@ -491,7 +497,7 @@ static int vhost_set_mem_table(struct vhd_vdev *vdev,
 
     vdev->guest_memmap = mm;
 out:
-    for (i = 0; i < desc->nregions; i++) {
+    for (i = 0; i < num_fds; i++) {
         close(fds[i]);
     }
     return ret;
@@ -603,21 +609,42 @@ static int vhost_set_vring_fd_common(struct vhd_vdev* vdev, struct vhost_user_ms
     return 0;
 }
 
-static int vhost_set_vring_call(struct vhd_vdev* vdev, struct vhost_user_msg* msg, int* fds)
+static int vhost_set_vring_call(struct vhd_vdev *vdev,
+                                struct vhost_user_msg *msg,
+                                int *fds, size_t num_fds)
 {
-    VHD_LOG_DEBUG("payload = 0x%llx, fd = %d", (unsigned long long)msg->payload.u64, fds[0]);
+    VHD_LOG_DEBUG("payload = 0x%llx, fd = %d",
+                  (unsigned long long)msg->payload.u64, fds[0]);
+    if (num_fds != 1) {
+        VHD_LOG_ERROR("unexpected #fds: %zu", num_fds);
+        return -EINVAL;
+    }
     return vhost_set_vring_fd_common(vdev, msg, fds[0], VRING_CALLFD);
 }
 
-static int vhost_set_vring_kick(struct vhd_vdev* vdev, struct vhost_user_msg* msg, int* fds)
+static int vhost_set_vring_kick(struct vhd_vdev *vdev,
+                                struct vhost_user_msg *msg,
+                                int *fds, size_t num_fds)
 {
-    VHD_LOG_DEBUG("payload = 0x%llx, fd = %d", (unsigned long long)msg->payload.u64, fds[0]);
+    VHD_LOG_DEBUG("payload = 0x%llx, fd = %d",
+                  (unsigned long long)msg->payload.u64, fds[0]);
+    if (num_fds != 1) {
+        VHD_LOG_ERROR("unexpected #fds: %zu", num_fds);
+        return -EINVAL;
+    }
     return vhost_set_vring_fd_common(vdev, msg, fds[0], VRING_KICKFD);
 }
 
-static int vhost_set_vring_err(struct vhd_vdev* vdev, struct vhost_user_msg* msg, int* fds)
+static int vhost_set_vring_err(struct vhd_vdev *vdev,
+                                struct vhost_user_msg *msg,
+                                int *fds, size_t num_fds)
 {
-    VHD_LOG_DEBUG("payload = 0x%llx, fd = %d", (unsigned long long)msg->payload.u64, fds[0]);
+    VHD_LOG_DEBUG("payload = 0x%llx, fd = %d",
+                  (unsigned long long)msg->payload.u64, fds[0]);
+    if (num_fds != 1) {
+        VHD_LOG_ERROR("unexpected #fds: %zu", num_fds);
+        return -EINVAL;
+    }
     return vhost_set_vring_fd_common(vdev, msg, fds[0], VRING_ERRFD);
 }
 
@@ -746,7 +773,8 @@ static int inflight_mmap_region(struct vhd_vdev* vdev, int fd, uint64_t size)
     return 0;
 }
 
-static int vhost_get_inflight_fd(struct vhd_vdev* vdev, struct vhost_user_msg* msg, int *fds)
+static int vhost_get_inflight_fd(struct vhd_vdev *vdev,
+                                 struct vhost_user_msg *msg)
 {
     VHD_LOG_TRACE();
 
@@ -788,7 +816,6 @@ static int vhost_get_inflight_fd(struct vhd_vdev* vdev, struct vhost_user_msg* m
     /* Prepare reply to the master side. */
     idesc->mmap_size = size;
     idesc->mmap_offset = 0;
-    fds[0] = fd;
 
     /* Initialize the inflight region for each virtqueue. */
     buf = vdev->inflight_mem;
@@ -799,7 +826,7 @@ static int vhost_get_inflight_fd(struct vhd_vdev* vdev, struct vhost_user_msg* m
     }
 
     msg->flags = VHOST_USER_MSG_FLAGS_REPLY;
-    ret = vhost_send_fds(vdev, msg, fds, 1);
+    ret = vhost_send_fds(vdev, msg, &fd, 1);
     if (ret) {
         VHD_LOG_ERROR("can't send reply to get_inflight_fd command");
         munmap(vdev->inflight_mem, vdev->inflight_size);
@@ -811,12 +838,19 @@ out:
     return ret;
 }
 
-static int vhost_set_inflight_fd(struct vhd_vdev* vdev, struct vhost_user_msg* msg, int *fds)
+static int vhost_set_inflight_fd(struct vhd_vdev *vdev,
+                                struct vhost_user_msg *msg,
+                                int *fds, size_t num_fds)
 {
     VHD_LOG_TRACE();
 
     struct vhost_user_inflight_desc *idesc;
     int ret;
+
+    if (num_fds != 1) {
+        VHD_LOG_ERROR("unexpected #fds: %zu", num_fds);
+        return -EINVAL;
+    }
 
     vhd_vdev_inflight_cleanup(vdev);
 
@@ -860,7 +894,9 @@ static int vhost_ack_request_if_needed(struct vhd_vdev* vdev, const struct vhost
 /* 
  * Return 0 in case of success, otherwise return error code.
  */
-static int vhost_handle_request(struct vhd_vdev* vdev, struct vhost_user_msg *msg, int *fds)
+static int vhost_handle_request(struct vhd_vdev *vdev,
+                                struct vhost_user_msg *msg,
+                                int *fds, size_t num_fds)
 {
     int ret;
 
@@ -894,7 +930,7 @@ static int vhost_handle_request(struct vhd_vdev* vdev, struct vhost_user_msg *ms
             ret = vhost_set_config(vdev, msg);
             break;
         case VHOST_USER_SET_MEM_TABLE:
-            ret = vhost_set_mem_table(vdev, msg, fds);
+            ret = vhost_set_mem_table(vdev, msg, fds, num_fds);
             break;
         case VHOST_USER_GET_QUEUE_NUM:
             ret = vhost_get_queue_num(vdev, msg);
@@ -905,13 +941,13 @@ static int vhost_handle_request(struct vhd_vdev* vdev, struct vhost_user_msg *ms
          */
 
         case VHOST_USER_SET_VRING_CALL:
-            ret = vhost_set_vring_call(vdev, msg, fds);
+            ret = vhost_set_vring_call(vdev, msg, fds, num_fds);
             break;
         case VHOST_USER_SET_VRING_KICK:
-            ret = vhost_set_vring_kick(vdev, msg, fds);
+            ret = vhost_set_vring_kick(vdev, msg, fds, num_fds);
             break;
         case VHOST_USER_SET_VRING_ERR:
-            ret = vhost_set_vring_err(vdev, msg, fds);
+            ret = vhost_set_vring_err(vdev, msg, fds, num_fds);
             break;
         case VHOST_USER_SET_VRING_NUM:
             ret = vhost_set_vring_num(vdev, msg);
@@ -949,10 +985,10 @@ static int vhost_handle_request(struct vhd_vdev* vdev, struct vhost_user_msg *ms
             ret = ENOTSUP;
             break;
         case VHOST_USER_GET_INFLIGHT_FD:
-            ret = vhost_get_inflight_fd(vdev, msg, fds);
+            ret = vhost_get_inflight_fd(vdev, msg);
             break;
         case VHOST_USER_SET_INFLIGHT_FD:
-            ret = vhost_set_inflight_fd(vdev, msg, fds);
+            ret = vhost_set_inflight_fd(vdev, msg, fds, num_fds);
             break;
         case VHOST_USER_NONE:
         default:
@@ -1094,9 +1130,10 @@ static int conn_read(void* data)
     int len;
     struct vhost_user_msg msg;
     int fds[VHOST_USER_MAX_FDS];
+    size_t num_fds = VHOST_USER_MAX_FDS;
     struct vhd_vdev *vdev = data;
 
-    len = net_recv_msg(vdev->connfd, &msg, fds, VHOST_USER_MAX_FDS);
+    len = net_recv_msg(vdev->connfd, &msg, fds, &num_fds);
     if (len <= 0) {
         VHD_LOG_DEBUG("Close connection with client, sock = %d",
                       vdev->connfd);
@@ -1104,7 +1141,7 @@ static int conn_read(void* data)
         return change_device_state(vdev, VDEV_LISTENING);
     }
 
-    return vhost_handle_request(vdev, &msg, fds);
+    return vhost_handle_request(vdev, &msg, fds, num_fds);
 }
 
 /* Prepare the sock path for the server. Return 0 if the requested path
