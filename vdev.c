@@ -300,6 +300,8 @@ static void vhd_guest_memory_unmap_all(struct vhd_guest_memory_map* map)
     for (int i = 0; i < VHOST_USER_MEM_REGIONS_MAX; ++i) {
         unmap_guest_region(&map->regions[i]);
     }
+
+    vhd_free(map);
 }
 
 /* Convert host emulator address to the current mmap address.
@@ -490,12 +492,25 @@ static int vhost_reset_owner(struct vhd_vdev* vdev, struct vhost_user_msg* msg)
     return ENOTSUP;
 }
 
+static void vhost_reset_mem_table(struct vhd_vdev *vdev)
+{
+    if (!vdev->guest_memmap) {
+        return;
+    }
+
+    vhd_guest_memory_unmap_all(vdev->guest_memmap);
+    vdev->guest_memmap = NULL;
+}
+
 static int vhost_set_mem_table(struct vhd_vdev* vdev, struct vhost_user_msg* msg, int* fds)
 {
     VHD_LOG_TRACE();
 
     int error = 0;
     struct vhost_user_mem_desc *desc;
+    struct vhd_guest_memory_map *mm;
+
+    vhost_reset_mem_table(vdev);
 
     desc = &msg->payload.mem_desc;
     if (desc->nregions > VHOST_USER_MEM_REGIONS_MAX) {
@@ -503,13 +518,12 @@ static int vhost_set_mem_table(struct vhd_vdev* vdev, struct vhost_user_msg* msg
         return EINVAL;
     }
 
+    mm = vhd_zalloc(sizeof(*mm));
+
     for (uint32_t i = 0; i < desc->nregions; i++) {
         struct vhost_user_mem_region *region = &desc->regions[i];
-        error = map_guest_region(
-                    vdev->guest_memmap, i,
-                    region->guest_addr, region->user_addr,
-                    region->size, region->mmap_offset,
-                    fds[i]);
+        error = map_guest_region(mm, i, region->guest_addr, region->user_addr,
+                                 region->size, region->mmap_offset, fds[i]);
         if (error) {
             /* Close all fds that were left unprocessed.
              * Already mapped will be handled by unmap_all */
@@ -521,10 +535,11 @@ static int vhost_set_mem_table(struct vhd_vdev* vdev, struct vhost_user_msg* msg
         }
     }
 
+    vdev->guest_memmap = mm;
     return 0;
 
 error_unmap:
-    vhd_guest_memory_unmap_all(vdev->guest_memmap);
+    vhd_guest_memory_unmap_all(mm);
     return error;
 }
 
@@ -1029,7 +1044,7 @@ static int change_device_state(struct vhd_vdev* vdev, enum vhd_vdev_state new_st
         case VDEV_CONNECTED:
             /* We're terminating existing connection and going back to listen mode */
             vhd_del_vhost_event(vdev->connfd);
-            vhd_guest_memory_unmap_all(vdev->guest_memmap);
+            vhost_reset_mem_table(vdev);
             vdev->is_owned = false;
 
             for (uint32_t i = 0; i < vdev->max_queues; ++i) {
@@ -1266,7 +1281,6 @@ int vhd_vdev_init_server(
     vdev->listenfd = listenfd;
     vdev->connfd = -1;
     vdev->rq = rq;
-    vdev->guest_memmap = vhd_zalloc(sizeof(*vdev->guest_memmap));
 
     vdev->supported_protocol_features = g_default_protocol_features;
     vdev->max_queues = max_queues;
@@ -1320,7 +1334,6 @@ void vhd_vdev_uninit(struct vhd_vdev* vdev)
     }
 
     vhd_vdev_inflight_cleanup(vdev);
-    vhd_free(vdev->guest_memmap);
 
     LIST_REMOVE(vdev, vdev_list);
     vhd_free(vdev->vrings);
