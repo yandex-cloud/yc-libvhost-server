@@ -13,38 +13,6 @@ struct vhd_vdev;
 struct vhd_vring;
 struct vhd_request_queue;
 
-typedef uint64_t vhd_paddr_t;
-typedef uint64_t vhd_uaddr_t;
-
-/**
- * TODO: need a separate unit for this
- */
-struct vhd_guest_memory_region
-{
-    /* Guest physical address */
-    vhd_paddr_t gpa;
-
-    /* Userspace virtual address, where this region is mapped in virtio backend on client */
-    vhd_uaddr_t uva;
-
-    /* Host virtual address, our local mapping */
-    void* hva;
-
-    /* Total guest physical pages this region contains */
-    uint32_t pages;
-
-    /* Shared mapping fd */
-    int fd;
-};
-
-/**
- * TODO: need a separate unit for this
- */
-struct vhd_guest_memory_map
-{
-    struct vhd_guest_memory_region regions[VHOST_USER_MEM_REGIONS_MAX];
-};
-
 enum vhd_vdev_state
 {
     /* Device is initialized. For vhost-user server devices listening socket is created. */
