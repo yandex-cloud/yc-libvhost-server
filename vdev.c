@@ -189,33 +189,13 @@ struct vhd_guest_memory_map
 };
 
 /*
- * Memory mappings
- * TODO: Ad-hoc
+ * Map guest memory region to the vhost server.
  */
-
-/* Map guest memory region to the vhost server. Return mapped address
- * in case of success, otherwise return (uint64_t)-1. In case of error
- * the errorCode argument will store the error code.
- */
-static int map_guest_region(
-    struct vhd_guest_memory_map* memmap,
-    int index,
-    vhd_paddr_t guest_addr,
-    vhd_uaddr_t user_addr,
-    uint64_t size,
-    uint64_t offset,
-    int fd)
+static int map_guest_region(struct vhd_guest_memory_region* region,
+                            vhd_paddr_t guest_addr, vhd_uaddr_t user_addr,
+                            uint64_t size, uint64_t offset, int fd)
 {
-    struct vhd_guest_memory_region* region;
     void* vaddr;
-
-    VHD_VERIFY(memmap);
-
-    if (index >= VHOST_USER_MEM_REGIONS_MAX) {
-        VHD_LOG_ERROR("Memory index = %u, should be between 0 and %d",
-                index, VHOST_USER_MEM_REGIONS_MAX);
-        return EINVAL;
-    }
 
     if (!VHD_IS_ALIGNED(size, PAGE_SIZE)) {
         return EINVAL;
@@ -226,20 +206,6 @@ static int map_guest_region(
     }
 
     uint32_t pages = (uint32_t)(size >> PAGE_SHIFT);
-
-    region = &memmap->regions[index];
-    if (region->hva != NULL) {
-        /* qemu blindly sends region updates when internal mappings are updated even if vhost-specific regions were not modified.
-         * If the region was not remapped in GPA space, just close duplicate fd and skip it. Otherwise - complain. */
-        if (region->gpa == guest_addr && region->pages == pages) {
-            close(fd);
-            goto mapped;
-        } else {
-            VHD_LOG_ERROR("Region %d already mapped to %p. New gpa 0x%llx, pages %lu",
-                    index, region->hva, (unsigned long long)guest_addr, (unsigned long)pages);
-            return EBUSY;
-        }
-    }
 
     vaddr = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, offset);
     if (vaddr == MAP_FAILED) {
@@ -255,11 +221,6 @@ static int map_guest_region(
     region->gpa = guest_addr;
     region->uva = user_addr;
     region->pages = pages;
-
-mapped:
-    VHD_LOG_DEBUG("Guest region %d mapped to %p, gpa 0x%llx, uva 0x%llx, pages %lu, fd = %d",
-        index, region->hva, (unsigned long long)region->gpa, (unsigned long long)region->uva, (unsigned long)region->pages, region->fd);
-
     return 0;
 }
 
@@ -522,8 +483,9 @@ static int vhost_set_mem_table(struct vhd_vdev* vdev, struct vhost_user_msg* msg
 
     for (uint32_t i = 0; i < desc->nregions; i++) {
         struct vhost_user_mem_region *region = &desc->regions[i];
-        error = map_guest_region(mm, i, region->guest_addr, region->user_addr,
-                                 region->size, region->mmap_offset, fds[i]);
+        error = map_guest_region(&mm->regions[i], region->guest_addr,
+                                 region->user_addr, region->size,
+                                 region->mmap_offset, fds[i]);
         if (error) {
             /* Close all fds that were left unprocessed.
              * Already mapped will be handled by unmap_all */
