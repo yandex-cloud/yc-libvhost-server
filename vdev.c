@@ -195,18 +195,10 @@ static int map_guest_region(struct vhd_guest_memory_region* region,
 {
     void* vaddr;
 
-    if (!VHD_IS_ALIGNED(size, PAGE_SIZE)) {
-        return EINVAL;
-    }
-
-    if (!VHD_IS_ALIGNED(offset, PAGE_SIZE)) {
-        return EINVAL;
-    }
-
     vaddr = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, offset);
     if (vaddr == MAP_FAILED) {
-        VHD_LOG_ERROR("Can't mmap guest memory: %d", errno);
-        return errno;
+        VHD_LOG_ERROR("Can't mmap guest memory: %s", strerror(errno));
+        return -errno;
     }
 
     /* Mark memory as defined explicitly */
