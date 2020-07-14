@@ -221,11 +221,6 @@ static int map_guest_region(struct vhd_guest_memory_region* region,
     return 0;
 }
 
-static bool is_region_mapped(struct vhd_guest_memory_region* reg)
-{
-    return reg->hva != NULL;
-}
-
 static size_t region_size_bytes(struct vhd_guest_memory_region* reg)
 {
     return (size_t)reg->pages << PAGE_SHIFT;
@@ -234,12 +229,6 @@ static size_t region_size_bytes(struct vhd_guest_memory_region* reg)
 static void unmap_guest_region(struct vhd_guest_memory_region* reg)
 {
     int ret;
-
-    VHD_VERIFY(reg);
-
-    if (!is_region_mapped(reg)) {
-        return;
-    }
 
     ret = munmap(reg->hva, reg->pages * PAGE_SIZE);
     if (ret != 0) {
@@ -268,9 +257,7 @@ static void* map_uva(struct vhd_guest_memory_map* map, vhd_uaddr_t uva)
 
     for (i = 0; i < map->num; i++) {
         struct vhd_guest_memory_region* reg = &map->regions[i];
-        if (is_region_mapped(reg)
-            && uva >= reg->uva
-            && uva - reg->uva < region_size_bytes(reg)) {
+        if (uva >= reg->uva && uva - reg->uva < region_size_bytes(reg)) {
             return (void*)((uintptr_t)reg->hva + (uva - reg->uva));
         }
     }
@@ -291,10 +278,7 @@ static void* map_gpa_len(struct vhd_guest_memory_map* map, vhd_paddr_t gpa, uint
 
     for (i = 0; i < map->num; i++) {
         struct vhd_guest_memory_region* reg = &map->regions[i];
-        if (is_region_mapped(reg)
-            && gpa >= reg->gpa
-            && gpa - reg->gpa < region_size_bytes(reg))
-        {
+        if (gpa >= reg->gpa && gpa - reg->gpa < region_size_bytes(reg)) {
             /* Check that length fits in a single region.
              *
              * TODO: should we handle gpa areas that cross region boundaries
