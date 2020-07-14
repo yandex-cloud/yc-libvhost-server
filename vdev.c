@@ -182,7 +182,8 @@ struct vhd_guest_memory_region
  */
 struct vhd_guest_memory_map
 {
-    struct vhd_guest_memory_region regions[VHOST_USER_MEM_REGIONS_MAX];
+    uint32_t num;
+    struct vhd_guest_memory_region regions[0];
 };
 
 /*
@@ -248,9 +249,10 @@ static void unmap_guest_region(struct vhd_guest_memory_region* reg)
 
 static void vhd_guest_memory_unmap_all(struct vhd_guest_memory_map* map)
 {
+    uint32_t i;
     VHD_VERIFY(map);
 
-    for (int i = 0; i < VHOST_USER_MEM_REGIONS_MAX; ++i) {
+    for (i = 0; i < map->num; ++i) {
         unmap_guest_region(&map->regions[i]);
     }
 
@@ -262,7 +264,9 @@ static void vhd_guest_memory_unmap_all(struct vhd_guest_memory_map* map)
  */
 static void* map_uva(struct vhd_guest_memory_map* map, vhd_uaddr_t uva)
 {
-    for (int i = 0; i < VHOST_USER_MEM_REGIONS_MAX; i++) {
+    uint32_t i;
+
+    for (i = 0; i < map->num; i++) {
         struct vhd_guest_memory_region* reg = &map->regions[i];
         if (is_region_mapped(reg)
             && uva >= reg->uva
@@ -276,6 +280,8 @@ static void* map_uva(struct vhd_guest_memory_map* map, vhd_uaddr_t uva)
 
 static void* map_gpa_len(struct vhd_guest_memory_map* map, vhd_paddr_t gpa, uint32_t len)
 {
+    uint32_t i;
+
     if (len == 0) {
         return NULL;
     }
@@ -283,7 +289,7 @@ static void* map_gpa_len(struct vhd_guest_memory_map* map, vhd_paddr_t gpa, uint
     /* TODO: sanitize for overflow */
     vhd_paddr_t last_gpa = gpa + len - 1;
 
-    for (int i = 0; i < VHOST_USER_MEM_REGIONS_MAX; i++) {
+    for (i = 0; i < map->num; i++) {
         struct vhd_guest_memory_region* reg = &map->regions[i];
         if (is_region_mapped(reg)
             && gpa >= reg->gpa
@@ -479,7 +485,8 @@ static int vhost_set_mem_table(struct vhd_vdev *vdev,
         return -EINVAL;
     }
 
-    mm = vhd_zalloc(sizeof(*mm));
+    mm = vhd_zalloc(sizeof(*mm) + desc->nregions * sizeof(mm->regions[0]));
+    mm->num = desc->nregions;
 
     for (i = 0; i < desc->nregions; i++) {
         struct vhost_user_mem_region *region = &desc->regions[i];
