@@ -173,8 +173,8 @@ struct vhd_guest_memory_region
     /* Host virtual address, our local mapping */
     void* hva;
 
-    /* Total guest physical pages this region contains */
-    uint32_t pages;
+    /* Used region size */
+    size_t size;
 };
 
 /**
@@ -203,8 +203,6 @@ static int map_guest_region(struct vhd_guest_memory_region* region,
         return EINVAL;
     }
 
-    uint32_t pages = (uint32_t)(size >> PAGE_SHIFT);
-
     vaddr = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, offset);
     if (vaddr == MAP_FAILED) {
         VHD_LOG_ERROR("Can't mmap guest memory: %d", errno);
@@ -217,20 +215,15 @@ static int map_guest_region(struct vhd_guest_memory_region* region,
     region->hva = vaddr;
     region->gpa = guest_addr;
     region->uva = user_addr;
-    region->pages = pages;
+    region->size = size;
     return 0;
-}
-
-static size_t region_size_bytes(struct vhd_guest_memory_region* reg)
-{
-    return (size_t)reg->pages << PAGE_SHIFT;
 }
 
 static void unmap_guest_region(struct vhd_guest_memory_region* reg)
 {
     int ret;
 
-    ret = munmap(reg->hva, reg->pages * PAGE_SIZE);
+    ret = munmap(reg->hva, reg->size);
     if (ret != 0) {
         VHD_LOG_ERROR("failed to unmap guest region at %p", reg->hva);
     }
@@ -257,8 +250,8 @@ static void* map_uva(struct vhd_guest_memory_map* map, vhd_uaddr_t uva)
 
     for (i = 0; i < map->num; i++) {
         struct vhd_guest_memory_region* reg = &map->regions[i];
-        if (uva >= reg->uva && uva - reg->uva < region_size_bytes(reg)) {
-            return (void*)((uintptr_t)reg->hva + (uva - reg->uva));
+        if (uva >= reg->uva && uva - reg->uva < reg->size) {
+            return reg->hva + (uva - reg->uva);
         }
     }
 
@@ -278,16 +271,16 @@ static void* map_gpa_len(struct vhd_guest_memory_map* map, vhd_paddr_t gpa, uint
 
     for (i = 0; i < map->num; i++) {
         struct vhd_guest_memory_region* reg = &map->regions[i];
-        if (gpa >= reg->gpa && gpa - reg->gpa < region_size_bytes(reg)) {
+        if (gpa >= reg->gpa && gpa - reg->gpa < reg->size) {
             /* Check that length fits in a single region.
              *
              * TODO: should we handle gpa areas that cross region boundaries
              *       but are otherwise valid? */
-            if (last_gpa - reg->gpa >= region_size_bytes(reg)) {
+            if (last_gpa - reg->gpa >= reg->size) {
                 return NULL;
             }
 
-            return (void*)((uintptr_t)reg->hva + (gpa - reg->gpa));
+            return reg->hva + (gpa - reg->gpa);
         }
     }
 
