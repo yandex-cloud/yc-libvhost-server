@@ -281,6 +281,9 @@ static void* map_gpa_len(struct vhd_guest_memory_map* map, vhd_paddr_t gpa, uint
 
 void *virtio_map_guest_phys_range(struct vhd_guest_memory_map *mm,
                                   uint64_t gpa, uint32_t len)
+                                 __attribute__ ((weak));
+void *virtio_map_guest_phys_range(struct vhd_guest_memory_map *mm,
+                                  uint64_t gpa, uint32_t len)
 {
     return map_gpa_len(mm, gpa, len);
 }
