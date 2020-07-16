@@ -34,7 +34,7 @@ static inline void objref_init(struct objref *objref, void (*release)(struct obj
     atomic_set(&objref->refcount, 1);
 }
 
-static inline unsigned int objref_read(const struct objref *objref)
+static inline unsigned int objref_read(struct objref *objref)
 {
     return atomic_read(&objref->refcount);
 }
