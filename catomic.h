@@ -1,6 +1,10 @@
 #pragma once
 
+#ifndef __cplusplus
 #include <stdatomic.h>
+#else
+#include <atomic>
+#endif
 
 /*
  * This is a compiler barrier, it doesn't prevent the CPU from reordering loads
