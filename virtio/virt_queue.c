@@ -7,6 +7,7 @@
 #include "catomic.h"
 #include "virt_queue.h"
 #include "logging.h"
+#include "vdev.h"
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -18,6 +19,7 @@ struct virtq_iov_private
     /* Private virtq fields */
     uint16_t used_head;
     uint16_t used_len;
+    struct vhd_guest_memory_map *mm;
 
     /* Iov we show to caller */
     struct virtio_iov iov;
@@ -468,6 +470,9 @@ static int virtq_dequeue_one(struct virtio_virtq *vq,
     memcpy(priv->iov.buffers, vq->buffers, priv->iov.nvecs * sizeof(vq->buffers[0]));
     priv->used_head = head;
     priv->used_len = chain_len;
+    priv->mm = mm;
+    /* matched with unref in virtq_commit_buffers */
+    vhd_memmap_ref(mm);
 
     /* Send this over to handler */
     handle_buffers_cb(arg, vq, &priv->iov);
@@ -495,6 +500,8 @@ void virtq_commit_buffers(struct virtio_virtq* vq, struct virtio_iov* iov)
     virtq_inflight_used_commit(vq, used->id);
     VHD_LOG_DEBUG("head = %d", priv->used_head);
 
+    /* matched with ref in virtq_dequeue_one */
+    vhd_memmap_unref(priv->mm);
     vhd_free(priv);
 }
 
