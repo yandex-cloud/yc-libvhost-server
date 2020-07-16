@@ -226,6 +226,9 @@ void vhd_vring_init(struct vhd_vring* vring, int id, struct vhd_vdev* vdev);
  */
 void vhd_vring_uninit(struct vhd_vring* vring);
 
+void vhd_memmap_ref(struct vhd_guest_memory_map *mm);
+void vhd_memmap_unref(struct vhd_guest_memory_map *mm);
+
 #ifdef __cplusplus
 }
 #endif

@@ -13,6 +13,7 @@
 #include "vdev.h"
 #include "server_internal.h"
 #include "logging.h"
+#include "objref.h"
 
 static LIST_HEAD(, vhd_vdev) g_vdevs = LIST_HEAD_INITIALIZER(g_vdevs);
 
@@ -182,6 +183,7 @@ struct vhd_guest_memory_region
  */
 struct vhd_guest_memory_map
 {
+    struct objref ref;
     uint32_t num;
     struct vhd_guest_memory_region regions[0];
 };
@@ -221,16 +223,26 @@ static void unmap_guest_region(struct vhd_guest_memory_region* reg)
     }
 }
 
-static void vhd_guest_memory_unmap_all(struct vhd_guest_memory_map* map)
+static void memmap_release(struct objref *objref)
 {
+    struct vhd_guest_memory_map *mm =
+        containerof(objref, struct vhd_guest_memory_map, ref);
     uint32_t i;
-    VHD_VERIFY(map);
 
-    for (i = 0; i < map->num; ++i) {
-        unmap_guest_region(&map->regions[i]);
+    for (i = 0; i < mm->num; i++) {
+        unmap_guest_region(&mm->regions[i]);
     }
+    vhd_free(mm);
+}
 
-    vhd_free(map);
+void vhd_memmap_ref(struct vhd_guest_memory_map *mm)
+{
+    objref_get(&mm->ref);
+}
+
+void vhd_memmap_unref(struct vhd_guest_memory_map *mm)
+{
+    objref_put(&mm->ref);
 }
 
 /* Convert host emulator address to the current mmap address.
@@ -430,7 +442,7 @@ static void vhost_reset_mem_table(struct vhd_vdev *vdev)
         return;
     }
 
-    vhd_guest_memory_unmap_all(vdev->guest_memmap);
+    vhd_memmap_unref(vdev->guest_memmap);
     vdev->guest_memmap = NULL;
 }
 
@@ -459,6 +471,7 @@ static int vhost_set_mem_table(struct vhd_vdev *vdev,
     }
 
     mm = vhd_zalloc(sizeof(*mm) + desc->nregions * sizeof(mm->regions[0]));
+    objref_init(&mm->ref, memmap_release);
     mm->num = desc->nregions;
 
     for (i = 0; i < desc->nregions; i++) {
@@ -1003,12 +1016,13 @@ static int change_device_state(struct vhd_vdev* vdev, enum vhd_vdev_state new_st
         case VDEV_CONNECTED:
             /* We're terminating existing connection and going back to listen mode */
             vhd_del_vhost_event(vdev->connfd);
-            vhost_reset_mem_table(vdev);
             vdev->is_owned = false;
 
             for (uint32_t i = 0; i < vdev->max_queues; ++i) {
                 vhd_vring_uninit(vdev->vrings + i);
             }
+
+            vhost_reset_mem_table(vdev);
 
             close(vdev->connfd);
             vdev->connfd = -1; /* Not nessesary, just defensive */
