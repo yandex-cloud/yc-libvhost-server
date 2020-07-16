@@ -6,11 +6,12 @@
 
 extern log_function __attribute__((format(printf, 2, 3))) g_log_fn;
 
-#define VHD_LOG(level, fmt, ...)         \
-do {                                     \
-        if (g_log_fn) { \
-            g_log_fn(level, fmt, ##__VA_ARGS__); \
-        } \
+#define VHD_LOG(level, fmt, ...)                                \
+    do {                                                        \
+        if (g_log_fn) {                                         \
+            g_log_fn(level, "%s:%d: " fmt,                      \
+                     __func__, __LINE__, ##__VA_ARGS__);        \
+        }                                                       \
     } while (0)
 
 #ifdef VHD_DEBUG
