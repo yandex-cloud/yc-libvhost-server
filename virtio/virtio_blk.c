@@ -265,10 +265,9 @@ static void handle_buffers(void* arg, struct virtio_virtq* vq, struct virtio_iov
 
 ////////////////////////////////////////////////////////////////////////////////
 
-int virtio_blk_dispatch_requests(
-    struct virtio_blk_dev* dev,
-    struct virtio_virtq* vq,
-    struct virtio_mm_ctx* mm)
+int virtio_blk_dispatch_requests(struct virtio_blk_dev *dev,
+                                 struct virtio_virtq *vq,
+                                 struct vhd_guest_memory_map *mm)
 {
     VHD_VERIFY(dev);
     VHD_VERIFY(vq);

@@ -23,9 +23,10 @@ struct virtq_iov_private
     struct virtio_iov iov;
 };
 
-static int virtq_dequeue_one(struct virtio_virtq* vq,
-        struct virtio_mm_ctx* mm, uint16_t head,
-        virtq_handle_buffers_cb handle_buffers_cb, void* arg);
+static int virtq_dequeue_one(struct virtio_virtq *vq,
+                             struct vhd_guest_memory_map *mm, uint16_t head,
+                             virtq_handle_buffers_cb handle_buffers_cb,
+                             void *arg);
 
 static struct virtq_iov_private* alloc_iov(uint16_t nvecs)
 {
@@ -59,7 +60,8 @@ static int add_buffer(struct virtio_virtq* vq, void* addr, size_t len, bool writ
     return 0;
 }
 
-static int map_buffer(struct virtio_virtq* vq, struct virtio_mm_ctx* mm, uint64_t gpa, size_t len, bool write_only)
+static int map_buffer(struct virtio_virtq *vq, struct vhd_guest_memory_map *mm,
+                      uint64_t gpa, size_t len, bool write_only)
 {
     void* addr = virtio_map_guest_phys_range(mm, gpa, len);
     if (!addr) {
@@ -224,10 +226,10 @@ static int inflight_resubmit_compare(const void *first, const void *second)
 }
 
 /* Resubmit inflight requests on the virtqueue start. */
-static int virtq_inflight_resubmit(struct virtio_virtq* vq,
-                       struct virtio_mm_ctx* mm,
-                       virtq_handle_buffers_cb handle_buffers_cb,
-                       void* arg)
+static int virtq_inflight_resubmit(struct virtio_virtq *vq,
+                                   struct vhd_guest_memory_map *mm,
+                                   virtq_handle_buffers_cb handle_buffers_cb,
+                                   void *arg)
 {
     uint16_t desc_num;
     uint16_t cnt;
@@ -276,9 +278,9 @@ static void mark_broken(struct virtio_virtq* vq)
     vq->broken = true;
 }
 
-static int walk_indirect_table(struct virtio_virtq* vq,
-                               struct virtio_mm_ctx* mm,
-                               const struct virtq_desc* table_desc)
+static int walk_indirect_table(struct virtio_virtq *vq,
+                               struct vhd_guest_memory_map *mm,
+                               const struct virtq_desc *table_desc)
 {
     int res;
     struct virtq_desc desc;
@@ -341,10 +343,10 @@ static int walk_indirect_table(struct virtio_virtq* vq,
     return 0;
 }
 
-int virtq_dequeue_many(struct virtio_virtq* vq,
-                       struct virtio_mm_ctx* mm,
+int virtq_dequeue_many(struct virtio_virtq *vq,
+                       struct vhd_guest_memory_map *mm,
                        virtq_handle_buffers_cb handle_buffers_cb,
-                       void* arg)
+                       void *arg)
 {
     int res;
     uint16_t head;
@@ -397,9 +399,10 @@ queue_broken:
     return res;
 }
 
-static int virtq_dequeue_one(struct virtio_virtq* vq,
-        struct virtio_mm_ctx* mm, uint16_t head,
-        virtq_handle_buffers_cb handle_buffers_cb, void* arg)
+static int virtq_dequeue_one(struct virtio_virtq *vq,
+                             struct vhd_guest_memory_map *mm, uint16_t head,
+                             virtq_handle_buffers_cb handle_buffers_cb,
+                             void *arg)
 {
     uint16_t descnum;
     uint16_t chain_len = 0;

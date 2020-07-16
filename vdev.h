@@ -169,10 +169,11 @@ static inline int vhd_vdev_dispatch_requests(struct vhd_vdev* vdev, struct vhd_v
     return vdev->type->dispatch_requests(vdev, vring, vdev->rq);
 }
 
-static inline struct virtio_mm_ctx* vhd_vdev_mm_ctx(struct vhd_vdev* vdev)
+static inline
+struct vhd_guest_memory_map *vhd_vdev_mm_ctx(struct vhd_vdev *vdev)
 {
     VHD_ASSERT(vdev);
-    return (struct virtio_mm_ctx*) vdev->guest_memmap;
+    return vdev->guest_memmap;
 }
 
 /**
