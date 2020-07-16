@@ -8,7 +8,6 @@
 #include <sys/un.h>
 #include <sys/mman.h>
 #include <pthread.h>
-#include <stdatomic.h>
 #include <alloca.h>
 
 #include "vdev.h"
