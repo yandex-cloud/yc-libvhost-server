@@ -14,7 +14,11 @@
 
 #pragma once
 
+#ifndef __cplusplus
 #include <stdatomic.h>
+#else
+#include <atomic>
+#endif
 
 /* Compiler barrier */
 #define barrier()   atomic_signal_fence(memory_order_acq_rel)
