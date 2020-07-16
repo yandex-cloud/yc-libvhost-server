@@ -4,7 +4,7 @@
 #include <alloca.h>
 #include <sys/eventfd.h>
 
-#include "atomic.h"
+#include "catomic.h"
 #include "virt_queue.h"
 #include "logging.h"
 

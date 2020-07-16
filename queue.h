@@ -13,7 +13,7 @@
  * Atomic extensions (based on QEMU qemu/queue.h) necessary for bottom halves
  * implementation
  */
-#include "atomic.h"
+#include "catomic.h"
 
 /*
  * Cater to the strict _Atomic-qual checking of clang and define a version of
