@@ -28,7 +28,7 @@
 #include <sys/epoll.h>
 #include <sys/eventfd.h>
 
-#include "atomic.h"
+#include "catomic.h"
 #include "queue.h"
 #include "platform.h"
 #include "event.h"

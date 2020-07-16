@@ -21,7 +21,7 @@
 #pragma once
 
 #include <stdbool.h>
-#include "atomic.h"
+#include "catomic.h"
 
 struct objref {
     atomic_ulong refcount;

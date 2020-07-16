@@ -8,7 +8,7 @@
 #pragma once
 
 #include <sys/queue.h>
-#include "atomic.h"
+#include "catomic.h"
 
 /*
  * Cater to the strict _Atomic-qual checking of clang and define a version of
