@@ -279,9 +279,10 @@ static void* map_gpa_len(struct vhd_guest_memory_map* map, vhd_paddr_t gpa, uint
     return NULL;
 }
 
-void* virtio_map_guest_phys_range(struct virtio_mm_ctx* mm, uint64_t gpa, uint32_t len)
+void *virtio_map_guest_phys_range(struct vhd_guest_memory_map *mm,
+                                  uint64_t gpa, uint32_t len)
 {
-    return map_gpa_len((struct vhd_guest_memory_map*)mm, gpa, len);
+    return map_gpa_len(mm, gpa, len);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
