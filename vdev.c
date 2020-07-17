@@ -235,11 +235,13 @@ static void memmap_release(struct objref *objref)
     vhd_free(mm);
 }
 
+void vhd_memmap_ref(struct vhd_guest_memory_map *mm) __attribute__ ((weak));
 void vhd_memmap_ref(struct vhd_guest_memory_map *mm)
 {
     objref_get(&mm->ref);
 }
 
+void vhd_memmap_unref(struct vhd_guest_memory_map *mm) __attribute__ ((weak));
 void vhd_memmap_unref(struct vhd_guest_memory_map *mm)
 {
     objref_put(&mm->ref);
