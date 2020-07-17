@@ -37,11 +37,18 @@ static struct virtq_iov_private* alloc_iov(uint16_t nvecs)
     return priv;
 }
 
-static void free_iov(struct virtq_iov_private* iov)
+void virtio_free_iov(struct virtio_iov *iov)
 {
-    if (iov) {
-        vhd_free(iov);
-    }
+    struct virtq_iov_private *priv =
+        containerof(iov, struct virtq_iov_private, iov);
+    vhd_free(priv);
+}
+
+uint16_t virtio_iov_get_head(struct virtio_iov *iov)
+{
+    struct virtq_iov_private *priv =
+        containerof(iov, struct virtq_iov_private, iov);
+    return priv->used_head;
 }
 
 static int add_buffer(struct virtio_virtq* vq, void* addr, size_t len, bool write_only)
@@ -488,7 +495,7 @@ void virtq_commit_buffers(struct virtio_virtq* vq, struct virtio_iov* iov)
     virtq_inflight_used_commit(vq, used->id);
     VHD_LOG_DEBUG("head = %d", priv->used_head);
 
-    free_iov(priv);
+    vhd_free(priv);
 }
 
 void virtq_notify(struct virtio_virtq* vq)

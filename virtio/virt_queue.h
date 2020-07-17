@@ -95,6 +95,9 @@ void virtq_notify(struct virtio_virtq* vq);
 
 void virtq_set_notify_fd(struct virtio_virtq* vq, int fd);
 
+void virtio_free_iov(struct virtio_iov *iov);
+uint16_t virtio_iov_get_head(struct virtio_iov *iov);
+
 #ifdef __cplusplus
 }
 #endif
