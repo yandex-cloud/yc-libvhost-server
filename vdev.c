@@ -1081,7 +1081,6 @@ invalid_transition:
  */
 static int server_read(void* data)
 {
-    int ret;
     int flags;
     int connfd;
 
@@ -1091,25 +1090,22 @@ static int server_read(void* data)
     connfd = accept(vdev->listenfd, NULL, NULL);
     if (connfd == -1) {
         VHD_LOG_ERROR("accept() failed: %d", errno);
-        return errno;
+        return 0;
     }
 
     flags = fcntl(connfd, F_GETFL, 0);
     if (flags < 0) {
         VHD_LOG_ERROR("fcntl on client socket failed: %d", errno);
-        ret = errno;
         goto close_client;
     }
 
     if (fcntl(connfd, F_SETFL, flags | O_NONBLOCK) < 0) {
         VHD_LOG_ERROR("Can't set O_NONBLOCK mode on the client socket: %d", errno);
-        ret = errno;
         goto close_client;
     }
 
     vdev->connfd = connfd;
-    ret = change_device_state(vdev, VDEV_CONNECTED);
-    if (ret != 0) {
+    if (change_device_state(vdev, VDEV_CONNECTED)) {
         goto close_client;
     }
 
@@ -1118,26 +1114,31 @@ static int server_read(void* data)
 
 close_client:
     close(connfd);
-    return ret;
+    return 0;
 }
 
 static int conn_read(void* data)
 {
-    int len;
     struct vhost_user_msg msg;
     int fds[VHOST_USER_MAX_FDS];
     size_t num_fds = VHOST_USER_MAX_FDS;
     struct vhd_vdev *vdev = data;
 
-    len = net_recv_msg(vdev->connfd, &msg, fds, &num_fds);
-    if (len <= 0) {
-        VHD_LOG_DEBUG("Close connection with client, sock = %d",
-                      vdev->connfd);
-
-        return change_device_state(vdev, VDEV_LISTENING);
+    if (net_recv_msg(vdev->connfd, &msg, fds, &num_fds) <= 0) {
+        goto err_out;
     }
 
-    return vhost_handle_request(vdev, &msg, fds, num_fds);
+    if (vhost_handle_request(vdev, &msg, fds, num_fds)) {
+        goto err_out;
+    }
+
+    return 0;
+err_out:
+    VHD_LOG_DEBUG("Close connection with client, sock = %d",
+                  vdev->connfd);
+
+    change_device_state(vdev, VDEV_LISTENING);
+    return 0;
 }
 
 /* Prepare the sock path for the server. Return 0 if the requested path
