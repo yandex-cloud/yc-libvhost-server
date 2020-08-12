@@ -126,7 +126,7 @@ static int net_send_msg_fds(int fd, const struct vhost_user_msg* msg,
 
     iov.iov_base = (void*)msg;
     iov.iov_len = VHOST_MSG_HDR_SIZE + msg->size;
-    
+
     memset(&msgh, 0, sizeof(msgh));
     msgh.msg_iov = &iov;
     msgh.msg_iovlen = 1;
@@ -886,7 +886,7 @@ static int vhost_ack_request_if_needed(struct vhd_vdev* vdev, const struct vhost
     return vhost_send_reply(vdev, msg, ret);
 }
 
-/* 
+/*
  * Return 0 in case of success, otherwise return error code.
  */
 static int vhost_handle_request(struct vhd_vdev *vdev,

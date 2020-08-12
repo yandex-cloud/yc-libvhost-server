@@ -89,7 +89,7 @@ struct vhd_vdev
     struct vhd_vring* vrings; /* Total num_queues elements */
 
     /**
-     * Memory mappings that relate to this device 
+     * Memory mappings that relate to this device
      * TODO: it is wrong to have separate mappings per device, they should really be per-guest
      */
     struct vhd_guest_memory_map *guest_memmap;
