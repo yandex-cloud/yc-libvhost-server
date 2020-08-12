@@ -125,7 +125,7 @@ static int handle_inout(struct virtio_blk_dev* dev,
             fail_request(vq, iov);
             return -EINVAL;
         }
-    
+
         /* Buffer should be write-only if this is a read request */
         if (req->type == VIRTIO_BLK_T_IN && !vhd_buffer_is_write_only(pdata + i)) {
             VHD_LOG_ERROR("Cannot write to data buffer %zu", i);

@@ -308,7 +308,7 @@ static int walk_indirect_table(struct virtio_virtq *vq,
         return -EINVAL;
     }
 
-    int max_indirect_descs = table_desc->len / sizeof(desc); 
+    int max_indirect_descs = table_desc->len / sizeof(desc);
     int chain_len = 0;
 
     struct virtq_desc* pdesc = (struct virtq_desc*) mapped_table;
