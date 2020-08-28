@@ -355,6 +355,20 @@ static int vhost_send_reply(struct vhd_vdev* vdev, const struct vhost_user_msg* 
     return vhost_send(vdev, &reply);
 }
 
+static int vhost_send_vring_state(struct vhd_vdev* vdev,
+                                  const struct vhost_user_msg* msgin,
+                                  int last_avail)
+{
+    struct vhost_user_msg reply;
+    reply.req = msgin->req;
+    reply.size = sizeof(reply.payload.vring_state);
+    reply.flags = VHOST_USER_MSG_FLAGS_REPLY;
+    reply.payload.vring_state.index = msgin->payload.vring_state.index;
+    reply.payload.vring_state.num = last_avail;
+
+    return vhost_send(vdev, &reply);
+}
+
 static int vhost_get_protocol_features(struct vhd_vdev* vdev, struct vhost_user_msg* msg)
 {
     VHD_LOG_TRACE();
@@ -684,8 +698,6 @@ static int vhost_get_vring_base(struct vhd_vdev* vdev, struct vhost_user_msg* ms
         return EINVAL;
     }
 
-    uint16_t vq_base = vring->vq.last_avail;
-
     /* If we did not negotiate VHOST_USER_F_PROTOCOL_FEATURES then vring should stop automatically
      * when we get VHOST_USER_GET_VRING_BASE from guest.
      * Otherwise we should wait for explicit VHOST_USER_SET_VRING_ENABLE(0) */
@@ -697,7 +709,7 @@ static int vhost_get_vring_base(struct vhd_vdev* vdev, struct vhost_user_msg* ms
         }
     }
 
-    return vhost_send_reply(vdev, msg, vq_base);
+    return vhost_send_vring_state(vdev, msg, vring->vq.last_avail);
 }
 
 static int vhost_set_vring_addr(struct vhd_vdev* vdev, struct vhost_user_msg* msg)
