@@ -41,6 +41,7 @@ void *virtio_map_guest_phys_range(struct vhd_guest_memory_map *mm,
 
 struct virtio_virtq
 {
+    uint32_t flags;
     struct virtq_desc* desc;
     struct virtq_avail* avail;
     struct virtq_used* used;
@@ -72,6 +73,7 @@ struct virtio_virtq
 };
 
 int virtio_virtq_attach(struct virtio_virtq* vq,
+                        uint32_t flags,
                         void* desc_addr,
                         void* avail_addr,
                         void* used_addr,
