@@ -45,6 +45,7 @@ struct virtio_virtq
     struct virtq_desc* desc;
     struct virtq_avail* avail;
     struct virtq_used* used;
+    uint64_t used_gpa_base;
 
     /* Size of queue in number of descriptors it can hold */
     int qsz;
@@ -77,6 +78,7 @@ int virtio_virtq_attach(struct virtio_virtq* vq,
                         void* desc_addr,
                         void* avail_addr,
                         void* used_addr,
+                        uint64_t used_gpa_base,
                         int qsz,
                         int avail_base,
                         void* inflight_addr);

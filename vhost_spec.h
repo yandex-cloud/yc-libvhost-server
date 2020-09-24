@@ -38,6 +38,7 @@ extern "C" {
 #define VHOST_USER_PROTOCOL_F_INFLIGHT_SHMFD 12
 
 /* Vhost user features (GET_FEATURES and SET_FEATURES commands). */
+#define VHOST_F_LOG_ALL                     26
 #define VHOST_USER_F_PROTOCOL_FEATURES      30
 #define VIRTIO_F_RING_INDIRECT_DESC         28
 #define VIRTIO_F_RING_EVENT_IDX             29
@@ -118,11 +119,12 @@ struct vhost_user_vring_state {
 
 struct vhost_user_vring_addr {
     uint32_t index;
+#define VHOST_VRING_F_LOG (1 << 0)
     uint32_t flags;
     uint64_t desc_addr;
     uint64_t used_addr;
     uint64_t avail_addr;
-    uint64_t log_addr;
+    uint64_t used_gpa_base;
 } __attribute__((packed));
 
 struct vhost_user_config_space {
@@ -155,6 +157,11 @@ struct inflight_split_region {
     struct inflight_split_desc desc[0];
 } __attribute__((packed));
 
+struct vhost_user_log {
+    uint64_t size;
+    uint64_t offset;
+} __attribute__((packed));
+
 struct vhost_user_msg {
     uint32_t req;
     uint32_t flags;
@@ -178,6 +185,8 @@ struct vhost_user_msg {
         uint8_t index;
         /* VHOST_USER_GET_INFLIGHT_FD, VHOST_USER_SET_INFLIGHT_FD */
         struct vhost_user_inflight_desc inflight_desc;
+        /* VHOST_USER_SET_LOG_BASE */
+        struct vhost_user_log log;
     } payload;
 } __attribute__((packed));
 

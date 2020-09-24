@@ -48,6 +48,8 @@ struct vhd_vdev_type
  *
  * Devices are polymorphic through their respective types.
  */
+typedef uint64_t vhd_paddr_t;
+
 struct vhd_vdev
 {
     /* Accosiated client private data */
@@ -176,6 +178,10 @@ struct vhd_guest_memory_map *vhd_vdev_mm_ctx(struct vhd_vdev *vdev)
     return vdev->guest_memmap;
 }
 
+void vhd_gpa_range_mark_dirty(struct vhd_guest_memory_map* mm, vhd_paddr_t gpa, size_t len);
+void vhd_hva_range_mark_dirty(struct vhd_guest_memory_map* mm, void* hva, size_t len);
+bool vhd_logging_started(struct virtio_virtq* vq);
+
 /**
  * Device vring instance
  */
@@ -194,6 +200,7 @@ struct vhd_vring
         int num;
         int base;
         void* inflight_addr;
+        vhd_paddr_t used_gpa_base;
     } client_info;
 
     /* vring id, acts as an index in its owning device */

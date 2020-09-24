@@ -160,7 +160,6 @@ static int net_send_msg_fds(int fd, const struct vhost_user_msg* msg,
 /**
  * TODO: need a separate unit for this
  */
-typedef uint64_t vhd_paddr_t;
 typedef uint64_t vhd_uaddr_t;
 
 struct vhd_guest_memory_region
@@ -186,6 +185,9 @@ struct vhd_guest_memory_map
     struct objref ref;
     uint32_t num;
     struct vhd_guest_memory_region regions[0];
+
+    atomic_long* log_addr;
+    uint64_t log_size;
 };
 
 /*
@@ -232,6 +234,14 @@ static void memmap_release(struct objref *objref)
     for (i = 0; i < mm->num; i++) {
         unmap_guest_region(&mm->regions[i]);
     }
+
+    if (mm->log_addr) {
+        int ret = munmap(mm->log_addr, mm->log_size);
+        if (ret != 0) {
+            VHD_LOG_ERROR("failed to unmap log region at %p", mm->log_addr);
+        }
+    }
+
     vhd_free(mm);
 }
 
@@ -262,6 +272,69 @@ static void* map_uva(struct vhd_guest_memory_map* map, vhd_uaddr_t uva)
     }
 
     return NULL;
+}
+
+#define TRANSLATION_FAILED ((vhd_paddr_t)-1)
+
+static vhd_paddr_t hva2gpa(struct vhd_guest_memory_map* mm, void* hva)
+{
+    int i;
+    for (i = 0; i < mm->num; ++i) {
+        struct vhd_guest_memory_region* reg = &mm->regions[i];
+        if (hva >= reg->hva && hva < reg->hva + reg->size) {
+            return (hva - reg->hva) + reg->gpa;
+        }
+    }
+
+    VHD_LOG_WARN("Failed to translate hva %p to gpa", hva);
+    return TRANSLATION_FAILED;
+}
+
+#define VHOST_LOG_PAGE 0x1000
+
+void vhd_gpa_range_mark_dirty(struct vhd_guest_memory_map* mm, vhd_paddr_t gpa, size_t len)
+{
+    atomic_long* log_addr = mm->log_addr;
+    if (!log_addr) {
+        VHD_LOG_WARN("No logging addr set");
+        return;
+    }
+
+    uint64_t log_size = mm->log_size;
+
+    uint64_t page = gpa / VHOST_LOG_PAGE;
+    uint64_t last_page = (gpa + len - 1) / VHOST_LOG_PAGE;
+
+    if (last_page >= log_size * 8) {
+        VHD_LOG_ERROR("Write beyond log buffer: gpa = 0x%lx, len = 0x%lx, log_size %zu",
+            gpa, len, log_size);
+        if (page >= log_size * 8) {
+            return;
+        }
+        last_page = log_size * 8 - 1;
+    }
+
+    /* log is always page aligned so we can be sure that its start is aligned
+       to sizeof(long) and also that atomic operations never cross cacheline */
+    do {
+        uint64_t mask = 0UL;
+        int chunk = page / 64;
+        for(; page <= last_page && page / 64 == chunk; ++page) {
+            mask |= 1LU << (page % 64);
+        }
+#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+        mask = __builtin_bswap64(mask);
+#endif
+        atomic_or(&log_addr[chunk], mask);
+    } while (page <= last_page);
+}
+
+void vhd_hva_range_mark_dirty(struct vhd_guest_memory_map* mm, void* hva, size_t len)
+{
+    vhd_paddr_t gpa = hva2gpa(mm, hva);
+    if (gpa != TRANSLATION_FAILED) {
+        vhd_gpa_range_mark_dirty(mm, gpa, len);
+    }
 }
 
 static void* map_gpa_len(struct vhd_guest_memory_map* map, vhd_paddr_t gpa, uint32_t len)
@@ -309,7 +382,8 @@ void *virtio_map_guest_phys_range(struct vhd_guest_memory_map *mm,
  */
 
 static const uint64_t g_default_features =
-    (1UL << VHOST_USER_F_PROTOCOL_FEATURES);
+    (1UL << VHOST_USER_F_PROTOCOL_FEATURES) |
+    (1UL << VHOST_F_LOG_ALL);
 
 static const uint64_t g_default_protocol_features =
     (1UL << VHOST_USER_PROTOCOL_F_MQ) |
@@ -727,7 +801,6 @@ static int vhost_set_vring_addr(struct vhd_vdev* vdev, struct vhost_user_msg* ms
     void* desc_addr = map_uva(vdev->guest_memmap, vraddr->desc_addr);
     void* used_addr = map_uva(vdev->guest_memmap, vraddr->used_addr);
     void* avail_addr = map_uva(vdev->guest_memmap, vraddr->avail_addr);
-    /* TODO: log_addr */
 
     if (!vring->is_enabled) {
         if (!desc_addr || !used_addr || !avail_addr) {
@@ -740,10 +813,12 @@ static int vhost_set_vring_addr(struct vhd_vdev* vdev, struct vhost_user_msg* ms
         vring->client_info.desc_addr = desc_addr;
         vring->client_info.used_addr = used_addr;
         vring->client_info.avail_addr = avail_addr;
+        vring->client_info.used_gpa_base = vraddr->used_gpa_base;
     } else {
         if (vring->client_info.desc_addr != desc_addr ||
             vring->client_info.used_addr != used_addr ||
-            vring->client_info.avail_addr != avail_addr)
+            vring->client_info.avail_addr != avail_addr ||
+            vring->client_info.used_gpa_base != vraddr->used_gpa_base)
         {
             VHD_LOG_ERROR("Enabled vring parameters mismatch");
             return EINVAL;
@@ -767,6 +842,48 @@ static int vhost_set_vring_enable(struct vhd_vdev* vdev, struct vhost_user_msg* 
     }
 
     return vring_set_enable(vring, vrstate->num == 1);
+}
+
+bool vhd_logging_started(struct virtio_virtq* vq)
+                                 __attribute__ ((weak));
+bool vhd_logging_started(struct virtio_virtq* vq)
+{
+    struct vhd_vring* vring = containerof(vq, struct vhd_vring, vq);
+    return has_feature(vring->vdev->negotiated_features, VHOST_F_LOG_ALL);
+}
+
+static int vhost_set_log_base(struct vhd_vdev* vdev,
+                              struct vhost_user_msg* msg,
+                              int *fds,
+                              size_t num_fds)
+{
+    VHD_LOG_TRACE();
+
+    if (num_fds != 1) {
+        VHD_LOG_ERROR("unexpected #fds: %zu", num_fds);
+        return EINVAL;
+    }
+
+    if (vdev->guest_memmap->log_addr) {
+        VHD_LOG_ERROR("updating log region is not supported");
+        close(fds[0]);
+        return ENOTSUP;
+    }
+
+    struct vhost_user_log* log = &msg->payload.log;
+
+    void* log_addr = mmap(NULL, log->size, PROT_READ | PROT_WRITE, MAP_SHARED, fds[0], log->offset);
+    close(fds[0]);
+
+    if (log_addr == MAP_FAILED) {
+        VHD_LOG_ERROR("can't mmap fd = %d, size = %lu", fds[0], log->size);
+        return errno;
+    }
+
+    vdev->guest_memmap->log_addr = log_addr;
+    vdev->guest_memmap->log_size = log->size;
+
+    return vhost_send_reply(vdev, msg, 0);
 }
 
 static void inflight_split_region_init(struct inflight_split_region *region,
@@ -956,6 +1073,9 @@ static int vhost_handle_request(struct vhd_vdev *vdev,
         case VHOST_USER_GET_QUEUE_NUM:
             ret = vhost_get_queue_num(vdev, msg);
             break;
+        case VHOST_USER_SET_LOG_BASE:
+            ret = vhost_set_log_base(vdev, msg, fds, num_fds);
+            break;
 
         /*
          * vrings
@@ -990,7 +1110,6 @@ static int vhost_handle_request(struct vhd_vdev *vdev,
          * TODO
          */
 
-        case VHOST_USER_SET_LOG_BASE:
         case VHOST_USER_SET_LOG_FD:
         case VHOST_USER_SEND_RARP:
         case VHOST_USER_NET_SET_MTU:
@@ -1373,6 +1492,7 @@ static int vring_set_enable(struct vhd_vring* vring, bool do_enable)
                 vring->client_info.desc_addr,
                 vring->client_info.avail_addr,
                 vring->client_info.used_addr,
+                vring->client_info.used_gpa_base,
                 vring->client_info.num,
                 vring->client_info.base,
                 vring->client_info.inflight_addr);

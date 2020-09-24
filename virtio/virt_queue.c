@@ -179,6 +179,7 @@ int virtio_virtq_attach(struct virtio_virtq* vq,
                         void* desc_addr,
                         void* avail_addr,
                         void* used_addr,
+                        uint64_t used_gpa_base,
                         int qsz,
                         int avail_base,
                         void* inflight_addr)
@@ -199,6 +200,7 @@ int virtio_virtq_attach(struct virtio_virtq* vq,
     vq->broken = false;
     vq->buffers = vhd_calloc(qsz, sizeof(vq->buffers[0]));
     vq->next_buffer = 0;
+    vq->used_gpa_base = used_gpa_base;
 
     /* Inflight initialization. */
     vq->inflight_region = inflight_addr;
@@ -484,13 +486,45 @@ static int virtq_dequeue_one(struct virtio_virtq *vq,
     return 0;
 }
 
+static void vhd_log_buffers(struct vhd_guest_memory_map* mm,
+                            struct virtio_iov* iov)
+{
+    int nvecs = iov->nvecs;
+    int i;
+    for (i = 0; i < nvecs; ++i) {
+        if (iov->buffers[i].write_only) {
+            vhd_hva_range_mark_dirty(mm, iov->buffers[i].base, iov->buffers[i].len);
+        }
+    }
+}
+
+static void vhd_log_modified(struct virtio_virtq* vq,
+                             struct vhd_guest_memory_map* mm,
+                             struct virtio_iov* iov,
+                             uint16_t used_idx)
+{
+    /* log modifications of buffers in descr */
+    vhd_log_buffers(mm, iov);
+    if (vq->flags & VHOST_VRING_F_LOG) {
+        /* log modification of used->idx */
+        vhd_gpa_range_mark_dirty(mm,
+            vq->used_gpa_base + offsetof(struct virtq_used, idx),
+            sizeof(vq->used->idx));
+        /* log modification of used->ring[idx] */
+        vhd_gpa_range_mark_dirty(mm,
+            vq->used_gpa_base + offsetof(struct virtq_used, ring[used_idx]),
+            sizeof(vq->used->ring[0]));
+    }
+}
+
 void virtq_commit_buffers(struct virtio_virtq* vq, struct virtio_iov* iov)
 {
     VHD_VERIFY(vq);
 
     /* Put buffer head index and len into used ring */
     struct virtq_iov_private* priv = containerof(iov, struct virtq_iov_private, iov);
-    struct virtq_used_elem* used = &vq->used->ring[vq->used->idx % vq->qsz];
+    uint16_t used_idx = vq->used->idx % vq->qsz;
+    struct virtq_used_elem* used = &vq->used->ring[used_idx];
     used->id = priv->used_head;
     used->len = priv->used_len;
 
@@ -501,6 +535,10 @@ void virtq_commit_buffers(struct virtio_virtq* vq, struct virtio_iov* iov)
 
     virtq_inflight_used_commit(vq, used->id);
     VHD_LOG_DEBUG("head = %d", priv->used_head);
+
+    if (vhd_logging_started(vq)) {
+        vhd_log_modified(vq, priv->mm, &priv->iov, used_idx);
+    }
 
     /* matched with ref in virtq_dequeue_one */
     vhd_memmap_unref(priv->mm);
