@@ -1359,8 +1359,8 @@ static int vring_io_event(void* ctx)
 static int vring_set_enable(struct vhd_vring* vring, bool do_enable)
 {
     if (do_enable == vring->is_enabled) {
-        VHD_LOG_WARN("strange VRING_ENABLE call from client (vring is already %s)",
-            vring->is_enabled ? "enabled" : "disabled");
+        VHD_LOG_WARN("strange VRING_ENABLE call from client (vring %d is already %s)",
+            vring->id, vring->is_enabled ? "enabled" : "disabled");
         return 0;
     }
 
