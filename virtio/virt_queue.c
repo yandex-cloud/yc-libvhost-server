@@ -175,6 +175,7 @@ static void virtq_inflight_reconnect_update(struct virtio_virtq* vq)
 }
 
 int virtio_virtq_attach(struct virtio_virtq* vq,
+                        uint32_t flags,
                         void* desc_addr,
                         void* avail_addr,
                         void* used_addr,
@@ -189,6 +190,7 @@ int virtio_virtq_attach(struct virtio_virtq* vq,
 
     /* Client explicitly told us where to look for stuff, so no sanity checks.
      * Assume that vhost initiation already verified memory layout */
+    vq->flags = flags;
     vq->desc = desc_addr;
     vq->used = used_addr;
     vq->avail = avail_addr;

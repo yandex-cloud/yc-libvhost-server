@@ -738,6 +738,7 @@ static int vhost_set_vring_addr(struct vhd_vdev* vdev, struct vhost_user_msg* ms
     vring->client_info.desc_addr = desc_addr;
     vring->client_info.used_addr = used_addr;
     vring->client_info.avail_addr = avail_addr;
+    vring->client_info.flags = vraddr->flags;
 
     return 0;
 }
@@ -1355,6 +1356,7 @@ static int vring_set_enable(struct vhd_vring* vring, bool do_enable)
 
         vring_inflight_addr_init(vring);
         res = virtio_virtq_attach(&vring->vq,
+                vring->client_info.flags,
                 vring->client_info.desc_addr,
                 vring->client_info.avail_addr,
                 vring->client_info.used_addr,

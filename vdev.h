@@ -187,6 +187,7 @@ struct vhd_vring
     /* This structure is used to collect info about client vring during
      * several vhost packets until we have enought to initialize it */
     struct vring_client_info {
+        uint32_t flags;
         void* desc_addr;
         void* avail_addr;
         void* used_addr;
