@@ -718,7 +718,7 @@ static int vhost_set_vring_addr(struct vhd_vdev* vdev, struct vhost_user_msg* ms
 
     struct vhost_user_vring_addr* vraddr = &msg->payload.vring_addr;
 
-    struct vhd_vring* vring = get_vring_not_enabled(vdev, vraddr->index);
+    struct vhd_vring* vring = get_vring(vdev, vraddr->index);
     if (!vring) {
         return EINVAL;
     }
@@ -729,16 +729,29 @@ static int vhost_set_vring_addr(struct vhd_vdev* vdev, struct vhost_user_msg* ms
     void* avail_addr = map_uva(vdev->guest_memmap, vraddr->avail_addr);
     /* TODO: log_addr */
 
-    if (!desc_addr || !used_addr || !avail_addr) {
-        VHD_LOG_ERROR("invalid vring component address (%p, %p, %p)",
-            desc_addr, used_addr, avail_addr);
-        return EINVAL;
+    if (!vring->is_enabled) {
+        if (!desc_addr || !used_addr || !avail_addr) {
+            VHD_LOG_ERROR("invalid vring %d component address (%p, %p, %p)",
+                vraddr->index, desc_addr, used_addr, avail_addr);
+            return EINVAL;
+        }
+
+        vring->client_info.flags = vraddr->flags;
+        vring->client_info.desc_addr = desc_addr;
+        vring->client_info.used_addr = used_addr;
+        vring->client_info.avail_addr = avail_addr;
+    } else {
+        if (vring->client_info.desc_addr != desc_addr ||
+            vring->client_info.used_addr != used_addr ||
+            vring->client_info.avail_addr != avail_addr)
+        {
+            VHD_LOG_ERROR("Enabled vring parameters mismatch");
+            return EINVAL;
+        }
+        vring->client_info.flags = vraddr->flags;
+        vring->vq.flags = vraddr->flags;
     }
 
-    vring->client_info.desc_addr = desc_addr;
-    vring->client_info.used_addr = used_addr;
-    vring->client_info.avail_addr = avail_addr;
-    vring->client_info.flags = vraddr->flags;
 
     return 0;
 }
