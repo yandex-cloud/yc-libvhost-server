@@ -278,7 +278,7 @@ static void* map_uva(struct vhd_guest_memory_map* map, vhd_uaddr_t uva)
 
 static vhd_paddr_t hva2gpa(struct vhd_guest_memory_map* mm, void* hva)
 {
-    int i;
+    uint32_t i;
     for (i = 0; i < mm->num; ++i) {
         struct vhd_guest_memory_region* reg = &mm->regions[i];
         if (hva >= reg->hva && hva < reg->hva + reg->size) {
