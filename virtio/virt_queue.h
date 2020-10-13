@@ -17,7 +17,7 @@ extern "C" {
 struct virtio_iov
 {
     uint16_t nvecs;
-    struct vhd_buffer buffers[0 /*nvecs*/];
+    struct vhd_buffer buffers[/*nvecs*/];
 };
 
 /*
