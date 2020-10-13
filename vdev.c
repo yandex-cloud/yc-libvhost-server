@@ -183,11 +183,12 @@ struct vhd_guest_memory_region
 struct vhd_guest_memory_map
 {
     struct objref ref;
-    uint32_t num;
-    struct vhd_guest_memory_region regions[0];
 
     atomic_long* log_addr;
     uint64_t log_size;
+
+    uint32_t num;
+    struct vhd_guest_memory_region regions[];
 };
 
 /*

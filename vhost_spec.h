@@ -154,7 +154,7 @@ struct inflight_split_region {
     uint16_t desc_num;
     uint16_t last_batch_head;
     uint16_t used_idx;
-    struct inflight_split_desc desc[0];
+    struct inflight_split_desc desc[];
 } __attribute__((packed));
 
 struct vhost_user_log {

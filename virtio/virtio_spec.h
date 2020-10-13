@@ -40,7 +40,7 @@ struct virtq_avail {
 #define VIRTQ_AVAIL_F_NO_INTERRUPT      1
     uint16_t flags;
     uint16_t idx;
-    uint16_t ring[0]; /* Queue Size */
+    uint16_t ring[]; /* Queue Size */
 };
 VHD_STATIC_ASSERT(sizeof(struct virtq_avail) == 4);
 
@@ -57,7 +57,7 @@ struct virtq_used {
 #define VIRTQ_USED_F_NO_NOTIFY  1
     uint16_t flags;
     uint16_t idx;
-    struct virtq_used_elem ring[0]; /* Queue Size */
+    struct virtq_used_elem ring[]; /* Queue Size */
 };
 VHD_STATIC_ASSERT(sizeof(struct virtq_used) == 4);
 
