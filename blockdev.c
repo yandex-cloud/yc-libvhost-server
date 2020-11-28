@@ -1,3 +1,6 @@
+#include <inttypes.h>
+#include <stdint.h>
+
 #include "vhost/blockdev.h"
 #include "server_internal.h"
 #include "vdev.h"
@@ -89,16 +92,22 @@ static int vblk_handle_request(struct virtio_virtq *vq, struct vhd_bio *bio)
 }
 
 struct vhd_vdev *vhd_register_blockdev(struct vhd_bdev_info *bdev,
-                                       struct vhd_request_queue *rq, void *priv)
+                                       struct vhd_request_queue *rq,
+                                       void *priv)
 {
-    int res = 0;
+    int res;
 
-    if (bdev->total_blocks == 0) {
+    if (!bdev->total_blocks || !bdev->block_size) {
+        VHD_LOG_ERROR("Zero blockdev capacity %" PRIu64 " * %" PRIu32,
+                      bdev->total_blocks, bdev->block_size);
         return NULL;
     }
 
-    /* Check block size is power-of-2 */
-    if (bdev->block_size == 0 || (bdev->block_size & (bdev->block_size - 1))) {
+    if ((bdev->block_size & (bdev->block_size - 1)) ||
+        bdev->block_size % VHD_SECTOR_SIZE) {
+        VHD_LOG_ERROR("Block size %" PRIu32 " is not"
+                      " a power of two multiple of sector size (%llu)",
+                      bdev->block_size, VHD_SECTOR_SIZE);
         return NULL;
     }
 
