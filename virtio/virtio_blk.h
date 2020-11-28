@@ -42,9 +42,6 @@ struct virtio_blk_dev {
     /* blk config data generated on init from bdev */
     struct virtio_blk_config config;
 
-    /* 512 << block_shift == bdev->block_size */
-    uint8_t block_shift;
-
     /* Handler to dispatch I/O to underlying block backend */
     virtio_blk_io_dispatch *dispatch;
 };

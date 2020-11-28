@@ -9,8 +9,6 @@
 #include "virt_queue.h"
 #include "logging.h"
 
-#define SECTORS_TO_BLOCKS(dev, sectors) ((sectors) >> (dev)->block_shift)
-#define BLOCKS_TO_SECTORS(dev, blocks)  ((blocks) << (dev)->block_shift)
 #define IS_ALIGNED_TO_SECTOR(val)       (((val) & (VIRTIO_BLK_SECTOR_SIZE - 1)) == 0)
 
 /* virtio blk data for bdev io */
@@ -299,25 +297,22 @@ int virtio_blk_init_dev(
     /* 16383 for cylinders */
     const uint16_t max_cylinders = 65535;
 
-    /* block size should be a multiple of vblk sector size */
-    if (!bdev->block_size ||
-        (bdev->block_size & (VIRTIO_BLK_SECTOR_SIZE - 1))) {
-        VHD_LOG_ERROR("block size %llu should be a multiple of virtio blk "
-                      "sector size (512 bytes)",
-                      (unsigned long long)bdev->block_size);
-        return -EINVAL;
-    }
+    uint32_t phys_block_sectors = bdev->block_size >> VHD_SECTOR_SHIFT;
+    uint8_t phys_block_exp = vhd_find_first_bit32(phys_block_sectors);
 
-    dev->block_shift = vhd_find_first_bit32(
-        bdev->block_size >> VIRTIO_BLK_SECTOR_SHIFT);
     dev->dispatch = dispatch;
     dev->bdev = bdev;
 
-    dev->config.capacity = BLOCKS_TO_SECTORS(dev, bdev->total_blocks);
+    /*
+     * Both virtio and block backend use the same sector size of 512.  Don't
+     * bother converting between the two, just assert they are the same.
+     */
+    VHD_STATIC_ASSERT(VHD_SECTOR_SIZE == VIRTIO_BLK_SECTOR_SIZE);
+
+    dev->config.capacity = bdev->total_blocks << phys_block_exp;
     dev->config.blk_size = VHD_SECTOR_SIZE;
     dev->config.numqueues = bdev->num_queues;
-
-    dev->config.topology.physical_block_exp = dev->block_shift;
+    dev->config.topology.physical_block_exp = phys_block_exp;
     dev->config.topology.alignment_offset = 0;
     /* TODO: can get that from bdev info */
     dev->config.topology.min_io_size = 1;
