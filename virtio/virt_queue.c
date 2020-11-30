@@ -580,15 +580,12 @@ static int virtq_dequeue_one(struct virtio_virtq *vq, uint16_t head,
 
 static void vhd_log_buffers(struct vhd_memory_log *log,
                             struct vhd_memory_map *mm,
-                            struct virtio_iov *iov)
+                            struct virtio_iov *viov)
 {
-    uint16_t nvecs = iov->niov_out + iov->niov_in;
     uint16_t i;
-    for (i = 0; i < nvecs; ++i) {
-        if (iov->buffers[i].write_only) {
-            vhd_mark_range_dirty(log, mm, iov->buffers[i].base,
-                                 iov->buffers[i].len);
-        }
+    for (i = 0; i < viov->niov_in; ++i) {
+        struct vhd_buffer *iov = &viov->iov_in[i];
+        vhd_mark_range_dirty(log, mm, iov->base, iov->len);
     }
 }
 
