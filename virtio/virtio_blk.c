@@ -84,16 +84,6 @@ static void complete_io(struct vhd_bio *bio)
     vhd_free(vbio);
 }
 
-static inline bool vhd_buffer_is_write_only(const struct vhd_buffer *buf)
-{
-    return buf->write_only;
-}
-
-static inline bool vhd_buffer_can_write(const struct vhd_buffer *buf)
-{
-    return vhd_buffer_is_write_only(buf);
-}
-
 static bool is_valid_req(uint64_t sector, size_t len, uint64_t capacity)
 {
     size_t nsectors = len / VIRTIO_BLK_SECTOR_SIZE;
@@ -175,17 +165,14 @@ complete:
 static uint8_t handle_getid(struct virtio_blk_dev *dev,
                             struct virtio_iov *iov)
 {
-    uint16_t niov = iov->niov_in + iov->niov_out;
-
-    if (niov != 3) {
-        VHD_LOG_ERROR("Bad number of buffers %d in iov", niov);
+    if (iov->niov_in != 2) {
+        VHD_LOG_ERROR("Bad number of IN segments %u in request", iov->niov_in);
         return VIRTIO_BLK_S_IOERR;
     }
 
-    struct vhd_buffer *id_buf = &iov->buffers[1];
+    struct vhd_buffer *id_buf = &iov->iov_in[0];
 
-    if (id_buf->len != VIRTIO_BLK_DISKID_LENGTH ||
-        !vhd_buffer_can_write(id_buf)) {
+    if (id_buf->len != VIRTIO_BLK_DISKID_LENGTH) {
         VHD_LOG_ERROR("Bad id buffer (len %zu)", id_buf->len);
         return VIRTIO_BLK_S_IOERR;
     }
