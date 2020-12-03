@@ -72,11 +72,6 @@ static void complete_io(struct vhd_bio *bio)
     vhd_free(vbio);
 }
 
-static inline bool vhd_buffer_is_read_only(const struct vhd_buffer *buf)
-{
-    return !buf->write_only;
-}
-
 static inline bool vhd_buffer_is_write_only(const struct vhd_buffer *buf)
 {
     return buf->write_only;
@@ -117,40 +112,26 @@ static void handle_inout(struct virtio_blk_dev *dev,
 {
     uint8_t status = VIRTIO_BLK_S_IOERR;
     size_t len;
-    size_t i;
-    uint16_t niov = iov->niov_in + iov->niov_out;
+    uint16_t i;
+    uint16_t ndatabufs;
+    struct vhd_buffer *pdata;
+    enum vhd_bdev_io_type io_type;
 
-    VHD_ASSERT(req->type == VIRTIO_BLK_T_IN || req->type == VIRTIO_BLK_T_OUT);
-
-    if (dev->bdev->readonly && req->type == VIRTIO_BLK_T_OUT) {
-        VHD_LOG_ERROR("Write request to readonly device");
-        goto complete;
+    if (req->type == VIRTIO_BLK_T_IN) {
+        io_type = VHD_BDEV_READ;
+        pdata = &iov->iov_in[0];
+        ndatabufs = iov->niov_in - 1;
+    } else {
+        if (dev->bdev->readonly) {
+            VHD_LOG_ERROR("Write request to readonly device");
+            goto complete;
+        }
+        io_type = VHD_BDEV_WRITE;
+        pdata = &iov->iov_out[1];
+        ndatabufs = iov->niov_out - 1;
     }
-
-    /* See comment about message framing in handle_buffers */
-    if (niov < 3) {
-        VHD_LOG_ERROR("Bad number of buffers %d in iov", niov);
-        goto complete;
-    }
-
-    struct vhd_buffer *pdata = &iov->buffers[1];
-    size_t ndatabufs = niov - 2;
 
     for (i = 0, len = 0; i < ndatabufs; ++i) {
-        /* Buffer should be write-only if this is a read request */
-        if (req->type == VIRTIO_BLK_T_IN &&
-            !vhd_buffer_is_write_only(pdata + i)) {
-            VHD_LOG_ERROR("Cannot write to data buffer %zu", i);
-            goto complete;
-        }
-
-        /* Buffer should be read-only if this is a write request */
-        if (req->type == VIRTIO_BLK_T_OUT &&
-            !vhd_buffer_is_read_only(pdata + i)) {
-            VHD_LOG_ERROR("Cannot read from data buffer %zu", i);
-            goto complete;
-        }
-
         len += pdata[i].len;
     }
 
@@ -161,8 +142,7 @@ static void handle_inout(struct virtio_blk_dev *dev,
     struct virtio_blk_io *vbio = vhd_zalloc(sizeof(*vbio));
     vbio->vq = vq;
     vbio->iov = iov;
-    vbio->bio.bdev_io.type = req->type == VIRTIO_BLK_T_IN ? VHD_BDEV_READ :
-                             VHD_BDEV_WRITE;
+    vbio->bio.bdev_io.type = io_type;
     vbio->bio.bdev_io.first_sector = req->sector;
     vbio->bio.bdev_io.total_sectors = len / VIRTIO_BLK_SECTOR_SIZE;
     vbio->bio.bdev_io.sglist.nbuffers = ndatabufs;
