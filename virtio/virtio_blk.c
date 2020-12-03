@@ -109,21 +109,14 @@ static int handle_inout(struct virtio_blk_dev *dev,
     /* See comment about message framing in handle_buffers */
     if (iov->nvecs < 3) {
         VHD_LOG_ERROR("Bad number of buffers %d in iov", iov->nvecs);
-        abort_request(vq, iov);
+        complete_req(vq, iov, VIRTIO_BLK_S_IOERR);
         return -EINVAL;
     }
 
-    struct vhd_buffer *status_buf = &iov->buffers[iov->nvecs - 1];
     struct vhd_buffer *pdata = &iov->buffers[1];
     size_t ndatabufs = iov->nvecs - 2;
-
-    if (!check_status_buffer(status_buf)) {
-        VHD_LOG_ERROR("Bad status buffer");
-        abort_request(vq, iov);
-        return -EINVAL;
-    }
-
     uint64_t total_sectors = 0;
+
     for (size_t i = 0; i < ndatabufs; ++i) {
         if (!IS_ALIGNED_TO_SECTOR(pdata[i].len)) {
             VHD_LOG_ERROR(
@@ -204,18 +197,11 @@ static int handle_getid(struct virtio_blk_dev *dev,
 
     if (iov->nvecs != 3) {
         VHD_LOG_ERROR("Bad number of buffers %d in iov", iov->nvecs);
-        abort_request(vq, iov);
+        complete_req(vq, iov, VIRTIO_BLK_S_IOERR);
         return -EINVAL;
     }
 
-    struct vhd_buffer *status_buf = &iov->buffers[2];
     struct vhd_buffer *id_buf = &iov->buffers[1];
-
-    if (!check_status_buffer(status_buf)) {
-        VHD_LOG_ERROR("Bad status buffer");
-        abort_request(vq, iov);
-        return -EINVAL;
-    }
 
     if (id_buf->len != VIRTIO_BLK_DISKID_LENGTH ||
         !vhd_buffer_can_write(id_buf)) {
@@ -241,13 +227,19 @@ static void handle_buffers(void *arg, struct virtio_virtq *vq,
     struct virtio_blk_dev *dev = (struct virtio_blk_dev *) arg;
 
     VHD_ASSERT(iov->nvecs >= 1);
-
     /*
-     * We don't negotiate VIRTIO_F_ANY_LAYOUT, so our message framing should be:
-     * - 8 byte header buffer
-     * - data buffer for In/Out/GetId requests
-     * - 1 byte status buffer for !GetId requests
+     * Assume legacy message framing without VIRTIO_F_ANY_LAYOUT:
+     * - one 16-byte device-readable segment for header
+     * - data segments
+     * - one 1-byte device-writable segment for status
+     * FIXME: get rid of this assumption and support VIRTIO_F_ANY_LAYOUT
      */
+
+    if (!check_status_buffer(&iov->buffers[iov->nvecs - 1])) {
+        VHD_LOG_ERROR("No room for status response in the request");
+        abort_request(vq, iov);
+        return;
+    }
 
     struct vhd_buffer *req_buf = &iov->buffers[0];
     if (!vhd_buffer_can_read(req_buf)) {
