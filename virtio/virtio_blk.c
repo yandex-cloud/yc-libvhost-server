@@ -17,6 +17,18 @@ struct virtio_blk_io {
     struct vhd_bio bio;
 };
 
+static size_t iov_size(const struct vhd_buffer *iov, unsigned niov)
+{
+    size_t len;
+    unsigned int i;
+
+    len = 0;
+    for (i = 0; i < niov; i++) {
+        len += iov[i].len;
+    }
+    return len;
+}
+
 static uint8_t translate_status(enum vhd_bdev_io_result status)
 {
     switch (status) {
@@ -112,7 +124,6 @@ static void handle_inout(struct virtio_blk_dev *dev,
 {
     uint8_t status = VIRTIO_BLK_S_IOERR;
     size_t len;
-    uint16_t i;
     uint16_t ndatabufs;
     struct vhd_buffer *pdata;
     enum vhd_bdev_io_type io_type;
@@ -131,9 +142,7 @@ static void handle_inout(struct virtio_blk_dev *dev,
         ndatabufs = iov->niov_out - 1;
     }
 
-    for (i = 0, len = 0; i < ndatabufs; ++i) {
-        len += pdata[i].len;
-    }
+    len = iov_size(pdata, ndatabufs);
 
     if (!is_valid_req(req->sector, len, dev->config.capacity)) {
         goto complete;
