@@ -1,4 +1,5 @@
 #include <string.h>
+#include <inttypes.h>
 
 #include "vhost/blockdev.h"
 
@@ -8,8 +9,6 @@
 #include "bio.h"
 #include "virt_queue.h"
 #include "logging.h"
-
-#define IS_ALIGNED_TO_SECTOR(val)       (((val) & (VIRTIO_BLK_SECTOR_SIZE - 1)) == 0)
 
 /* virtio blk data for bdev io */
 struct virtio_blk_io {
@@ -97,12 +96,44 @@ static bool check_status_buffer(struct vhd_buffer *buf)
     return true;
 }
 
+static bool is_valid_req(uint64_t sector, size_t len, uint64_t capacity)
+{
+    size_t nsectors = len / VIRTIO_BLK_SECTOR_SIZE;
+
+    if (len == 0) {
+        VHD_LOG_ERROR("Zero size request");
+        return false;
+    }
+    if (len % VIRTIO_BLK_SECTOR_SIZE) {
+        VHD_LOG_ERROR("Request length %zu"
+                      " is not a multiple of sector size %u",
+                      len, VIRTIO_BLK_SECTOR_SIZE);
+        return false;
+    }
+    if (sector > capacity || sector > capacity - nsectors) {
+        VHD_LOG_ERROR("Request (%" PRIu64 "s, +%zus) spans"
+                      " beyond device capacity %" PRIu64,
+                      sector, nsectors, capacity);
+        return false;
+    }
+    return true;
+}
+
 static int handle_inout(struct virtio_blk_dev *dev,
                         struct virtio_blk_req_hdr *req,
                         struct virtio_virtq *vq,
                         struct virtio_iov *iov)
 {
+    size_t len;
+    size_t i;
+
     VHD_ASSERT(req->type == VIRTIO_BLK_T_IN || req->type == VIRTIO_BLK_T_OUT);
+
+    if (dev->bdev->readonly && req->type == VIRTIO_BLK_T_OUT) {
+        VHD_LOG_ERROR("Write request to readonly device");
+        complete_req(vq, iov, VIRTIO_BLK_S_IOERR);
+        return -EINVAL;
+    }
 
     /* See comment about message framing in handle_buffers */
     if (iov->nvecs < 3) {
@@ -113,17 +144,8 @@ static int handle_inout(struct virtio_blk_dev *dev,
 
     struct vhd_buffer *pdata = &iov->buffers[1];
     size_t ndatabufs = iov->nvecs - 2;
-    uint64_t total_sectors = 0;
 
-    for (size_t i = 0; i < ndatabufs; ++i) {
-        if (!IS_ALIGNED_TO_SECTOR(pdata[i].len)) {
-            VHD_LOG_ERROR(
-                "Data buffer %zu length %zu is not aligned to sector size",
-                i, pdata[i].len);
-            complete_req(vq, iov, VIRTIO_BLK_S_IOERR);
-            return -EINVAL;
-        }
-
+    for (i = 0, len = 0; i < ndatabufs; ++i) {
         /* Buffer should be write-only if this is a read request */
         if (req->type == VIRTIO_BLK_T_IN &&
             !vhd_buffer_is_write_only(pdata + i)) {
@@ -140,26 +162,10 @@ static int handle_inout(struct virtio_blk_dev *dev,
             return -EINVAL;
         }
 
-        total_sectors += pdata[i].len / VIRTIO_BLK_SECTOR_SIZE;
+        len += pdata[i].len;
     }
 
-    if (total_sectors == 0) {
-        VHD_LOG_ERROR("0 sectors in I/O request");
-        complete_req(vq, iov, VIRTIO_BLK_S_IOERR);
-        return -EINVAL;
-    }
-
-    uint64_t last_sector = req->sector + total_sectors - 1;
-    if (last_sector < req->sector /* overflow */ ||
-        last_sector >= dev->config.capacity) {
-        VHD_LOG_ERROR("Request out of bdev range, last sector = %llu",
-                      (unsigned long long) last_sector);
-        complete_req(vq, iov, VIRTIO_BLK_S_IOERR);
-        return -EINVAL;
-    }
-
-    if (dev->bdev->readonly && req->type == VIRTIO_BLK_T_OUT) {
-        VHD_LOG_ERROR("Write request to readonly device");
+    if (!is_valid_req(req->sector, len, dev->config.capacity)) {
         complete_req(vq, iov, VIRTIO_BLK_S_IOERR);
         return -EINVAL;
     }
@@ -170,7 +176,7 @@ static int handle_inout(struct virtio_blk_dev *dev,
     vbio->bio.bdev_io.type = req->type == VIRTIO_BLK_T_IN ? VHD_BDEV_READ :
                              VHD_BDEV_WRITE;
     vbio->bio.bdev_io.first_sector = req->sector;
-    vbio->bio.bdev_io.total_sectors = total_sectors;
+    vbio->bio.bdev_io.total_sectors = len / VIRTIO_BLK_SECTOR_SIZE;
     vbio->bio.bdev_io.sglist.nbuffers = ndatabufs;
     vbio->bio.bdev_io.sglist.buffers = pdata;
     vbio->bio.completion_handler = complete_io;
