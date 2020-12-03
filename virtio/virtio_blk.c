@@ -29,8 +29,8 @@ static uint8_t translate_status(enum vhd_bdev_io_result status)
 
 static void set_status(struct virtio_iov *iov, uint8_t status)
 {
-    struct vhd_buffer *lastv = &iov->buffers[iov->niov_in + iov->niov_out - 1];
-    *((uint8_t *)lastv->base) = status;
+    struct vhd_buffer *last_iov = &iov->iov_in[iov->niov_in - 1];
+    *((uint8_t *)last_iov->base) = status;
 }
 
 static void abort_request(struct virtio_virtq *vq, struct virtio_iov *iov)
@@ -82,29 +82,9 @@ static inline bool vhd_buffer_is_write_only(const struct vhd_buffer *buf)
     return buf->write_only;
 }
 
-static inline bool vhd_buffer_can_read(const struct vhd_buffer *buf)
-{
-    return vhd_buffer_is_read_only(buf);
-}
-
 static inline bool vhd_buffer_can_write(const struct vhd_buffer *buf)
 {
     return vhd_buffer_is_write_only(buf);
-}
-
-static bool check_status_buffer(struct vhd_buffer *buf)
-{
-    /* Check that status vector has expected size */
-    if (buf->len != sizeof(uint8_t)) {
-        return false;
-    }
-
-    /* Status buffer should be writable */
-    if (!vhd_buffer_can_write(buf)) {
-        return false;
-    }
-
-    return true;
 }
 
 static bool is_valid_req(uint64_t sector, size_t len, uint64_t capacity)
@@ -233,11 +213,9 @@ static uint8_t handle_getid(struct virtio_blk_dev *dev,
 static void handle_buffers(void *arg, struct virtio_virtq *vq,
                            struct virtio_iov *iov)
 {
-    uint16_t niov = iov->niov_in + iov->niov_out;
     uint8_t status;
     struct virtio_blk_dev *dev = arg;
-
-    VHD_ASSERT(niov >= 1);
+    struct virtio_blk_req_hdr *req;
 
     /*
      * Assume legacy message framing without VIRTIO_F_ANY_LAYOUT:
@@ -247,26 +225,19 @@ static void handle_buffers(void *arg, struct virtio_virtq *vq,
      * FIXME: get rid of this assumption and support VIRTIO_F_ANY_LAYOUT
      */
 
-    if (!check_status_buffer(&iov->buffers[niov - 1])) {
+    if (!iov->niov_in || iov->iov_in[iov->niov_in - 1].len != 1) {
         VHD_LOG_ERROR("No room for status response in the request");
         abort_request(vq, iov);
         return;
     }
 
-    struct vhd_buffer *req_buf = &iov->buffers[0];
-    if (!vhd_buffer_can_read(req_buf)) {
-        VHD_LOG_ERROR("Request header is not readable by device");
+    if (!iov->niov_out || iov->iov_out[0].len != sizeof(*req)) {
+        VHD_LOG_ERROR("Malformed request header");
         abort_request(vq, iov);
         return;
     }
 
-    struct virtio_blk_req_hdr *req = (struct virtio_blk_req_hdr *)req_buf->base;
-    if (iov->buffers[0].len != sizeof(*req)) {
-        VHD_LOG_ERROR("virtio blk request invalid size %zu",
-                      iov->buffers[0].len);
-        abort_request(vq, iov);
-        return;
-    }
+    req = iov->iov_out[0].base;
 
     switch (req->type) {
     case VIRTIO_BLK_T_IN:
