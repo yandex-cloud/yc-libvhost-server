@@ -26,16 +26,6 @@ struct virtio_fs_io {
 
 /******************************************************************************/
 
-static inline bool vhd_buffer_is_read_only(const struct vhd_buffer *buf)
-{
-    return !buf->write_only;
-}
-
-static inline bool vhd_buffer_is_write_only(const struct vhd_buffer *buf)
-{
-    return buf->write_only;
-}
-
 static inline void abort_request(struct virtio_virtq *vq, struct virtio_iov *iov)
 {
     virtq_push(vq, iov, 0);
@@ -60,64 +50,32 @@ static void handle_buffers(void *arg, struct virtio_virtq *vq, struct virtio_iov
     uint16_t niov = iov->niov_in + iov->niov_out;
     struct virtio_fs_dev *dev = (struct virtio_fs_dev *) arg;
 
-    /* We do not negotiate VIRTIO_F_ANY_LAYOUT, so our message framing should be:
-     * - at least sizeof(virtio_fs_in_header) In buffer
-     * - [optional] data buffers for In args
-     * - at least sizeof(virtio_fs_out_header) Out buffer
-     * - [optional] data buffers for Out args
-     *
-     * All FUSE requests are two-way except for FUSE_FORGET
+    /*
+     * Assume legacy message framing without VIRTIO_F_ANY_LAYOUT:
+     * - virtio IN / FUSE OUT segments, with the first one fully containing
+     *   fuse_in_header
+     * - virtio OUT / FUSE IN segments, with the first one fully containing
+     *   fuse_out_header (except FUSE_FORGET and FUSE_BATCH_FORGET which have
+     *   no response part at all)
      */
 
-    struct vhd_buffer *buf = iov->buffers;
-    struct vhd_buffer *buf_end = iov->buffers + niov;
+    struct virtio_fs_in_header *in;
+    struct virtio_fs_out_header *out;
 
-    struct virtio_fs_in_header *in = NULL;
-    struct virtio_fs_out_header *out = NULL;
-
-    /* parse IN buffers */
-    VHD_ASSERT(buf != buf_end);
-
-    if (vhd_buffer_is_write_only(buf)) {
-        VHD_LOG_ERROR("request header is not readable by device");
+    if (iov->niov_in && iov->iov_in[0].len < sizeof(*out)) {
+        VHD_LOG_ERROR("No room for response in the request");
         abort_request(vq, iov);
         return;
     }
 
-    if (buf->len < sizeof(struct virtio_fs_in_header)) {
-        VHD_LOG_ERROR("invalid request header size %zu", buf->len);
+    if (!iov->niov_out || iov->iov_out[0].len < sizeof(*in)) {
+        VHD_LOG_ERROR("Malformed request header");
         abort_request(vq, iov);
         return;
     }
 
-    in = (struct virtio_fs_in_header *) buf->base;
-
-    while (buf != buf_end && vhd_buffer_is_read_only(buf)) {
-        ++buf;
-    }
-
-    /* parse OUT buffers */
-    if (buf != buf_end) {
-        VHD_ASSERT(vhd_buffer_is_write_only(buf));
-
-        if (buf->len < sizeof(struct virtio_fs_out_header)) {
-            VHD_LOG_ERROR("invalid response header size %zu", buf->len);
-            abort_request(vq, iov);
-            return;
-        }
-
-        out = (struct virtio_fs_out_header *) buf->base;
-
-        while (buf != buf_end && vhd_buffer_is_write_only(buf)) {
-            ++buf;
-        }
-
-        if (buf != buf_end) {
-            VHD_LOG_ERROR("invalid response buffers layout");
-            abort_request(vq, iov);
-            return;
-        }
-    }
+    in = iov->iov_out[0].base;
+    out = iov->niov_in ? iov->iov_in[0].base : NULL;
 
     struct virtio_fs_io *vbio = vhd_zalloc(sizeof(*vbio));
     vbio->vq = vq;
@@ -132,7 +90,7 @@ static void handle_buffers(void *arg, struct virtio_virtq *vq, struct virtio_iov
         VHD_LOG_ERROR("request submission failed with %d", res);
 
         if (out) {
-            out->len = sizeof(struct virtio_fs_out_header);
+            out->len = sizeof(*out);
             out->error = res;
             out->unique = in->unique;
         }
