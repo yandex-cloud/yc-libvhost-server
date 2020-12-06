@@ -119,11 +119,12 @@ static bool is_valid_req(uint64_t sector, size_t len, uint64_t capacity)
     return true;
 }
 
-static int handle_inout(struct virtio_blk_dev *dev,
-                        struct virtio_blk_req_hdr *req,
-                        struct virtio_virtq *vq,
-                        struct virtio_iov *iov)
+static void handle_inout(struct virtio_blk_dev *dev,
+                         struct virtio_blk_req_hdr *req,
+                         struct virtio_virtq *vq,
+                         struct virtio_iov *iov)
 {
+    uint8_t status = VIRTIO_BLK_S_IOERR;
     size_t len;
     size_t i;
 
@@ -131,15 +132,13 @@ static int handle_inout(struct virtio_blk_dev *dev,
 
     if (dev->bdev->readonly && req->type == VIRTIO_BLK_T_OUT) {
         VHD_LOG_ERROR("Write request to readonly device");
-        complete_req(vq, iov, VIRTIO_BLK_S_IOERR);
-        return -EINVAL;
+        goto complete;
     }
 
     /* See comment about message framing in handle_buffers */
     if (iov->nvecs < 3) {
         VHD_LOG_ERROR("Bad number of buffers %d in iov", iov->nvecs);
-        complete_req(vq, iov, VIRTIO_BLK_S_IOERR);
-        return -EINVAL;
+        goto complete;
     }
 
     struct vhd_buffer *pdata = &iov->buffers[1];
@@ -150,24 +149,21 @@ static int handle_inout(struct virtio_blk_dev *dev,
         if (req->type == VIRTIO_BLK_T_IN &&
             !vhd_buffer_is_write_only(pdata + i)) {
             VHD_LOG_ERROR("Cannot write to data buffer %zu", i);
-            complete_req(vq, iov, VIRTIO_BLK_S_IOERR);
-            return -EINVAL;
+            goto complete;
         }
 
         /* Buffer should be read-only if this is a write request */
         if (req->type == VIRTIO_BLK_T_OUT &&
             !vhd_buffer_is_read_only(pdata + i)) {
             VHD_LOG_ERROR("Cannot read from data buffer %zu", i);
-            complete_req(vq, iov, VIRTIO_BLK_S_IOERR);
-            return -EINVAL;
+            goto complete;
         }
 
         len += pdata[i].len;
     }
 
     if (!is_valid_req(req->sector, len, dev->config.capacity)) {
-        complete_req(vq, iov, VIRTIO_BLK_S_IOERR);
-        return -EINVAL;
+        goto complete;
     }
 
     struct virtio_blk_io *vbio = vhd_zalloc(sizeof(*vbio));
@@ -185,24 +181,22 @@ static int handle_inout(struct virtio_blk_dev *dev,
     if (res != 0) {
         VHD_LOG_ERROR("bdev request submission failed with %d", res);
         vhd_free(vbio);
-        complete_req(vq, iov, VIRTIO_BLK_S_IOERR);
-        return res;
+        goto complete;
     }
 
-    return 0;
+    /* request will be completed asynchronously */
+    return;
+
+complete:
+    complete_req(vq, iov, status);
 }
 
-static int handle_getid(struct virtio_blk_dev *dev,
-                        struct virtio_blk_req_hdr *req,
-                        struct virtio_virtq *vq,
-                        struct virtio_iov *iov)
+static uint8_t handle_getid(struct virtio_blk_dev *dev,
+                            struct virtio_iov *iov)
 {
-    VHD_ASSERT(req->type == VIRTIO_BLK_T_GET_ID);
-
     if (iov->nvecs != 3) {
         VHD_LOG_ERROR("Bad number of buffers %d in iov", iov->nvecs);
-        complete_req(vq, iov, VIRTIO_BLK_S_IOERR);
-        return -EINVAL;
+        return VIRTIO_BLK_S_IOERR;
     }
 
     struct vhd_buffer *id_buf = &iov->buffers[1];
@@ -210,8 +204,7 @@ static int handle_getid(struct virtio_blk_dev *dev,
     if (id_buf->len != VIRTIO_BLK_DISKID_LENGTH ||
         !vhd_buffer_can_write(id_buf)) {
         VHD_LOG_ERROR("Bad id buffer (len %zu)", id_buf->len);
-        complete_req(vq, iov, VIRTIO_BLK_S_IOERR);
-        return -EINVAL;
+        return VIRTIO_BLK_S_IOERR;
     }
 
     /*
@@ -220,15 +213,14 @@ static int handle_getid(struct virtio_blk_dev *dev,
      */
     strncpy((char *) id_buf->base, dev->bdev->serial, id_buf->len);
 
-    complete_req(vq, iov, VIRTIO_BLK_S_OK);
-    return 0;
+    return VIRTIO_BLK_S_OK;
 }
 
 static void handle_buffers(void *arg, struct virtio_virtq *vq,
                            struct virtio_iov *iov)
 {
-    int res;
-    struct virtio_blk_dev *dev = (struct virtio_blk_dev *) arg;
+    uint8_t status;
+    struct virtio_blk_dev *dev = arg;
 
     VHD_ASSERT(iov->nvecs >= 1);
     /*
@@ -263,20 +255,18 @@ static void handle_buffers(void *arg, struct virtio_virtq *vq,
     switch (req->type) {
     case VIRTIO_BLK_T_IN:
     case VIRTIO_BLK_T_OUT:
-        res = handle_inout(dev, req, vq, iov);
-        break;
+        handle_inout(dev, req, vq, iov);
+        return;         /* async completion */
     case VIRTIO_BLK_T_GET_ID:
-        res = handle_getid(dev, req, vq, iov);
+        status = handle_getid(dev, iov);
         break;
     default:
         VHD_LOG_WARN("unknown request type %d", req->type);
-        res = -ENOTSUP;
+        status = VIRTIO_BLK_S_UNSUPP;
         break;
     };
 
-    if (res != 0) {
-        VHD_LOG_ERROR("request failed with %d", res);
-    }
+    complete_req(vq, iov, status);
 }
 
 /*////////////////////////////////////////////////////////////////////////////*/
