@@ -37,13 +37,19 @@ static void set_status(struct virtio_iov *iov, uint8_t status)
 
 static void abort_request(struct virtio_virtq *vq, struct virtio_iov *iov)
 {
+    /*
+     * FIXME: this is called when the message framing is messed up.  This
+     * appears severe enough to just stop processing the virtq and mark it
+     * broken
+     */
+    VHD_LOG_ERROR("no valid virtio-blk request found, aborting queue %p", vq);
     virtq_commit_buffers(vq, iov);
 }
 
 static void fail_request(struct virtio_virtq *vq, struct virtio_iov *iov)
 {
     set_status(iov, VIRTIO_BLK_S_IOERR);
-    abort_request(vq, iov);
+    virtq_commit_buffers(vq, iov);
 }
 
 static void complete_io(struct vhd_bio *bio)
