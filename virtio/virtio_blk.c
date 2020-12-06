@@ -187,6 +187,7 @@ static int handle_inout(struct virtio_blk_dev *dev,
     int res = dev->dispatch(vbio->vq, &vbio->bio);
     if (res != 0) {
         VHD_LOG_ERROR("bdev request submission failed with %d", res);
+        vhd_free(vbio);
         complete_req(vq, iov, VIRTIO_BLK_S_IOERR);
         return res;
     }
