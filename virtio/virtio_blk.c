@@ -46,9 +46,10 @@ static void abort_request(struct virtio_virtq *vq, struct virtio_iov *iov)
     virtq_commit_buffers(vq, iov);
 }
 
-static void fail_request(struct virtio_virtq *vq, struct virtio_iov *iov)
+static void complete_req(struct virtio_virtq *vq, struct virtio_iov *iov,
+                         uint8_t status)
 {
-    set_status(iov, VIRTIO_BLK_S_IOERR);
+    set_status(iov, status);
     virtq_commit_buffers(vq, iov);
 }
 
@@ -57,9 +58,7 @@ static void complete_io(struct vhd_bio *bio)
     struct virtio_blk_io *vbio = containerof(bio, struct virtio_blk_io, bio);
 
     if (likely(bio->status != VHD_BDEV_CANCELED)) {
-        set_status(vbio->iov, translate_status(bio->status));
-
-        virtq_commit_buffers(vbio->vq, vbio->iov);
+        complete_req(vbio->vq, vbio->iov, translate_status(bio->status));
     }
 
     vhd_free(vbio);
@@ -130,7 +129,7 @@ static int handle_inout(struct virtio_blk_dev *dev,
             VHD_LOG_ERROR(
                 "Data buffer %zu length %zu is not aligned to sector size",
                 i, pdata[i].len);
-            fail_request(vq, iov);
+            complete_req(vq, iov, VIRTIO_BLK_S_IOERR);
             return -EINVAL;
         }
 
@@ -138,7 +137,7 @@ static int handle_inout(struct virtio_blk_dev *dev,
         if (req->type == VIRTIO_BLK_T_IN &&
             !vhd_buffer_is_write_only(pdata + i)) {
             VHD_LOG_ERROR("Cannot write to data buffer %zu", i);
-            fail_request(vq, iov);
+            complete_req(vq, iov, VIRTIO_BLK_S_IOERR);
             return -EINVAL;
         }
 
@@ -146,7 +145,7 @@ static int handle_inout(struct virtio_blk_dev *dev,
         if (req->type == VIRTIO_BLK_T_OUT &&
             !vhd_buffer_is_read_only(pdata + i)) {
             VHD_LOG_ERROR("Cannot read from data buffer %zu", i);
-            fail_request(vq, iov);
+            complete_req(vq, iov, VIRTIO_BLK_S_IOERR);
             return -EINVAL;
         }
 
@@ -155,7 +154,7 @@ static int handle_inout(struct virtio_blk_dev *dev,
 
     if (total_sectors == 0) {
         VHD_LOG_ERROR("0 sectors in I/O request");
-        fail_request(vq, iov);
+        complete_req(vq, iov, VIRTIO_BLK_S_IOERR);
         return -EINVAL;
     }
 
@@ -164,13 +163,13 @@ static int handle_inout(struct virtio_blk_dev *dev,
         last_sector >= dev->config.capacity) {
         VHD_LOG_ERROR("Request out of bdev range, last sector = %llu",
                       (unsigned long long) last_sector);
-        fail_request(vq, iov);
+        complete_req(vq, iov, VIRTIO_BLK_S_IOERR);
         return -EINVAL;
     }
 
     if (dev->bdev->readonly && req->type == VIRTIO_BLK_T_OUT) {
         VHD_LOG_ERROR("Write request to readonly device");
-        fail_request(vq, iov);
+        complete_req(vq, iov, VIRTIO_BLK_S_IOERR);
         return -EINVAL;
     }
 
@@ -188,7 +187,7 @@ static int handle_inout(struct virtio_blk_dev *dev,
     int res = dev->dispatch(vbio->vq, &vbio->bio);
     if (res != 0) {
         VHD_LOG_ERROR("bdev request submission failed with %d", res);
-        fail_request(vq, iov);
+        complete_req(vq, iov, VIRTIO_BLK_S_IOERR);
         return res;
     }
 
@@ -220,7 +219,7 @@ static int handle_getid(struct virtio_blk_dev *dev,
     if (id_buf->len != VIRTIO_BLK_DISKID_LENGTH ||
         !vhd_buffer_can_write(id_buf)) {
         VHD_LOG_ERROR("Bad id buffer (len %zu)", id_buf->len);
-        fail_request(vq, iov);
+        complete_req(vq, iov, VIRTIO_BLK_S_IOERR);
         return -EINVAL;
     }
 
@@ -230,10 +229,7 @@ static int handle_getid(struct virtio_blk_dev *dev,
      */
     strncpy((char *) id_buf->base, dev->bdev->serial, id_buf->len);
 
-    /* Complete request */
-    set_status(iov, VIRTIO_BLK_S_OK);
-    virtq_commit_buffers(vq, iov);
-
+    complete_req(vq, iov, VIRTIO_BLK_S_OK);
     return 0;
 }
 
