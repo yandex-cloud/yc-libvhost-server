@@ -39,13 +39,18 @@ static int virtq_dequeue_one(struct virtio_virtq *vq, uint16_t head,
                              virtq_handle_buffers_cb handle_buffers_cb,
                              void *arg, bool resubmit);
 
-static struct virtq_iov_private *alloc_iov(uint16_t nvecs)
+static struct virtq_iov_private *clone_iov(struct virtio_virtq *vq)
 {
-    size_t size = sizeof(struct virtq_iov_private)
-                + sizeof(struct vhd_buffer) * nvecs;
+    struct virtq_iov_private *priv;
+    uint16_t niov = vq->niov_out + vq->niov_in;
+    size_t iov_size = sizeof(struct vhd_buffer) * niov;
 
-    struct virtq_iov_private *priv = vhd_alloc(size);
-    priv->iov.nvecs = nvecs;
+    priv = vhd_alloc(sizeof(*priv) + iov_size);
+    memcpy(priv->iov.buffers, vq->buffers, iov_size);
+    priv->iov.niov_out = vq->niov_out;
+    priv->iov.iov_out = &priv->iov.buffers[0];
+    priv->iov.niov_in = vq->niov_in;
+    priv->iov.iov_in = &priv->iov.buffers[vq->niov_out];
     return priv;
 }
 
@@ -66,22 +71,37 @@ uint16_t virtio_iov_get_head(struct virtio_iov *iov)
     return priv->used_head;
 }
 
-static int add_buffer(struct virtio_virtq *vq, void *addr, size_t len,
-                      bool write_only)
+static int add_buffer(struct virtio_virtq *vq, void *addr, size_t len, bool in)
 {
-    if (vq->next_buffer == vq->max_chain_len) {
+    uint16_t niov = vq->niov_out + vq->niov_in;
+
+    if (niov >= vq->max_chain_len) {
         VHD_OBJ_ERROR(vq, "descriptor chain exceeds max length %u",
                       vq->max_chain_len);
         return -ENOBUFS;
     }
 
-    vq->buffers[vq->next_buffer] = (struct vhd_buffer) {
+    if (in) {
+        vq->niov_in++;
+    } else {
+        /*
+         * 2.6.4.2 Driver Requirements: Message Framing The driver MUST place
+         * any device-writable descriptor elements after any device-readable
+         * descriptor elements.
+         */
+        if (vq->niov_in) {
+            VHD_LOG_ERROR("Device-readable buffer after device-writable");
+            return -EINVAL;
+        }
+        vq->niov_out++;
+    }
+
+    vq->buffers[niov] = (struct vhd_buffer) {
         .base = addr,
         .len = len,
-        .write_only = write_only,
+        .write_only = in,
     };
 
-    vq->next_buffer++;
     return 0;
 }
 
@@ -389,7 +409,7 @@ static int walk_chain(struct virtio_virtq *vq, uint16_t head)
     struct virtq_desc desc;
     int res;
 
-    vq->next_buffer = 0;
+    vq->niov_out = vq->niov_in = 0;
 
     for (idx = head, chain_len = 1; ; idx = desc.next, chain_len++) {
         desc = vq->desc[idx];
@@ -540,9 +560,7 @@ static int virtq_dequeue_one(struct virtio_virtq *vq, uint16_t head,
     }
 
     /* Create iov copy from stored buffer for client handling */
-    struct virtq_iov_private *priv = alloc_iov(vq->next_buffer);
-    memcpy(priv->iov.buffers, vq->buffers,
-           priv->iov.nvecs * sizeof(vq->buffers[0]));
+    struct virtq_iov_private *priv = clone_iov(vq);
     priv->used_head = head;
     priv->mm = vq->mm;
     /* matched with unref in virtio_free_iov */
@@ -564,7 +582,7 @@ static void vhd_log_buffers(struct vhd_memory_log *log,
                             struct vhd_memory_map *mm,
                             struct virtio_iov *iov)
 {
-    uint16_t nvecs = iov->nvecs;
+    uint16_t nvecs = iov->niov_out + iov->niov_in;
     uint16_t i;
     for (i = 0; i < nvecs; ++i) {
         if (iov->buffers[i].write_only) {

@@ -29,7 +29,8 @@ static uint8_t translate_status(enum vhd_bdev_io_result status)
 
 static void set_status(struct virtio_iov *iov, uint8_t status)
 {
-    *((uint8_t *)iov->buffers[iov->nvecs - 1].base) = status;
+    struct vhd_buffer *lastv = &iov->buffers[iov->niov_in + iov->niov_out - 1];
+    *((uint8_t *)lastv->base) = status;
 }
 
 static void abort_request(struct virtio_virtq *vq, struct virtio_iov *iov)
@@ -137,6 +138,7 @@ static void handle_inout(struct virtio_blk_dev *dev,
     uint8_t status = VIRTIO_BLK_S_IOERR;
     size_t len;
     size_t i;
+    uint16_t niov = iov->niov_in + iov->niov_out;
 
     VHD_ASSERT(req->type == VIRTIO_BLK_T_IN || req->type == VIRTIO_BLK_T_OUT);
 
@@ -146,13 +148,13 @@ static void handle_inout(struct virtio_blk_dev *dev,
     }
 
     /* See comment about message framing in handle_buffers */
-    if (iov->nvecs < 3) {
-        VHD_LOG_ERROR("Bad number of buffers %d in iov", iov->nvecs);
+    if (niov < 3) {
+        VHD_LOG_ERROR("Bad number of buffers %d in iov", niov);
         goto complete;
     }
 
     struct vhd_buffer *pdata = &iov->buffers[1];
-    size_t ndatabufs = iov->nvecs - 2;
+    size_t ndatabufs = niov - 2;
 
     for (i = 0, len = 0; i < ndatabufs; ++i) {
         /* Buffer should be write-only if this is a read request */
@@ -204,8 +206,10 @@ complete:
 static uint8_t handle_getid(struct virtio_blk_dev *dev,
                             struct virtio_iov *iov)
 {
-    if (iov->nvecs != 3) {
-        VHD_LOG_ERROR("Bad number of buffers %d in iov", iov->nvecs);
+    uint16_t niov = iov->niov_in + iov->niov_out;
+
+    if (niov != 3) {
+        VHD_LOG_ERROR("Bad number of buffers %d in iov", niov);
         return VIRTIO_BLK_S_IOERR;
     }
 
@@ -229,10 +233,12 @@ static uint8_t handle_getid(struct virtio_blk_dev *dev,
 static void handle_buffers(void *arg, struct virtio_virtq *vq,
                            struct virtio_iov *iov)
 {
+    uint16_t niov = iov->niov_in + iov->niov_out;
     uint8_t status;
     struct virtio_blk_dev *dev = arg;
 
-    VHD_ASSERT(iov->nvecs >= 1);
+    VHD_ASSERT(niov >= 1);
+
     /*
      * Assume legacy message framing without VIRTIO_F_ANY_LAYOUT:
      * - one 16-byte device-readable segment for header
@@ -241,7 +247,7 @@ static void handle_buffers(void *arg, struct virtio_virtq *vq,
      * FIXME: get rid of this assumption and support VIRTIO_F_ANY_LAYOUT
      */
 
-    if (!check_status_buffer(&iov->buffers[iov->nvecs - 1])) {
+    if (!check_status_buffer(&iov->buffers[niov - 1])) {
         VHD_LOG_ERROR("No room for status response in the request");
         abort_request(vq, iov);
         return;
