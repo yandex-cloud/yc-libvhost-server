@@ -57,6 +57,7 @@ static void complete_request(struct vhd_bio *bio)
 
 static void handle_buffers(void *arg, struct virtio_virtq *vq, struct virtio_iov *iov)
 {
+    uint16_t niov = iov->niov_in + iov->niov_out;
     struct virtio_fs_dev *dev = (struct virtio_fs_dev *) arg;
 
     /* We do not negotiate VIRTIO_F_ANY_LAYOUT, so our message framing should be:
@@ -69,7 +70,7 @@ static void handle_buffers(void *arg, struct virtio_virtq *vq, struct virtio_iov
      */
 
     struct vhd_buffer *buf = iov->buffers;
-    struct vhd_buffer *buf_end = iov->buffers + iov->nvecs;
+    struct vhd_buffer *buf_end = iov->buffers + niov;
 
     struct virtio_fs_in_header *in = NULL;
     struct virtio_fs_out_header *out = NULL;
@@ -122,7 +123,7 @@ static void handle_buffers(void *arg, struct virtio_virtq *vq, struct virtio_iov
     vbio->vq = vq;
     vbio->iov = iov;
     vbio->out_hdr = out;
-    vbio->bio.bdev_io.sglist.nbuffers = iov->nvecs;
+    vbio->bio.bdev_io.sglist.nbuffers = niov;
     vbio->bio.bdev_io.sglist.buffers = iov->buffers;
     vbio->bio.completion_handler = complete_request;
 

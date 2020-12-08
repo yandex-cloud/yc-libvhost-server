@@ -15,8 +15,11 @@ extern "C" {
  * Describes parsed buffer chain to be handled by virtio device type
  */
 struct virtio_iov {
-    uint16_t nvecs;
-    struct vhd_buffer buffers[/*nvecs*/];
+    uint16_t niov_out;
+    uint16_t niov_in;
+    struct vhd_buffer *iov_out;
+    struct vhd_buffer *iov_in;
+    struct vhd_buffer buffers[/* niov_out + niov_in */];
 };
 
 struct vhd_memory_map;
@@ -43,11 +46,12 @@ struct virtio_virtq {
     /*
      * 2.4.5.3.1: A driver MUST NOT create a descriptor chain longer than
      * the Queue Size of the device
-     * Thus we can have a known number of preallocated buffers to hold a valid
-     * descriptor chain
+     * Thus we can preallocate a scratch area of a known size to accumulate
+     * scatter-gather segments before handing them over to the device.
      */
-    uint16_t next_buffer;           /* Total preallocated buffers used */
-    struct vhd_buffer *buffers;     /* qsz preallocated buffers */
+    uint16_t niov_out;
+    uint16_t niov_in;
+    struct vhd_buffer *buffers;
 
     /*
      * Virtqueue is broken, probably because there is an invalid descriptor
