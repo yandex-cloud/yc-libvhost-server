@@ -99,7 +99,9 @@ struct vhd_vdev* vhd_register_blockdev(struct vhd_bdev_info* bdev, struct vhd_re
         goto error_out;
     }
 
-    res = vhd_vdev_init_server(&dev->vdev, bdev->id, &g_virtio_blk_vdev_type, bdev->num_queues, rq, priv);
+    res = vhd_vdev_init_server(&dev->vdev, bdev->id, &g_virtio_blk_vdev_type,
+                               bdev->num_queues, rq, priv, bdev->map_cb,
+                               bdev->unmap_cb);
     if (res != 0) {
         goto error_out;
     }

@@ -187,6 +187,9 @@ struct vhd_guest_memory_map
     atomic_long* log_addr;
     uint64_t log_size;
 
+    void *priv;
+    int (*unmap_cb)(void *addr, size_t len, void *priv);
+
     uint32_t num;
     struct vhd_guest_memory_region regions[];
 };
@@ -196,7 +199,9 @@ struct vhd_guest_memory_map
  */
 static int map_guest_region(struct vhd_guest_memory_region* region,
                             vhd_paddr_t guest_addr, vhd_uaddr_t user_addr,
-                            uint64_t size, uint64_t offset, int fd)
+                            uint64_t size, uint64_t offset, int fd,
+                            int (*map_cb)(void *addr, size_t len, void *priv),
+                            void *priv)
 {
     void* vaddr;
 
@@ -204,6 +209,16 @@ static int map_guest_region(struct vhd_guest_memory_region* region,
     if (vaddr == MAP_FAILED) {
         VHD_LOG_ERROR("Can't mmap guest memory: %s", strerror(errno));
         return -errno;
+    }
+
+    if (map_cb) {
+        int ret = map_cb(vaddr, size, priv);
+        if (ret) {
+            VHD_LOG_ERROR("map callback failed for region %p-%p: %s",
+                          vaddr, vaddr + size, strerror(-ret));
+            munmap(vaddr, size);
+            return ret;
+        }
     }
 
     /* Mark memory as defined explicitly */
@@ -216,9 +231,19 @@ static int map_guest_region(struct vhd_guest_memory_region* region,
     return 0;
 }
 
-static void unmap_guest_region(struct vhd_guest_memory_region* reg)
+static void unmap_guest_region(struct vhd_guest_memory_region* reg,
+                               int (*unmap_cb)(void *addr, size_t len, void *priv),
+                               void *priv)
 {
     int ret;
+
+    if (unmap_cb) {
+        ret = unmap_cb(reg->hva, reg->size, priv);
+        if (ret) {
+            VHD_LOG_ERROR("unmap callback failed for region %p-%p: %s",
+                          reg->hva, reg->hva + reg->size, strerror(-ret));
+        }
+    }
 
     ret = munmap(reg->hva, reg->size);
     if (ret != 0) {
@@ -233,7 +258,7 @@ static void memmap_release(struct objref *objref)
     uint32_t i;
 
     for (i = 0; i < mm->num; i++) {
-        unmap_guest_region(&mm->regions[i]);
+        unmap_guest_region(&mm->regions[i], mm->unmap_cb, mm->priv);
     }
 
     if (mm->log_addr) {
@@ -564,15 +589,18 @@ static int vhost_set_mem_table(struct vhd_vdev *vdev,
     mm = vhd_zalloc(sizeof(*mm) + desc->nregions * sizeof(mm->regions[0]));
     objref_init(&mm->ref, memmap_release);
     mm->num = desc->nregions;
+    mm->unmap_cb = vdev->unmap_cb;
+    mm->priv = vdev->priv;
 
     for (i = 0; i < desc->nregions; i++) {
         struct vhost_user_mem_region *region = &desc->regions[i];
         ret = map_guest_region(&mm->regions[i], region->guest_addr,
                                region->user_addr, region->size,
-                               region->mmap_offset, fds[i]);
+                               region->mmap_offset, fds[i], vdev->map_cb,
+                               vdev->priv);
         if (ret < 0) {
             while (i--) {
-                unmap_guest_region(&mm->regions[i]);
+                unmap_guest_region(&mm->regions[i], vdev->unmap_cb, vdev->priv);
             }
             vhd_free(mm);
             goto out;
@@ -1382,7 +1410,9 @@ int vhd_vdev_init_server(
     const struct vhd_vdev_type* type,
     int max_queues,
     struct vhd_request_queue* rq,
-    void* priv)
+    void* priv,
+    int (*map_cb)(void* addr, size_t len, void* priv),
+    int (*unmap_cb)(void* addr, size_t len, void* priv))
 {
     int ret;
     int listenfd;
@@ -1404,6 +1434,8 @@ int vhd_vdev_init_server(
     vdev->listenfd = listenfd;
     vdev->connfd = -1;
     vdev->rq = rq;
+    vdev->map_cb = map_cb;
+    vdev->unmap_cb = unmap_cb;
 
     vdev->supported_protocol_features = g_default_protocol_features;
     vdev->max_queues = max_queues;

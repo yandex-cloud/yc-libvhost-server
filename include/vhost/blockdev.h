@@ -66,6 +66,12 @@ struct vhd_bdev_info
 
     /* Device size in blocks */
     uint64_t total_blocks;
+
+    /* Gets called after mapping guest memory region */
+    int (*map_cb)(void* addr, size_t len, void* priv);
+
+    /* Gets called before unmapping guest memory region */
+    int (*unmap_cb)(void* addr, size_t len, void* priv);
 };
 
 /**
