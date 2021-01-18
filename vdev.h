@@ -96,6 +96,12 @@ struct vhd_vdev
      */
     struct vhd_guest_memory_map *guest_memmap;
 
+    /* Gets called after mapping guest memory region */
+    int (*map_cb)(void* addr, size_t len, void* priv);
+
+    /* Gets called before unmapping guest memory region */
+    int (*unmap_cb)(void* addr, size_t len, void* priv);
+
     /**
      * Shared memory to store information about inflight requests and restore
      * virtqueue state after reconnect.
@@ -140,7 +146,9 @@ int vhd_vdev_init_server(
     const struct vhd_vdev_type* type,
     int max_queues,
     struct vhd_request_queue* rq,
-    void* priv);
+    void* priv,
+    int (*map_cb)(void* addr, size_t len, void* priv),
+    int (*unmap_cb)(void* addr, size_t len, void* priv));
 
 /**
  * Destroy vdev instance
