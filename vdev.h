@@ -151,9 +151,14 @@ int vhd_vdev_init_server(
     int (*unmap_cb)(void* addr, size_t len, void* priv));
 
 /**
- * Destroy vdev instance
+ * Stop vdev instance
  */
-void vhd_vdev_uninit(struct vhd_vdev* vdev);
+void vhd_vdev_stop(struct vhd_vdev* vdev);
+
+/**
+ * Release vdev instance (assume it is stopped and all requests are completed)
+ */
+void vhd_vdev_release(struct vhd_vdev* vdev);
 
 static inline uint64_t vhd_vdev_get_features(struct vhd_vdev* vdev)
 {
@@ -238,9 +243,9 @@ struct vhd_vring
 void vhd_vring_init(struct vhd_vring* vring, int id, struct vhd_vdev* vdev);
 
 /**
- * Release vring resoucres
+ * Stop vring
  */
-void vhd_vring_uninit(struct vhd_vring* vring);
+void vhd_vring_stop(struct vhd_vring* vring);
 
 void vhd_memmap_ref(struct vhd_guest_memory_map *mm);
 void vhd_memmap_unref(struct vhd_guest_memory_map *mm);

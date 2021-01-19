@@ -1182,6 +1182,29 @@ static int vhost_handle_request(struct vhd_vdev *vdev,
 
 ////////////////////////////////////////////////////////////////////////////////
 
+void vhd_vdev_stop(struct vhd_vdev* vdev)
+{
+    for (uint32_t i = 0; i < vdev->max_queues; ++i) {
+        vhd_vring_stop(vdev->vrings + i);
+    }
+
+}
+
+void vhd_vdev_release(struct vhd_vdev* vdev)
+{
+    close(vdev->listenfd);
+    close(vdev->connfd);
+
+    for (uint32_t i = 0; i < vdev->max_queues; ++i) {
+        virtio_virtq_release(&vdev->vrings[i].vq);
+    }
+
+    vhd_vdev_inflight_cleanup(vdev);
+
+    LIST_REMOVE(vdev, vdev_list);
+    vhd_free(vdev->vrings);
+}
+
 static int change_device_state(struct vhd_vdev* vdev, enum vhd_vdev_state new_state)
 {
     int ret = 0;
@@ -1194,9 +1217,7 @@ static int change_device_state(struct vhd_vdev* vdev, enum vhd_vdev_state new_st
             vhd_del_vhost_event(vdev->connfd);
             vdev->is_owned = false;
 
-            for (uint32_t i = 0; i < vdev->max_queues; ++i) {
-                vhd_vring_uninit(vdev->vrings + i);
-            }
+            vhd_vdev_stop(vdev);
 
             vhost_reset_mem_table(vdev);
 
@@ -1454,7 +1475,7 @@ int vhd_vdev_init_server(
 
     ret = change_device_state(vdev, VDEV_LISTENING);
     if (ret != 0) {
-        vhd_vdev_uninit(vdev);
+        vhd_vdev_release(vdev);
     }
 
     return ret;
@@ -1469,24 +1490,6 @@ static void vhd_vdev_inflight_cleanup(struct vhd_vdev* vdev)
 
     munmap(vdev->inflight_mem, vdev->inflight_size);
     vdev->inflight_mem = NULL;
-}
-
-void vhd_vdev_uninit(struct vhd_vdev* vdev)
-{
-    if (!vdev) {
-        return;
-    }
-
-    close(vdev->listenfd);
-
-    for (uint32_t i = 0; i < vdev->max_queues; ++i) {
-        vhd_vring_uninit(vdev->vrings + i);
-    }
-
-    vhd_vdev_inflight_cleanup(vdev);
-
-    LIST_REMOVE(vdev, vdev_list);
-    vhd_free(vdev->vrings);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1552,7 +1555,6 @@ static int vring_set_enable(struct vhd_vring* vring, bool do_enable)
         vring->is_enabled = true;
     } else {
         vhd_detach_event(vring->vdev->rq, vring->kickfd);
-        virtio_virtq_release(&vring->vq);
         vring->is_enabled = false;
     }
 
@@ -1574,7 +1576,7 @@ void vhd_vring_init(struct vhd_vring* vring, int id, struct vhd_vdev* vdev)
     vring->vdev = vdev;
 }
 
-void vhd_vring_uninit(struct vhd_vring* vring)
+void vhd_vring_stop(struct vhd_vring* vring)
 {
     if (!vring || !vring->is_enabled) {
         return;
