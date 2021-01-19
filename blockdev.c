@@ -122,14 +122,16 @@ void vhd_unregister_blockdev(struct vhd_vdev* vdev, void (*unregister_complete)(
         return;
     }
 
-    struct vhd_bdev* bdev = VHD_BLOCKDEV_FROM_VDEV(vdev);
-
-    LIST_REMOVE(bdev, blockdevs);
-    vhd_vdev_uninit(vdev);
-    vhd_free(bdev);
-
     /* TODO: this will be stored and called after all inflight requests complete */
     if (unregister_complete) {
         unregister_complete(arg);
     }
+
+    vhd_vdev_stop(vdev);
+    vhd_vdev_release(vdev);
+
+    struct vhd_bdev* bdev = VHD_BLOCKDEV_FROM_VDEV(vdev);
+
+    LIST_REMOVE(bdev, blockdevs);
+    vhd_free(bdev);
 }
