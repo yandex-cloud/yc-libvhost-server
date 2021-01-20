@@ -3,10 +3,10 @@
 #include "platform.h"
 #include "server_internal.h"
 #include "queue.h"
-#include "event.h"
 #include "vhost/blockdev.h"
 #include "bio.h"
 #include "logging.h"
+#include "vdev.h"
 
 #define VHOST_EVENT_LOOP_EVENTS 128
 
@@ -138,7 +138,10 @@ static void rq_complete_bh(void *opaque)
         }
         SLIST_REMOVE_HEAD(&bio_list, completion_link);
 
+        struct vhd_vdev* vdev = bio->vdev;
         bio->completion_handler(bio);
+
+        vdev_unref(vdev);
     }
 }
 
@@ -226,6 +229,8 @@ int vhd_enqueue_block_request(struct vhd_request_queue* rq,
 {
     bio->rq = rq;
     bio->vdev = vdev;
+
+    vdev_ref(vdev);
 
     TAILQ_INSERT_TAIL(&rq->submission, bio, submission_link);
     return 0;
