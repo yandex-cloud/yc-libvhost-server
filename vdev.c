@@ -1482,6 +1482,21 @@ int vhd_vdev_init_server(
     return ret;
 }
 
+void vhd_vdev_stop_server(struct vhd_vdev* vdev, void (*unregister_complete)(void*), void* arg)
+{
+    if (!vdev) {
+        return;
+    }
+
+    /* TODO: this will be stored and called after all inflight requests complete */
+    if (unregister_complete) {
+        unregister_complete(arg);
+    }
+
+    vhd_vdev_stop(vdev);
+    vhd_vdev_release(vdev);
+}
+
 static void vhd_vdev_inflight_cleanup(struct vhd_vdev* vdev)
 {
     if (!vdev->inflight_mem) {

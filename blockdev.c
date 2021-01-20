@@ -127,15 +127,5 @@ error_out:
 
 void vhd_unregister_blockdev(struct vhd_vdev* vdev, void (*unregister_complete)(void*), void* arg)
 {
-    if (!vdev) {
-        return;
-    }
-
-    /* TODO: this will be stored and called after all inflight requests complete */
-    if (unregister_complete) {
-        unregister_complete(arg);
-    }
-
-    vhd_vdev_stop(vdev);
-    vhd_vdev_release(vdev);
+    vhd_vdev_stop_server(vdev, unregister_complete, arg);
 }
