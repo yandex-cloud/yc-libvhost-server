@@ -1203,6 +1203,7 @@ void vhd_vdev_release(struct vhd_vdev* vdev)
 
     LIST_REMOVE(vdev, vdev_list);
     vhd_free(vdev->vrings);
+    vdev->type->free(vdev);
 }
 
 static int change_device_state(struct vhd_vdev* vdev, enum vhd_vdev_state new_state)

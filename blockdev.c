@@ -61,12 +61,21 @@ static int vblk_dispatch(struct vhd_vdev* vdev, struct vhd_vring* vring, struct 
     return virtio_blk_dispatch_requests(&dev->vblk, &vring->vq, vhd_vdev_mm_ctx(vdev));
 }
 
+static void vblk_free(struct vhd_vdev* vdev)
+{
+    struct vhd_bdev* bdev = VHD_BLOCKDEV_FROM_VDEV(vdev);
+
+    LIST_REMOVE(bdev, blockdevs);
+    vhd_free(bdev);
+}
+
 const struct vhd_vdev_type g_virtio_blk_vdev_type = {
     .desc               = "virtio-blk",
     .get_features       = vblk_get_features,
     .set_features       = vblk_set_features,
     .get_config         = vblk_get_config,
     .dispatch_requests  = vblk_dispatch,
+    .free               = vblk_free,
 };
 
 static int vblk_handle_request(struct virtio_blk_dev* vblk, struct vhd_bio* bio)
@@ -129,9 +138,4 @@ void vhd_unregister_blockdev(struct vhd_vdev* vdev, void (*unregister_complete)(
 
     vhd_vdev_stop(vdev);
     vhd_vdev_release(vdev);
-
-    struct vhd_bdev* bdev = VHD_BLOCKDEV_FROM_VDEV(vdev);
-
-    LIST_REMOVE(bdev, blockdevs);
-    vhd_free(bdev);
 }
