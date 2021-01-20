@@ -152,14 +152,9 @@ int vhd_vdev_init_server(
     int (*unmap_cb)(void* addr, size_t len, void* priv));
 
 /**
- * Stop vdev instance
+ * Stop vhost device
  */
-void vhd_vdev_stop(struct vhd_vdev* vdev);
-
-/**
- * Release vdev instance (assume it is stopped and all requests are completed)
- */
-void vhd_vdev_release(struct vhd_vdev* vdev);
+void vhd_vdev_stop_server(struct vhd_vdev* vdev, void (*unregister_complete)(void*), void* arg);
 
 static inline uint64_t vhd_vdev_get_features(struct vhd_vdev* vdev)
 {
