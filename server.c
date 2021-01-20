@@ -106,6 +106,11 @@ struct vhd_request_queue
     struct vhd_bh *completion_bh;
 };
 
+void vhd_run_in_rq(struct vhd_request_queue *rq, void (*cb)(void *), void *opaque)
+{
+    vhd_bh_schedule_oneshot(rq->evloop, cb, opaque);
+}
+
 static void rq_complete_bh(void *opaque)
 {
     struct vhd_request_queue *rq = opaque;
