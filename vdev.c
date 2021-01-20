@@ -1426,6 +1426,30 @@ close_fd:
     return -1;
 }
 
+void vdev_ref(struct vhd_vdev* vdev)
+{
+    vdev->refcount++;
+}
+
+void vdev_unref(struct vhd_vdev* vdev)
+{
+    vdev->refcount--;
+
+    if (!vdev->refcount) {
+        if (vdev->unregister_cb) {
+            vdev->unregister_cb(vdev->unregister_arg);
+        }
+        vhd_vdev_release(vdev);
+    }
+}
+
+static void vdev_unregister_bh(void* opaque)
+{
+    struct vhd_vdev* vdev = opaque;
+
+    vdev_unref(vdev);
+}
+
 int vhd_vdev_init_server(
     struct vhd_vdev* vdev,
     const char* socket_path,
@@ -1467,6 +1491,8 @@ int vhd_vdev_init_server(
         vhd_vring_init(vdev->vrings + i, i, vdev);
     }
 
+    vdev->refcount = 1;
+
     vdev->inflight_mem = NULL;
     vdev->inflight_size = 0;
 
@@ -1488,13 +1514,13 @@ void vhd_vdev_stop_server(struct vhd_vdev* vdev, void (*unregister_complete)(voi
         return;
     }
 
-    /* TODO: this will be stored and called after all inflight requests complete */
     if (unregister_complete) {
-        unregister_complete(arg);
+        vdev->unregister_cb = unregister_complete;
+        vdev->unregister_arg = arg;
     }
 
     vhd_vdev_stop(vdev);
-    vhd_vdev_release(vdev);
+    vhd_run_in_rq(vdev->rq, vdev_unregister_bh, vdev);
 }
 
 static void vhd_vdev_inflight_cleanup(struct vhd_vdev* vdev)

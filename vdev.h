@@ -110,9 +110,21 @@ struct vhd_vdev
     struct inflight_split_region* inflight_mem;
     uint64_t inflight_size;
 
+    /**
+     * Refcounting and delayed release
+     * refcont is not atomic and after vdev is registered it must be modified
+     * only from event loop to be consistent, for unregister bottom half is used
+     */
+    uint64_t refcount;
+    void (*unregister_cb)(void*);
+    void* unregister_arg;
+
     /** Global vdev list */
     LIST_ENTRY(vhd_vdev) vdev_list;
 };
+
+void vdev_ref(struct vhd_vdev* vdev);
+void vdev_unref(struct vhd_vdev* vdev);
 
 /**
  * Create and run default vhost event loop.
