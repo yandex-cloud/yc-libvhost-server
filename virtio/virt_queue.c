@@ -154,17 +154,6 @@ static void virtq_inflight_reconnect_update(struct virtio_virtq* vq)
         return;
     }
 
-    /* TODO: We should send a notify when the notify_fd will be
-     * initialized since the last_batch commit was incomplete.
-     * Disconnect happened before the notify event. There is
-     * still a very small gap where the virtq_inflight_used_commit()
-     * routine completed successfully and after it the daemon
-     * stops and didn't send a notify. In this case the last_batch
-     * will be in the correct state and no notify will be sent.
-     * Need to simulate and investigate it more precisely.
-     */
-    vq->inflight_notify = true;
-
     idx = vq->inflight_region->last_batch_head;
     while (batch_size) {
         vq->inflight_region->desc[idx].inflight = 0;
@@ -204,7 +193,6 @@ int virtio_virtq_attach(struct virtio_virtq* vq,
 
     /* Inflight initialization. */
     vq->inflight_region = inflight_addr;
-    vq->inflight_notify = false;
     /* Make check on the first virtq dequeue. */
     vq->inflight_check = true;
     virtq_inflight_reconnect_update(vq);
@@ -565,12 +553,11 @@ void virtq_set_notify_fd(struct virtio_virtq* vq, int fd)
 
     vq->notify_fd = fd;
 
-    /* TODO: We should send a notify here, because the previous disconnect
-     * happened before the notify event.
-     * Maybe we shouldn't handle it, but it looks like a correct way to handle.
+    /* Always notify new fd because on initial setup QEMU sets up kick_fd
+     * before call_fd, so before call_fd becomes configured there can be
+     * already processed descriptors that guest wasn't notified about.
+     * And on reconnect connection may have been lost before the server has
+     * had a chance to signal guest.
      */
-    if (vq->inflight_notify) {
-        virtq_notify(vq);
-    }
-    vq->inflight_notify = false;
+    virtq_notify(vq);
 }
