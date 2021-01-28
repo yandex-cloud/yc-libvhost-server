@@ -1587,17 +1587,19 @@ static int vring_set_enable(struct vhd_vring* vring, bool do_enable)
 
         vring->kickev.priv = vring;
         vring->kickev.ops = &g_vring_ops;
+        vring->is_enabled = true;
         res = vhd_attach_event(vring->vdev->rq, vring->kickfd, &vring->kickev);
         if (res != 0) {
-            VHD_LOG_ERROR("Could not create vring event from kickfd: %d", res);
+            vring->is_enabled = false;
             virtio_virtq_release(&vring->vq);
+            VHD_LOG_ERROR("Could not create vring event from kickfd: %d", res);
             return res;
         }
 
-        vring->is_enabled = true;
     } else {
         vhd_detach_event(vring->vdev->rq, vring->kickfd);
         vring->is_enabled = false;
+        virtio_virtq_release(&vring->vq);
     }
 
     return 0;
