@@ -3,6 +3,7 @@
 #include <unistd.h>
 #include <alloca.h>
 #include <sys/eventfd.h>
+#include <time.h>
 
 #include "catomic.h"
 #include "virt_queue.h"
@@ -361,6 +362,7 @@ int virtq_dequeue_many(struct virtio_virtq *vq,
     uint16_t head;
     uint16_t i;
     uint16_t num_avail;
+    time_t now;
 
     if (virtq_is_broken(vq)) {
         VHD_LOG_ERROR("virtqueue is broken, cannot process");
@@ -377,11 +379,26 @@ int virtq_dequeue_many(struct virtio_virtq *vq,
         vq->inflight_check = false;
     }
 
+    now = time(NULL);
+
+    if (now - vq->stat.period_start_ts > 60) {
+        vq->stat.period_start_ts = now;
+        vq->stat.metrics.queue_len_max_60s = 0;
+    }
+
+    vq->stat.metrics.dispatch_total++;
+
     /* Limit this run to initial number of advertised descriptors.
      * TODO: limit it better in client */
     num_avail = vq->avail->idx - vq->last_avail;
     if (!num_avail) {
+        vq->stat.metrics.dispatch_empty++;
         return 0;
+    }
+
+    vq->stat.metrics.queue_len_last = num_avail;
+    if (vq->stat.metrics.queue_len_last > vq->stat.metrics.queue_len_max_60s) {
+        vq->stat.metrics.queue_len_max_60s = vq->stat.metrics.queue_len_last;
     }
 
     /* Make sure that further desc reads do not pass avail->idx read. */
@@ -398,6 +415,7 @@ int virtq_dequeue_many(struct virtio_virtq *vq,
         }
 
         virtq_inflight_avail_update(vq, head);
+        vq->stat.metrics.request_total++;
     }
 
     /* TODO: restore notifier mask here */
