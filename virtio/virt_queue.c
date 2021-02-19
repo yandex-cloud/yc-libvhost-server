@@ -163,6 +163,12 @@ static void virtq_inflight_reconnect_update(struct virtio_virtq* vq)
     vq->inflight_region->used_idx = vq->used->idx;
 }
 
+static void virtio_virtq_reset_stat(struct virtio_virtq *vq)
+{
+    VHD_VERIFY(vq);
+    memset(&vq->stat, 0, sizeof(vq->stat));
+}
+
 int virtio_virtq_attach(struct virtio_virtq* vq,
                         uint32_t flags,
                         void* desc_addr,
@@ -199,6 +205,8 @@ int virtio_virtq_attach(struct virtio_virtq* vq,
 
     /* Notify fd is set separately */
     vq->notify_fd = -1;
+
+    virtio_virtq_reset_stat(vq);
 
     return 0;
 }
@@ -560,4 +568,17 @@ void virtq_set_notify_fd(struct virtio_virtq* vq, int fd)
      * had a chance to signal guest.
      */
     virtq_notify(vq);
+}
+
+void virtio_virtq_get_stat(struct virtio_virtq *vq,
+                           struct vhd_vq_metrics *metrics)
+{
+    VHD_VERIFY(vq);
+    VHD_VERIFY(metrics);
+
+    metrics->request_total = vq->stat.metrics.request_total;
+    metrics->dispatch_total = vq->stat.metrics.dispatch_total;
+    metrics->dispatch_empty = vq->stat.metrics.dispatch_empty;
+    metrics->queue_len_last = vq->stat.metrics.queue_len_last;
+    metrics->queue_len_max_60s = vq->stat.metrics.queue_len_max_60s;
 }

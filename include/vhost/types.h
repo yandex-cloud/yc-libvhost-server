@@ -15,3 +15,23 @@ struct vhd_buffer
     /* Buffer is write-only if true and read-only if false */
     bool write_only;
 };
+
+/**
+ * virtqueue usage statistics
+ */
+struct vhd_vq_metrics {
+    /* total amount of requests processed */
+    uint64_t request_total;
+
+    /* number of times vring was processed */
+    uint64_t dispatch_total;
+
+    /* number of times vring was empty on processing */
+    uint64_t dispatch_empty;
+
+    /* number of requests was dispatched from vring last time*/
+    uint16_t queue_len_last;
+
+    /* max queue len was processed during 60s period */
+    uint16_t queue_len_max_60s;
+};
