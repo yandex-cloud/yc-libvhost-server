@@ -1671,3 +1671,22 @@ static void vring_inflight_addr_init(struct vhd_vring* vring)
 
     vring->client_info.inflight_addr = (void *)mem + qsize * idx;
 }
+
+/**
+ * metrics - output parameter.
+ * Returns 0 on success, -errno on failure
+*/
+int vhd_vdev_get_queue_stat(struct vhd_vdev *vdev, uint32_t queue_num,
+                            struct vhd_vq_metrics *metrics)
+{
+    VHD_VERIFY(vdev);
+    VHD_VERIFY(stat);
+
+    if (queue_num >= vdev->num_queues) {
+        return -EINVAL;
+    }
+
+    virtio_virtq_get_stat(&vdev->vrings[queue_num].vq, metrics);
+
+    return 0;
+}
