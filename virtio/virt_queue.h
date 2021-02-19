@@ -70,6 +70,16 @@ struct virtio_virtq
     uint64_t req_cnt;
     struct inflight_split_region *inflight_region;
     bool inflight_check;
+
+    /* Usage statistics */
+    struct vq_stat {
+        /* Metrics provided to users */
+        struct vhd_vq_metrics metrics;
+
+        /* Metrics service info fields. Not provided to uses */
+        /* timestamps for periodic metrics */
+        time_t period_start_ts;
+    } stat;
 };
 
 int virtio_virtq_attach(struct virtio_virtq* vq,
@@ -100,6 +110,9 @@ void virtq_set_notify_fd(struct virtio_virtq* vq, int fd);
 
 void virtio_free_iov(struct virtio_iov *iov);
 uint16_t virtio_iov_get_head(struct virtio_iov *iov);
+
+void virtio_virtq_get_stat(struct virtio_virtq *vq,
+                           struct vhd_vq_metrics *metrics);
 
 #ifdef __cplusplus
 }
