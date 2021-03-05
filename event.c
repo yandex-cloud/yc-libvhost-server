@@ -58,8 +58,7 @@ struct vhd_bh {
 
 typedef SLIST_HEAD_ATOMIC(, vhd_bh) vhd_bh_list;
 
-struct vhd_event_loop
-{
+struct vhd_event_loop {
     int epollfd;
 
     /* eventfd we use to cancel epoll_wait if needed */
@@ -70,7 +69,7 @@ struct vhd_event_loop
     bool is_terminated;
 
     /* preallocated events buffer */
-    struct epoll_event* events;
+    struct epoll_event *events;
     size_t max_events;
 
     vhd_bh_list bh_list;
@@ -222,7 +221,7 @@ static void notify_accept(struct vhd_event_loop *evloop)
     }
 }
 
-static int handle_one_event(struct vhd_event_ctx* ev, int event_code)
+static int handle_one_event(struct vhd_event_ctx *ev, int event_code)
 {
     if ((event_code & (EPOLLIN | EPOLLERR | EPOLLRDHUP)) && ev->ops->read) {
         return ev->ops->read(ev->priv);
@@ -231,13 +230,13 @@ static int handle_one_event(struct vhd_event_ctx* ev, int event_code)
     return 0;
 }
 
-static int handle_events(struct vhd_event_loop* evloop, int nevents)
+static int handle_events(struct vhd_event_loop *evloop, int nevents)
 {
     int nerr = 0;
-    struct epoll_event* events = evloop->events;
+    struct epoll_event *events = evloop->events;
 
     for (int i = 0; i < nevents; i++) {
-        struct vhd_event_ctx* ev = events[i].data.ptr;
+        struct vhd_event_ctx *ev = events[i].data.ptr;
         if (!ev) {
             continue;
         }
@@ -249,7 +248,7 @@ static int handle_events(struct vhd_event_loop* evloop, int nevents)
     return nerr;
 }
 
-struct vhd_event_loop* vhd_create_event_loop(size_t max_events)
+struct vhd_event_loop *vhd_create_event_loop(size_t max_events)
 {
     int interruptfd = -1;
     int epollfd = -1;
@@ -274,7 +273,7 @@ struct vhd_event_loop* vhd_create_event_loop(size_t max_events)
         goto error_out;
     }
 
-    struct vhd_event_loop* evloop = vhd_alloc(sizeof(*evloop));
+    struct vhd_event_loop *evloop = vhd_alloc(sizeof(*evloop));
     evloop->epollfd = epollfd;
     evloop->interruptfd = interruptfd;
     atomic_set(&evloop->notified, false);
@@ -291,13 +290,14 @@ error_out:
     return NULL;
 }
 
-int vhd_run_event_loop(struct vhd_event_loop* evloop, int timeout_ms)
+int vhd_run_event_loop(struct vhd_event_loop *evloop, int timeout_ms)
 {
     if (vhd_event_loop_terminated(evloop)) {
         return 0;
     }
 
-    int nev = epoll_wait(evloop->epollfd, evloop->events, evloop->max_events, timeout_ms);
+    int nev = epoll_wait(evloop->epollfd, evloop->events, evloop->max_events,
+                         timeout_ms);
     if (!nev) {
         return 0;
     } else if (nev < 0) {
@@ -321,14 +321,14 @@ int vhd_run_event_loop(struct vhd_event_loop* evloop, int timeout_ms)
     return nev;
 }
 
-void vhd_interrupt_event_loop(struct vhd_event_loop* evloop)
+void vhd_interrupt_event_loop(struct vhd_event_loop *evloop)
 {
     if (!atomic_xchg(&evloop->notified, true)) {
         vhd_set_eventfd(evloop->interruptfd);
     }
 }
 
-bool vhd_event_loop_terminated(struct vhd_event_loop* evloop)
+bool vhd_event_loop_terminated(struct vhd_event_loop *evloop)
 {
     return evloop->is_terminated;
 }
@@ -339,7 +339,7 @@ void evloop_stop_bh(void *opaque)
     evloop->is_terminated = true;
 }
 
-void vhd_terminate_event_loop(struct vhd_event_loop* evloop)
+void vhd_terminate_event_loop(struct vhd_event_loop *evloop)
 {
     vhd_bh_schedule_oneshot(evloop, evloop_stop_bh, evloop);
 }
@@ -350,7 +350,7 @@ void vhd_terminate_event_loop(struct vhd_event_loop* evloop)
  * Another is to wait for the thread running the event loop to terminate (to
  * join it) and only do free afterwards.
  */
-void vhd_free_event_loop(struct vhd_event_loop* evloop)
+void vhd_free_event_loop(struct vhd_event_loop *evloop)
 {
     bh_cleanup(evloop);
     close(evloop->epollfd);
@@ -359,7 +359,8 @@ void vhd_free_event_loop(struct vhd_event_loop* evloop)
     vhd_free(evloop);
 }
 
-int vhd_add_event(struct vhd_event_loop* evloop, int fd, struct vhd_event_ctx* ctx)
+int vhd_add_event(struct vhd_event_loop *evloop, int fd,
+                  struct vhd_event_ctx *ctx)
 {
     VHD_VERIFY(ctx && ctx->ops);
 
@@ -374,7 +375,7 @@ int vhd_add_event(struct vhd_event_loop* evloop, int fd, struct vhd_event_ctx* c
     return 0;
 }
 
-int vhd_del_event(struct vhd_event_loop* evloop, int fd)
+int vhd_del_event(struct vhd_event_loop *evloop, int fd)
 {
     if (epoll_ctl(evloop->epollfd, EPOLL_CTL_DEL, fd, NULL) == -1) {
         VHD_LOG_ERROR("Can't delete event: %d", errno);

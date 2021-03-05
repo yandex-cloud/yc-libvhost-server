@@ -13,10 +13,11 @@ extern "C" {
     (1UL << VIRTIO_BLK_F_TOPOLOGY) | \
     (1UL << VIRTIO_BLK_F_MQ)))
 
-    /* TODO: can implement size_max and seg_max to better control request limits
-    (1UL << VIRTIO_BLK_F_SIZE_MAX) | \
-    (1UL << VIRTIO_BLK_F_SEG_MAX) | \
-    */
+    /*
+     * TODO: can implement size_max and seg_max to better control request limits
+     * (1UL << VIRTIO_BLK_F_SIZE_MAX) | \
+     * (1UL << VIRTIO_BLK_F_SEG_MAX) | \
+     */
 
 struct vhd_bdev_info;
 struct vhd_bio;
@@ -28,15 +29,14 @@ struct virtio_blk_dev;
 /**
  * Virtio block I/O dispatch context.
  */
-typedef int virtio_blk_io_dispatch(struct virtio_blk_dev* vblk,
-                                   struct vhd_bio* bio);
+typedef int virtio_blk_io_dispatch(struct virtio_blk_dev *vblk,
+                                   struct vhd_bio *bio);
 
 /**
  * Virtio block device context
  */
-struct virtio_blk_dev
-{
-    struct vhd_bdev_info* bdev;
+struct virtio_blk_dev {
+    struct vhd_bdev_info *bdev;
 
     /* blk config data generated on init from bdev */
     struct virtio_blk_config config;
@@ -45,16 +45,16 @@ struct virtio_blk_dev
     uint8_t block_shift;
 
     /* Handler to dispatch I/O to underlying block backend */
-    virtio_blk_io_dispatch* dispatch;
+    virtio_blk_io_dispatch *dispatch;
 };
 
 /**
  * Init virtio blk device context from bdev info
  */
 int virtio_blk_init_dev(
-    struct virtio_blk_dev* dev,
-    struct vhd_bdev_info* bdev,
-    virtio_blk_io_dispatch* dispatch);
+    struct virtio_blk_dev *dev,
+    struct vhd_bdev_info *bdev,
+    virtio_blk_io_dispatch *dispatch);
 
 /**
  * Dispatch requests from device virtq

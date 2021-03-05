@@ -13,32 +13,37 @@ struct vhd_vdev;
 struct vhd_vring;
 struct vhd_request_queue;
 
-enum vhd_vdev_state
-{
-    /* Device is initialized. For vhost-user server devices listening socket is created. */
+enum vhd_vdev_state {
+    /*
+     * Device is initialized. For vhost-user server devices listening socket is
+     * created.
+     */
     VDEV_INITIALIZED = 0,
 
     /* Device is in server mode and is listening for connection */
     VDEV_LISTENING,
 
-    /* Device has a client connection and can start negotiating vhost-user handshake */
+    /*
+     * Device has a client connection and can start negotiating vhost-user
+     * handshake
+     */
     VDEV_CONNECTED,
 };
 
 /**
  * Vhost device type description.
  */
-struct vhd_vdev_type
-{
+struct vhd_vdev_type {
     /* Human-readable description */
-    const char* desc;
+    const char *desc;
 
     /* Polymorphic type ops */
-    uint64_t (*get_features)(struct vhd_vdev* vdev);
-    int (*set_features)(struct vhd_vdev* vdev, uint64_t features);
-    size_t (*get_config)(struct vhd_vdev* vdev, void* cfgbuf, size_t bufsize);
-    int (*dispatch_requests)(struct vhd_vdev* vdev, struct vhd_vring* vring, struct vhd_request_queue* rq);
-    void (*free)(struct vhd_vdev* vdev);
+    uint64_t (*get_features)(struct vhd_vdev *vdev);
+    int (*set_features)(struct vhd_vdev *vdev, uint64_t features);
+    size_t (*get_config)(struct vhd_vdev *vdev, void *cfgbuf, size_t bufsize);
+    int (*dispatch_requests)(struct vhd_vdev *vdev, struct vhd_vring *vring,
+                             struct vhd_request_queue *rq);
+    void (*free)(struct vhd_vdev *vdev);
 };
 
 /**
@@ -51,13 +56,12 @@ struct vhd_vdev_type
  */
 typedef uint64_t vhd_paddr_t;
 
-struct vhd_vdev
-{
+struct vhd_vdev {
     /* Accosiated client private data */
-    void* priv;
+    void *priv;
 
     /* Device type description */
-    const struct vhd_vdev_type* type;
+    const struct vhd_vdev_type *type;
 
     /* Server socket fd when device is a vhost-user server */
     int listenfd;
@@ -65,11 +69,13 @@ struct vhd_vdev
     /* Connected device fd. Single active connection per device. */
     int connfd;
 
-    /* Handles both server and conn event (since only one can exist at a time) */
+    /*
+     * Handles both server and conn event (since only one can exist at a time)
+     */
     struct vhd_event_ctx sock_ev;
 
     /* Attached request queue */
-    struct vhd_request_queue* rq;
+    struct vhd_request_queue *rq;
 
     /* Current state */
     enum vhd_vdev_state state;
@@ -87,27 +93,30 @@ struct vhd_vdev
     uint64_t negotiated_features;
 
     /** Maximum amount of request queues this device can support */
-    uint32_t max_queues; /* Set by device backend as a limit of what we can support*/
-    uint32_t num_queues; /* Set by client during negotiation, guaranteed to be <= max_queues */
-    struct vhd_vring* vrings; /* Total num_queues elements */
+    /* Set by device backend as a limit of what we can support*/
+    uint32_t max_queues;
+    /* Set by client during negotiation, guaranteed to be <= max_queues */
+    uint32_t num_queues;
+    struct vhd_vring *vrings; /* Total num_queues elements */
 
     /**
      * Memory mappings that relate to this device
-     * TODO: it is wrong to have separate mappings per device, they should really be per-guest
+     * TODO: it is wrong to have separate mappings per device, they should
+     * really be per-guest
      */
     struct vhd_guest_memory_map *guest_memmap;
 
     /* Gets called after mapping guest memory region */
-    int (*map_cb)(void* addr, size_t len, void* priv);
+    int (*map_cb)(void *addr, size_t len, void *priv);
 
     /* Gets called before unmapping guest memory region */
-    int (*unmap_cb)(void* addr, size_t len, void* priv);
+    int (*unmap_cb)(void *addr, size_t len, void *priv);
 
     /**
      * Shared memory to store information about inflight requests and restore
      * virtqueue state after reconnect.
      */
-    struct inflight_split_region* inflight_mem;
+    struct inflight_split_region *inflight_mem;
     uint64_t inflight_size;
 
     /**
@@ -116,15 +125,15 @@ struct vhd_vdev
      * only from event loop to be consistent, for unregister bottom half is used
      */
     uint64_t refcount;
-    void (*unregister_cb)(void*);
-    void* unregister_arg;
+    void (*unregister_cb)(void *);
+    void *unregister_arg;
 
     /** Global vdev list */
     LIST_ENTRY(vhd_vdev) vdev_list;
 };
 
-void vdev_ref(struct vhd_vdev* vdev);
-void vdev_unref(struct vhd_vdev* vdev);
+void vdev_ref(struct vhd_vdev *vdev);
+void vdev_unref(struct vhd_vdev *vdev);
 
 /**
  * Create and run default vhost event loop.
@@ -154,39 +163,43 @@ void vhd_interrupt_vhost_event_loop(void);
  * @max_queues      Maximum number of queues this device can support
  */
 int vhd_vdev_init_server(
-    struct vhd_vdev* vdev,
-    const char* socket_path,
-    const struct vhd_vdev_type* type,
+    struct vhd_vdev *vdev,
+    const char *socket_path,
+    const struct vhd_vdev_type *type,
     int max_queues,
-    struct vhd_request_queue* rq,
-    void* priv,
-    int (*map_cb)(void* addr, size_t len, void* priv),
-    int (*unmap_cb)(void* addr, size_t len, void* priv));
+    struct vhd_request_queue *rq,
+    void *priv,
+    int (*map_cb)(void *addr, size_t len, void *priv),
+    int (*unmap_cb)(void *addr, size_t len, void *priv));
 
 /**
  * Stop vhost device
  */
-void vhd_vdev_stop_server(struct vhd_vdev* vdev, void (*unregister_complete)(void*), void* arg);
+void vhd_vdev_stop_server(struct vhd_vdev *vdev,
+                          void (*unregister_complete)(void *), void *arg);
 
-static inline uint64_t vhd_vdev_get_features(struct vhd_vdev* vdev)
+static inline uint64_t vhd_vdev_get_features(struct vhd_vdev *vdev)
 {
     VHD_ASSERT(vdev && vdev->type && vdev->type->get_features);
     return vdev->type->get_features(vdev);
 }
 
-static inline int vhd_vdev_set_features(struct vhd_vdev* vdev, uint64_t features)
+static inline int vhd_vdev_set_features(struct vhd_vdev *vdev,
+                                        uint64_t features)
 {
     VHD_ASSERT(vdev && vdev->type && vdev->type->set_features);
     return vdev->type->set_features(vdev, features);
 }
 
-static inline size_t vhd_vdev_get_config(struct vhd_vdev* vdev, void* cfgbuf, size_t bufsize)
+static inline size_t vhd_vdev_get_config(struct vhd_vdev *vdev, void *cfgbuf,
+                                         size_t bufsize)
 {
     VHD_ASSERT(vdev && vdev->type && vdev->type->get_config);
     return vdev->type->get_config(vdev, cfgbuf, bufsize);
 }
 
-static inline int vhd_vdev_dispatch_requests(struct vhd_vdev* vdev, struct vhd_vring* vring)
+static inline int vhd_vdev_dispatch_requests(struct vhd_vdev *vdev,
+                                             struct vhd_vring *vring)
 {
     VHD_ASSERT(vdev && vdev->type && vdev->type->dispatch_requests);
     return vdev->type->dispatch_requests(vdev, vring, vdev->rq);
@@ -199,28 +212,31 @@ struct vhd_guest_memory_map *vhd_vdev_mm_ctx(struct vhd_vdev *vdev)
     return vdev->guest_memmap;
 }
 
-void vhd_gpa_range_mark_dirty(struct vhd_guest_memory_map* mm, vhd_paddr_t gpa, size_t len);
-void vhd_hva_range_mark_dirty(struct vhd_guest_memory_map* mm, void* hva, size_t len);
-bool vhd_logging_started(struct virtio_virtq* vq);
+void vhd_gpa_range_mark_dirty(struct vhd_guest_memory_map *mm, vhd_paddr_t gpa,
+                              size_t len);
+void vhd_hva_range_mark_dirty(struct vhd_guest_memory_map *mm, void *hva,
+                              size_t len);
+bool vhd_logging_started(struct virtio_virtq *vq);
 
 /**
  * Device vring instance
  */
-struct vhd_vring
-{
+struct vhd_vring {
     /* owning vdev */
-    struct vhd_vdev* vdev;
+    struct vhd_vdev *vdev;
 
-    /* This structure is used to collect info about client vring during
-     * several vhost packets until we have enought to initialize it */
+    /*
+     * This structure is used to collect info about client vring during
+     * several vhost packets until we have enought to initialize it
+     */
     struct vring_client_info {
         uint32_t flags;
-        void* desc_addr;
-        void* avail_addr;
-        void* used_addr;
+        void *desc_addr;
+        void *avail_addr;
+        void *used_addr;
         int num;
         int base;
-        void* inflight_addr;
+        void *inflight_addr;
         vhd_paddr_t used_gpa_base;
     } client_info;
 
@@ -248,12 +264,12 @@ struct vhd_vring
  * @id          vring id
  * @vdev        vring owning device instance
  */
-void vhd_vring_init(struct vhd_vring* vring, int id, struct vhd_vdev* vdev);
+void vhd_vring_init(struct vhd_vring *vring, int id, struct vhd_vdev *vdev);
 
 /**
  * Stop vring
  */
-void vhd_vring_stop(struct vhd_vring* vring);
+void vhd_vring_stop(struct vhd_vring *vring);
 
 void vhd_memmap_ref(struct vhd_guest_memory_map *mm);
 void vhd_memmap_unref(struct vhd_guest_memory_map *mm);

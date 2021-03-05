@@ -83,8 +83,10 @@ struct virtq {
 
 static inline unsigned virtq_size(unsigned int qsz)
 {
-    return VIRTQ_ALIGN(sizeof(struct virtq_desc) * qsz + sizeof(uint16_t) * (3 + qsz))
-        + VIRTQ_ALIGN(sizeof(uint16_t) * 3 + sizeof(struct virtq_used_elem) * qsz);
+    return VIRTQ_ALIGN(sizeof(struct virtq_desc) * qsz +
+                       sizeof(uint16_t) * (3 + qsz))
+         + VIRTQ_ALIGN(sizeof(uint16_t) * 3 +
+                       sizeof(struct virtq_used_elem) * qsz);
 }
 
 #ifdef __cplusplus

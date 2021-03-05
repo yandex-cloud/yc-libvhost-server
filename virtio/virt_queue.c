@@ -10,13 +10,12 @@
 #include "logging.h"
 #include "vdev.h"
 
-////////////////////////////////////////////////////////////////////////////////
+/*////////////////////////////////////////////////////////////////////////////*/
 
 /**
  * Holds private virtq data together with iovs we show users
  */
-struct virtq_iov_private
-{
+struct virtq_iov_private {
     /* Private virtq fields */
     uint16_t used_head;
     uint16_t used_len;
@@ -31,11 +30,12 @@ static int virtq_dequeue_one(struct virtio_virtq *vq,
                              virtq_handle_buffers_cb handle_buffers_cb,
                              void *arg);
 
-static struct virtq_iov_private* alloc_iov(uint16_t nvecs)
+static struct virtq_iov_private *alloc_iov(uint16_t nvecs)
 {
-    size_t size = sizeof(struct virtq_iov_private) + sizeof(struct vhd_buffer) * nvecs;
+    size_t size = sizeof(struct virtq_iov_private)
+                + sizeof(struct vhd_buffer) * nvecs;
 
-    struct virtq_iov_private* priv = vhd_alloc(size);
+    struct virtq_iov_private *priv = vhd_alloc(size);
     priv->iov.nvecs = nvecs;
     return priv;
 }
@@ -54,7 +54,8 @@ uint16_t virtio_iov_get_head(struct virtio_iov *iov)
     return priv->used_head;
 }
 
-static int add_buffer(struct virtio_virtq* vq, void* addr, size_t len, bool write_only)
+static int add_buffer(struct virtio_virtq *vq, void *addr, size_t len,
+                      bool write_only)
 {
     if (vq->next_buffer == vq->qsz) {
         return -ENOSPC;
@@ -73,7 +74,7 @@ static int add_buffer(struct virtio_virtq* vq, void* addr, size_t len, bool writ
 static int map_buffer(struct virtio_virtq *vq, struct vhd_guest_memory_map *mm,
                       uint64_t gpa, size_t len, bool write_only)
 {
-    void* addr = virtio_map_guest_phys_range(mm, gpa, len);
+    void *addr = virtio_map_guest_phys_range(mm, gpa, len);
     if (!addr) {
         return -EINVAL;
     }
@@ -81,11 +82,8 @@ static int map_buffer(struct virtio_virtq *vq, struct vhd_guest_memory_map *mm,
     return add_buffer(vq, addr, len, write_only);
 }
 
-/* Modify inflight descriptor after dequeue request from the available
- * ring.
- */
-static void virtq_inflight_avail_update(struct virtio_virtq* vq,
-        uint16_t head)
+/* Modify inflight descriptor after dequeue request from the available ring. */
+static void virtq_inflight_avail_update(struct virtio_virtq *vq, uint16_t head)
 {
     if (!vq->inflight_region) {
         return;
@@ -97,8 +95,7 @@ static void virtq_inflight_avail_update(struct virtio_virtq* vq,
 }
 
 /* Prepare the inflight descriptor for commit. */
-static void virtq_inflight_used_update(struct virtio_virtq* vq,
-        uint16_t head)
+static void virtq_inflight_used_update(struct virtio_virtq *vq, uint16_t head)
 {
     if (!vq->inflight_region) {
         return;
@@ -109,8 +106,7 @@ static void virtq_inflight_used_update(struct virtio_virtq* vq,
 }
 
 /* Post commit inflight descriptor handling. */
-static void virtq_inflight_used_commit(struct virtio_virtq* vq,
-        uint16_t head)
+static void virtq_inflight_used_commit(struct virtio_virtq *vq, uint16_t head)
 {
     if (!vq->inflight_region) {
         return;
@@ -127,11 +123,12 @@ static void virtq_inflight_used_commit(struct virtio_virtq* vq,
     vq->inflight_region->used_idx = vq->used->idx;
 }
 
-/* If the value of ``used_idx`` does not match the ``idx`` value of
+/*
+ * If the value of ``used_idx`` does not match the ``idx`` value of
  * used ring (means the inflight field of ``inflight_split_desc``
  * entries in last batch may be incorrect).
  */
-static void virtq_inflight_reconnect_update(struct virtio_virtq* vq)
+static void virtq_inflight_reconnect_update(struct virtio_virtq *vq)
 {
     int batch_size;
     uint16_t idx;
@@ -170,23 +167,25 @@ static void virtio_virtq_reset_stat(struct virtio_virtq *vq)
     memset(&vq->stat, 0, sizeof(vq->stat));
 }
 
-int virtio_virtq_attach(struct virtio_virtq* vq,
+int virtio_virtq_attach(struct virtio_virtq *vq,
                         uint32_t flags,
-                        void* desc_addr,
-                        void* avail_addr,
-                        void* used_addr,
+                        void *desc_addr,
+                        void *avail_addr,
+                        void *used_addr,
                         uint64_t used_gpa_base,
                         int qsz,
                         int avail_base,
-                        void* inflight_addr)
+                        void *inflight_addr)
 {
     VHD_VERIFY(vq);
     VHD_VERIFY(desc_addr);
     VHD_VERIFY(used_addr);
     VHD_VERIFY(avail_addr);
 
-    /* Client explicitly told us where to look for stuff, so no sanity checks.
-     * Assume that vhost initiation already verified memory layout */
+    /*
+     * Client explicitly told us where to look for stuff, so no sanity checks.
+     * Assume that vhost initiation already verified memory layout
+     */
     vq->flags = flags;
     vq->desc = desc_addr;
     vq->used = used_addr;
@@ -212,7 +211,7 @@ int virtio_virtq_attach(struct virtio_virtq* vq,
     return 0;
 }
 
-void virtio_virtq_release(struct virtio_virtq* vq)
+void virtio_virtq_release(struct virtio_virtq *vq)
 {
     vhd_free(vq->buffers);
 }
@@ -277,13 +276,13 @@ static int virtq_inflight_resubmit(struct virtio_virtq *vq,
     return res;
 }
 
-bool virtq_is_broken(struct virtio_virtq* vq)
+bool virtq_is_broken(struct virtio_virtq *vq)
 {
     VHD_VERIFY(vq);
     return vq->broken;
 }
 
-static void mark_broken(struct virtio_virtq* vq)
+static void mark_broken(struct virtio_virtq *vq)
 {
     vq->broken = true;
 }
@@ -295,15 +294,20 @@ static int walk_indirect_table(struct virtio_virtq *vq,
     int res;
     struct virtq_desc desc;
 
-    /* TODO: we need to validate that descriptor table memory, addressed by table_desc,
-     * is a valid mapping for this device/guest. */
+    /*
+     * TODO: we need to validate that descriptor table memory, addressed
+     * by table_desc, is a valid mapping for this device/guest.
+     */
 
     if (table_desc->len == 0 || table_desc->len % sizeof(desc)) {
-        VHD_LOG_ERROR("Bad indirect descriptor table length %d", table_desc->len);
+        VHD_LOG_ERROR("Bad indirect descriptor table length %d",
+                      table_desc->len);
         return -EINVAL;
     }
 
-    void* mapped_table = virtio_map_guest_phys_range(mm, table_desc->addr, table_desc->len);
+    void *mapped_table = virtio_map_guest_phys_range(mm,
+                                                     table_desc->addr,
+                                                     table_desc->len);
     if (!mapped_table) {
         VHD_LOG_ERROR("Bad guest address range on indirect descriptor table");
         return -EINVAL;
@@ -312,27 +316,36 @@ static int walk_indirect_table(struct virtio_virtq *vq,
     int max_indirect_descs = table_desc->len / sizeof(desc);
     int chain_len = 0;
 
-    struct virtq_desc* pdesc = (struct virtq_desc*) mapped_table;
-    struct virtq_desc* pdesc_first = (struct virtq_desc*) mapped_table;
-    struct virtq_desc* pdesc_last = (pdesc_first + max_indirect_descs - 1);
+    struct virtq_desc *pdesc = (struct virtq_desc *) mapped_table;
+    struct virtq_desc *pdesc_first = (struct virtq_desc *) mapped_table;
+    struct virtq_desc *pdesc_last = (pdesc_first + max_indirect_descs - 1);
 
     do {
         /* Descriptor should point inside indirect table */
         if (pdesc < pdesc_first || pdesc > pdesc_last) {
-            VHD_LOG_ERROR("Indirect descriptor %p is out of table bounds", pdesc);
+            VHD_LOG_ERROR("Indirect descriptor %p is out of table bounds",
+                          pdesc);
             return -EINVAL;
         }
 
         memcpy(&desc, pdesc, sizeof(desc));
 
-        /* 2.4.5.3.1: "The driver MUST NOT set the VIRTQ_DESC_F_INDIRECT flag within an indirect descriptor" */
+        /*
+         * 2.4.5.3.1: "The driver MUST NOT set the VIRTQ_DESC_F_INDIRECT flag
+         * within an indirect descriptor"
+         */
         if (desc.flags & VIRTQ_DESC_F_INDIRECT) {
             return -EINVAL;
         }
 
-        /* 2.4.5.3.1: "A driver MUST NOT create a descriptor chain longer than the Queue Size of the device"
-         * Indirect descriptors are part of the chain and should abide by this requirement */
-        res = map_buffer(vq, mm, desc.addr, desc.len, desc.flags & VIRTQ_DESC_F_WRITE);
+        /*
+         * 2.4.5.3.1: "A driver MUST NOT create a descriptor chain longer than
+         * the Queue Size of the device"
+         * Indirect descriptors are part of the chain and should abide by this
+         * requirement
+         */
+        res = map_buffer(vq, mm, desc.addr, desc.len,
+                         desc.flags & VIRTQ_DESC_F_WRITE);
         if (res != 0) {
             VHD_LOG_ERROR("Descriptor loop found, vring is broken");
             return -EINVAL;
@@ -344,10 +357,13 @@ static int walk_indirect_table(struct virtio_virtq *vq,
 
     } while (desc.flags & VIRTQ_DESC_F_NEXT);
 
-    /* Looks like it is valid when chain len is not equal to table size, but it looks iffy. */
+    /*
+     * Looks like it is valid when chain len is not equal to table size, but it
+     * looks iffy.
+     */
     if (chain_len != max_indirect_descs) {
-        VHD_LOG_INFO("Indirect chain length %d is not equal to table size %d, which looks strange",
-                chain_len, max_indirect_descs);
+        VHD_LOG_INFO("Indirect chain length %d is not equal to table size %d, "
+                     "which looks strange", chain_len, max_indirect_descs);
     }
 
     return 0;
@@ -388,8 +404,10 @@ int virtq_dequeue_many(struct virtio_virtq *vq,
 
     vq->stat.metrics.dispatch_total++;
 
-    /* Limit this run to initial number of advertised descriptors.
-     * TODO: limit it better in client */
+    /*
+     * Limit this run to initial number of advertised descriptors.
+     * TODO: limit it better in client
+     */
     num_avail = vq->avail->idx - vq->last_avail;
     if (!num_avail) {
         vq->stat.metrics.dispatch_empty++;
@@ -448,14 +466,22 @@ static int virtq_dequeue_one(struct virtio_virtq *vq,
             return -EINVAL;
         }
 
-        /* We explicitly make a local copy here to avoid any possible TOCTOU problems. */
+        /*
+         * We explicitly make a local copy here to avoid any possible TOCTOU
+         * problems.
+         */
         memcpy(&desc, vq->desc + descnum, sizeof(desc));
-        VHD_LOG_DEBUG("head = %d: addr = 0x%llx, len = %d", head, (unsigned long long) desc.addr, desc.len);
+        VHD_LOG_DEBUG("head = %d: addr = 0x%llx, len = %d", head,
+                      (unsigned long long) desc.addr, desc.len);
 
         if (desc.flags & VIRTQ_DESC_F_INDIRECT) {
-            /* 2.4.5.3.1: A driver MUST NOT set both VIRTQ_DESC_F_INDIRECT and VIRTQ_DESC_F_NEXT in flags */
+            /*
+             * 2.4.5.3.1: A driver MUST NOT set both VIRTQ_DESC_F_INDIRECT and
+             * VIRTQ_DESC_F_NEXT in flags
+             */
             if (desc.flags & VIRTQ_DESC_F_NEXT) {
-                VHD_LOG_ERROR("Can't handle indirect descriptors and next flag");
+                VHD_LOG_ERROR(
+                    "Can't handle indirect descriptors and next flag");
                 return -EINVAL;
             }
 
@@ -464,15 +490,22 @@ static int virtq_dequeue_one(struct virtio_virtq *vq,
                 return res;
             }
 
-            /* Descriptor chain should always terminate on indirect,
-             * which means we should not see NEXT flag anymore, and we have checked exactly that above.
-             * We document our assumption with an assert here. */
+            /*
+             * Descriptor chain should always terminate on indirect,
+             * which means we should not see NEXT flag anymore, and we have
+             * checked exactly that above.
+             * We document our assumption with an assert here.
+             */
             VHD_ASSERT((desc.flags & VIRTQ_DESC_F_NEXT) == 0);
 
         } else {
-            res = map_buffer(vq, mm, desc.addr, desc.len, desc.flags & VIRTQ_DESC_F_WRITE);
+            res = map_buffer(vq, mm, desc.addr, desc.len,
+                             desc.flags & VIRTQ_DESC_F_WRITE);
             if (res != 0) {
-                /* We always reserve space beforehand, so this is a descriptor loop */
+                /*
+                 * We always reserve space beforehand, so this is a descriptor
+                 * loop
+                 */
                 VHD_LOG_ERROR("Descriptor loop found, vring is broken");
                 return -EINVAL;
             }
@@ -484,8 +517,9 @@ static int virtq_dequeue_one(struct virtio_virtq *vq,
     } while (desc.flags & VIRTQ_DESC_F_NEXT);
 
     /* Create iov copy from stored buffer for client handling */
-    struct virtq_iov_private* priv = alloc_iov(vq->next_buffer);
-    memcpy(priv->iov.buffers, vq->buffers, priv->iov.nvecs * sizeof(vq->buffers[0]));
+    struct virtq_iov_private *priv = alloc_iov(vq->next_buffer);
+    memcpy(priv->iov.buffers, vq->buffers,
+           priv->iov.nvecs * sizeof(vq->buffers[0]));
     priv->used_head = head;
     priv->used_len = chain_len;
     priv->mm = mm;
@@ -500,21 +534,22 @@ static int virtq_dequeue_one(struct virtio_virtq *vq,
     return 0;
 }
 
-static void vhd_log_buffers(struct vhd_guest_memory_map* mm,
-                            struct virtio_iov* iov)
+static void vhd_log_buffers(struct vhd_guest_memory_map *mm,
+                            struct virtio_iov *iov)
 {
     int nvecs = iov->nvecs;
     int i;
     for (i = 0; i < nvecs; ++i) {
         if (iov->buffers[i].write_only) {
-            vhd_hva_range_mark_dirty(mm, iov->buffers[i].base, iov->buffers[i].len);
+            vhd_hva_range_mark_dirty(mm, iov->buffers[i].base,
+                                     iov->buffers[i].len);
         }
     }
 }
 
-static void vhd_log_modified(struct virtio_virtq* vq,
-                             struct vhd_guest_memory_map* mm,
-                             struct virtio_iov* iov,
+static void vhd_log_modified(struct virtio_virtq *vq,
+                             struct vhd_guest_memory_map *mm,
+                             struct virtio_iov *iov,
                              uint16_t used_idx)
 {
     /* log modifications of buffers in descr */
@@ -531,14 +566,15 @@ static void vhd_log_modified(struct virtio_virtq* vq,
     }
 }
 
-void virtq_commit_buffers(struct virtio_virtq* vq, struct virtio_iov* iov)
+void virtq_commit_buffers(struct virtio_virtq *vq, struct virtio_iov *iov)
 {
     VHD_VERIFY(vq);
 
     /* Put buffer head index and len into used ring */
-    struct virtq_iov_private* priv = containerof(iov, struct virtq_iov_private, iov);
+    struct virtq_iov_private *priv = containerof(iov, struct virtq_iov_private,
+                                                 iov);
     uint16_t used_idx = vq->used->idx % vq->qsz;
-    struct virtq_used_elem* used = &vq->used->ring[used_idx];
+    struct virtq_used_elem *used = &vq->used->ring[used_idx];
     used->id = priv->used_head;
     used->len = priv->used_len;
 
@@ -559,7 +595,7 @@ void virtq_commit_buffers(struct virtio_virtq* vq, struct virtio_iov* iov)
     vhd_free(priv);
 }
 
-void virtq_notify(struct virtio_virtq* vq)
+void virtq_notify(struct virtio_virtq *vq)
 {
     VHD_VERIFY(vq);
 
@@ -569,7 +605,7 @@ void virtq_notify(struct virtio_virtq* vq)
     }
 }
 
-void virtq_set_notify_fd(struct virtio_virtq* vq, int fd)
+void virtq_set_notify_fd(struct virtio_virtq *vq, int fd)
 {
     VHD_VERIFY(vq);
 
@@ -579,7 +615,8 @@ void virtq_set_notify_fd(struct virtio_virtq* vq, int fd)
 
     vq->notify_fd = fd;
 
-    /* Always notify new fd because on initial setup QEMU sets up kick_fd
+    /*
+     * Always notify new fd because on initial setup QEMU sets up kick_fd
      * before call_fd, so before call_fd becomes configured there can be
      * already processed descriptors that guest wasn't notified about.
      * And on reconnect connection may have been lost before the server has

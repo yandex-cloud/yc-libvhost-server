@@ -18,7 +18,7 @@
  */
 #define SLIST_HEAD_ATOMIC(name, type)                           \
     struct name {                                               \
-        struct type * _Atomic slh_first; /* first element */    \
+        struct type *_Atomic slh_first; /* first element */     \
     }
 
 /*

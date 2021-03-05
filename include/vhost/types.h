@@ -7,9 +7,8 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-struct vhd_buffer
-{
-    void* base;
+struct vhd_buffer {
+    void *base;
     size_t len;
 
     /* Buffer is write-only if true and read-only if false */

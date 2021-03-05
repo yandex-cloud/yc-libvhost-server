@@ -34,9 +34,12 @@ typedef uint64_t le64;
 #define VIRTIO_BLK_F_BARRIER    0   /* Device supports request barriers. */
 #define VIRTIO_BLK_F_SCSI       7   /* Device supports scsi packet commands. */
 
-/* Device configuration layout.
+/*
+ * Device configuration layout.
  * The capacity of the device (expressed in 512-byte sectors) is always present.
- * The availability of the others all depend on various feature bits as indicated above. */
+ * The availability of the others all depend on various feature bits as
+ * indicated above.
+ */
 struct VHD_PACKED virtio_blk_config {
     le64 capacity;
     le32 size_max;
@@ -48,13 +51,13 @@ struct VHD_PACKED virtio_blk_config {
     } geometry;
     le32 blk_size;
     struct VHD_PACKED virtio_blk_topology {
-        // # of logical blocks per physical block (log2)
+        /* # of logical blocks per physical block (log2) */
         u8 physical_block_exp;
-        // offset of first aligned logical block
+        /* offset of first aligned logical block */
         u8 alignment_offset;
-        // suggested minimum I/O size in blocks
+        /* suggested minimum I/O size in blocks */
         le16 min_io_size;
-        // optimal (suggested maximum) I/O size in blocks
+        /* optimal (suggested maximum) I/O size in blocks */
         le32 opt_io_size;
     } topology;
     u8 writeback;
@@ -62,8 +65,10 @@ struct VHD_PACKED virtio_blk_config {
     le16 numqueues;
 };
 
-/* Device Operation
- * The driver queues requests to the virtqueue, and they are used by the device (not necessarily in order).
+/*
+ * Device Operation
+ * The driver queues requests to the virtqueue, and they are used by the device
+ * (not necessarily in order).
  *
  * Request is a variable sized structure:
  * struct virtio_blk_req {

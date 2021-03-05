@@ -17,13 +17,13 @@
 
 static LIST_HEAD(, vhd_vdev) g_vdevs = LIST_HEAD_INITIALIZER(g_vdevs);
 
-static void vhd_vdev_inflight_cleanup(struct vhd_vdev* vdev);
+static void vhd_vdev_inflight_cleanup(struct vhd_vdev *vdev);
 static uint64_t vring_inflight_buf_size(int num);
-static void vring_inflight_addr_init(struct vhd_vring* vring);
+static void vring_inflight_addr_init(struct vhd_vring *vring);
 
-////////////////////////////////////////////////////////////////////////////////
+/*////////////////////////////////////////////////////////////////////////////*/
 
-static int server_read(void* sock);
+static int server_read(void *sock);
 
 /*
  * Event callbacks for vhost vdev listen socket
@@ -32,7 +32,7 @@ static const struct vhd_event_ops g_server_sock_ops = {
     .read = server_read,
 };
 
-static int conn_read(void* data);
+static int conn_read(void *data);
 
 /*
  * Event callbacks for vhost vdev client connection
@@ -41,7 +41,8 @@ static const struct vhd_event_ops g_conn_sock_ops = {
     .read = conn_read,
 };
 
-/* Receive and store the message from the socket. Fill in the file
+/*
+ * Receive and store the message from the socket. Fill in the file
  * descriptor array. Return number of bytes received or
  * negative error code in case of error.
  */
@@ -111,10 +112,11 @@ static int net_recv_msg(int fd, struct vhost_user_msg *msg,
     return len;
 }
 
-/* Send message to master. Return number of bytes sent or negative
+/*
+ * Send message to master. Return number of bytes sent or negative
  * error code in case of error.
  */
-static int net_send_msg_fds(int fd, const struct vhost_user_msg* msg,
+static int net_send_msg_fds(int fd, const struct vhost_user_msg *msg,
         int *fds, int fdn)
 {
     struct msghdr msgh;
@@ -124,7 +126,7 @@ static int net_send_msg_fds(int fd, const struct vhost_user_msg* msg,
     struct cmsghdr *cmsgh;
     int fdsize;
 
-    iov.iov_base = (void*)msg;
+    iov.iov_base = (void *)msg;
     iov.iov_len = VHOST_MSG_HDR_SIZE + msg->size;
 
     memset(&msgh, 0, sizeof(msgh));
@@ -155,23 +157,25 @@ static int net_send_msg_fds(int fd, const struct vhost_user_msg* msg,
     return len;
 }
 
-////////////////////////////////////////////////////////////////////////////////
+/*////////////////////////////////////////////////////////////////////////////*/
 
 /**
  * TODO: need a separate unit for this
  */
 typedef uint64_t vhd_uaddr_t;
 
-struct vhd_guest_memory_region
-{
+struct vhd_guest_memory_region {
     /* Guest physical address */
     vhd_paddr_t gpa;
 
-    /* Userspace virtual address, where this region is mapped in virtio backend on client */
+    /*
+     * Userspace virtual address, where this region is mapped
+     * in virtio backend on client
+     */
     vhd_uaddr_t uva;
 
     /* Host virtual address, our local mapping */
-    void* hva;
+    void *hva;
 
     /* Used region size */
     size_t size;
@@ -180,11 +184,10 @@ struct vhd_guest_memory_region
 /**
  * TODO: need a separate unit for this
  */
-struct vhd_guest_memory_map
-{
+struct vhd_guest_memory_map {
     struct objref ref;
 
-    atomic_long* log_addr;
+    atomic_long *log_addr;
     uint64_t log_size;
 
     void *priv;
@@ -197,13 +200,13 @@ struct vhd_guest_memory_map
 /*
  * Map guest memory region to the vhost server.
  */
-static int map_guest_region(struct vhd_guest_memory_region* region,
+static int map_guest_region(struct vhd_guest_memory_region *region,
                             vhd_paddr_t guest_addr, vhd_uaddr_t user_addr,
                             uint64_t size, uint64_t offset, int fd,
                             int (*map_cb)(void *addr, size_t len, void *priv),
                             void *priv)
 {
-    void* vaddr;
+    void *vaddr;
 
     vaddr = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, offset);
     if (vaddr == MAP_FAILED) {
@@ -231,9 +234,8 @@ static int map_guest_region(struct vhd_guest_memory_region* region,
     return 0;
 }
 
-static void unmap_guest_region(struct vhd_guest_memory_region* reg,
-                               int (*unmap_cb)(void *addr, size_t len, void *priv),
-                               void *priv)
+static void unmap_guest_region(struct vhd_guest_memory_region *reg,
+    int (*unmap_cb)(void *addr, size_t len, void *priv), void *priv)
 {
     int ret;
 
@@ -283,15 +285,16 @@ void vhd_memmap_unref(struct vhd_guest_memory_map *mm)
     objref_put(&mm->ref);
 }
 
-/* Convert host emulator address to the current mmap address.
+/*
+ * Convert host emulator address to the current mmap address.
  * Return mmap address in case of success or NULL.
  */
-static void* map_uva(struct vhd_guest_memory_map* map, vhd_uaddr_t uva)
+static void *map_uva(struct vhd_guest_memory_map *map, vhd_uaddr_t uva)
 {
     uint32_t i;
 
     for (i = 0; i < map->num; i++) {
-        struct vhd_guest_memory_region* reg = &map->regions[i];
+        struct vhd_guest_memory_region *reg = &map->regions[i];
         if (uva >= reg->uva && uva - reg->uva < reg->size) {
             return reg->hva + (uva - reg->uva);
         }
@@ -302,11 +305,11 @@ static void* map_uva(struct vhd_guest_memory_map* map, vhd_uaddr_t uva)
 
 #define TRANSLATION_FAILED ((vhd_paddr_t)-1)
 
-static vhd_paddr_t hva2gpa(struct vhd_guest_memory_map* mm, void* hva)
+static vhd_paddr_t hva2gpa(struct vhd_guest_memory_map *mm, void *hva)
 {
     uint32_t i;
     for (i = 0; i < mm->num; ++i) {
-        struct vhd_guest_memory_region* reg = &mm->regions[i];
+        struct vhd_guest_memory_region *reg = &mm->regions[i];
         if (hva >= reg->hva && hva < reg->hva + reg->size) {
             return (hva - reg->hva) + reg->gpa;
         }
@@ -318,9 +321,10 @@ static vhd_paddr_t hva2gpa(struct vhd_guest_memory_map* mm, void* hva)
 
 #define VHOST_LOG_PAGE 0x1000
 
-void vhd_gpa_range_mark_dirty(struct vhd_guest_memory_map* mm, vhd_paddr_t gpa, size_t len)
+void vhd_gpa_range_mark_dirty(struct vhd_guest_memory_map *mm,
+                              vhd_paddr_t gpa, size_t len)
 {
-    atomic_long* log_addr = mm->log_addr;
+    atomic_long *log_addr = mm->log_addr;
     if (!log_addr) {
         VHD_LOG_WARN("No logging addr set");
         return;
@@ -332,7 +336,8 @@ void vhd_gpa_range_mark_dirty(struct vhd_guest_memory_map* mm, vhd_paddr_t gpa, 
     uint64_t last_page = (gpa + len - 1) / VHOST_LOG_PAGE;
 
     if (last_page >= log_size * 8) {
-        VHD_LOG_ERROR("Write beyond log buffer: gpa = 0x%lx, len = 0x%lx, log_size %zu",
+        VHD_LOG_ERROR(
+            "Write beyond log buffer: gpa = 0x%lx, len = 0x%lx, log_size %zu",
             gpa, len, log_size);
         if (page >= log_size * 8) {
             return;
@@ -340,12 +345,14 @@ void vhd_gpa_range_mark_dirty(struct vhd_guest_memory_map* mm, vhd_paddr_t gpa, 
         last_page = log_size * 8 - 1;
     }
 
-    /* log is always page aligned so we can be sure that its start is aligned
-       to sizeof(long) and also that atomic operations never cross cacheline */
+    /*
+     * log is always page aligned so we can be sure that its start is aligned
+     * to sizeof(long) and also that atomic operations never cross cacheline
+     */
     do {
         uint64_t mask = 0UL;
         int chunk = page / 64;
-        for(; page <= last_page && page / 64 == chunk; ++page) {
+        for (; page <= last_page && page / 64 == chunk; ++page) {
             mask |= 1LU << (page % 64);
         }
 #if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
@@ -355,7 +362,8 @@ void vhd_gpa_range_mark_dirty(struct vhd_guest_memory_map* mm, vhd_paddr_t gpa, 
     } while (page <= last_page);
 }
 
-void vhd_hva_range_mark_dirty(struct vhd_guest_memory_map* mm, void* hva, size_t len)
+void vhd_hva_range_mark_dirty(struct vhd_guest_memory_map *mm,
+                              void *hva, size_t len)
 {
     vhd_paddr_t gpa = hva2gpa(mm, hva);
     if (gpa != TRANSLATION_FAILED) {
@@ -363,7 +371,8 @@ void vhd_hva_range_mark_dirty(struct vhd_guest_memory_map* mm, void* hva, size_t
     }
 }
 
-static void* map_gpa_len(struct vhd_guest_memory_map* map, vhd_paddr_t gpa, uint32_t len)
+static void *map_gpa_len(struct vhd_guest_memory_map *map,
+                         vhd_paddr_t gpa, uint32_t len)
 {
     uint32_t i;
 
@@ -375,12 +384,14 @@ static void* map_gpa_len(struct vhd_guest_memory_map* map, vhd_paddr_t gpa, uint
     vhd_paddr_t last_gpa = gpa + len - 1;
 
     for (i = 0; i < map->num; i++) {
-        struct vhd_guest_memory_region* reg = &map->regions[i];
+        struct vhd_guest_memory_region *reg = &map->regions[i];
         if (gpa >= reg->gpa && gpa - reg->gpa < reg->size) {
-            /* Check that length fits in a single region.
+            /*
+             * Check that length fits in a single region.
              *
              * TODO: should we handle gpa areas that cross region boundaries
-             *       but are otherwise valid? */
+             *       but are otherwise valid?
+             */
             if (last_gpa - reg->gpa >= reg->size) {
                 return NULL;
             }
@@ -401,7 +412,7 @@ void *virtio_map_guest_phys_range(struct vhd_guest_memory_map *mm,
     return map_gpa_len(mm, gpa, len);
 }
 
-////////////////////////////////////////////////////////////////////////////////
+/*////////////////////////////////////////////////////////////////////////////*/
 
 /*
  * Vhost protocol handling
@@ -418,16 +429,16 @@ static const uint64_t g_default_protocol_features =
     (1UL << VHOST_USER_PROTOCOL_F_CONFIG) |
     (1UL << VHOST_USER_PROTOCOL_F_INFLIGHT_SHMFD);
 
-static int vring_io_event(void* ctx);
-static int vring_set_enable(struct vhd_vring* vring, bool do_enable);
+static int vring_io_event(void *ctx);
+static int vring_set_enable(struct vhd_vring *vring, bool do_enable);
 
 static inline bool has_feature(uint64_t features_qword, size_t feature_bit)
 {
     return features_qword & (1ull << feature_bit);
 }
 
-static int vhost_send_fds(struct vhd_vdev* vdev, const struct vhost_user_msg *msg,
-        int *fds, int fdn)
+static int vhost_send_fds(struct vhd_vdev *vdev,
+                          const struct vhost_user_msg *msg, int *fds, int fdn)
 {
     int len;
 
@@ -439,12 +450,13 @@ static int vhost_send_fds(struct vhd_vdev* vdev, const struct vhost_user_msg *ms
     return 0;
 }
 
-static int vhost_send(struct vhd_vdev* vdev, const struct vhost_user_msg *msg)
+static int vhost_send(struct vhd_vdev *vdev, const struct vhost_user_msg *msg)
 {
     return vhost_send_fds(vdev, msg, NULL, 0);
 }
 
-static int vhost_send_reply(struct vhd_vdev* vdev, const struct vhost_user_msg* msgin, uint64_t u64)
+static int vhost_send_reply(struct vhd_vdev *vdev,
+                            const struct vhost_user_msg *msgin, uint64_t u64)
 {
     struct vhost_user_msg reply;
     reply.req = msgin->req;
@@ -455,8 +467,8 @@ static int vhost_send_reply(struct vhd_vdev* vdev, const struct vhost_user_msg* 
     return vhost_send(vdev, &reply);
 }
 
-static int vhost_send_vring_state(struct vhd_vdev* vdev,
-                                  const struct vhost_user_msg* msgin,
+static int vhost_send_vring_state(struct vhd_vdev *vdev,
+                                  const struct vhost_user_msg *msgin,
                                   int last_avail)
 {
     struct vhost_user_msg reply;
@@ -469,14 +481,16 @@ static int vhost_send_vring_state(struct vhd_vdev* vdev,
     return vhost_send(vdev, &reply);
 }
 
-static int vhost_get_protocol_features(struct vhd_vdev* vdev, struct vhost_user_msg* msg)
+static int vhost_get_protocol_features(struct vhd_vdev *vdev,
+                                       struct vhost_user_msg *msg)
 {
     VHD_LOG_TRACE();
 
     return vhost_send_reply(vdev, msg, vdev->supported_protocol_features);
 }
 
-static int vhost_set_protocol_features(struct vhd_vdev* vdev, struct vhost_user_msg* msg)
+static int vhost_set_protocol_features(struct vhd_vdev *vdev,
+                                       struct vhost_user_msg *msg)
 {
     VHD_LOG_TRACE();
 
@@ -485,10 +499,12 @@ static int vhost_set_protocol_features(struct vhd_vdev* vdev, struct vhost_user_
     if (feats & ~vdev->supported_protocol_features) {
         /*
          * Client ignored what we've sent in get_protocol_features.
-         * We don't have a good way to report this to client. Log and drop unsupported
+         * We don't have a good way to report this to client.
+         * Log and drop unsupported
          */
         feats &= vdev->supported_protocol_features;
-        VHD_LOG_WARN("Client ignores supported protocol features: set 0x%llx, support 0x%llx",
+        VHD_LOG_WARN(
+            "Client ignores supported protocol features: set 0x%llx, support 0x%llx",
             (unsigned long long) msg->payload.u64,
             (unsigned long long) vdev->supported_protocol_features);
         VHD_LOG_WARN("Will set only 0x%llx",
@@ -496,12 +512,13 @@ static int vhost_set_protocol_features(struct vhd_vdev* vdev, struct vhost_user_
     }
 
     vdev->negotiated_protocol_features = feats;
-    VHD_LOG_DEBUG("Negotiated protocol features 0x%llx", (unsigned long long)feats);
+    VHD_LOG_DEBUG("Negotiated protocol features 0x%llx",
+        (unsigned long long)feats);
 
     return 0;
 }
 
-static int vhost_get_features(struct vhd_vdev* vdev, struct vhost_user_msg* msg)
+static int vhost_get_features(struct vhd_vdev *vdev, struct vhost_user_msg *msg)
 {
     VHD_LOG_TRACE();
 
@@ -509,7 +526,7 @@ static int vhost_get_features(struct vhd_vdev* vdev, struct vhost_user_msg* msg)
     return vhost_send_reply(vdev, msg, vdev->supported_features);
 }
 
-static int vhost_set_features(struct vhd_vdev* vdev, struct vhost_user_msg* msg)
+static int vhost_set_features(struct vhd_vdev *vdev, struct vhost_user_msg *msg)
 {
     VHD_LOG_TRACE();
 
@@ -527,7 +544,7 @@ static int vhost_set_features(struct vhd_vdev* vdev, struct vhost_user_msg* msg)
     return 0;
 }
 
-static int vhost_set_owner(struct vhd_vdev* vdev, struct vhost_user_msg* msg)
+static int vhost_set_owner(struct vhd_vdev *vdev, struct vhost_user_msg *msg)
 {
     VHD_LOG_TRACE();
     VHD_UNUSED(msg);
@@ -541,14 +558,16 @@ static int vhost_set_owner(struct vhd_vdev* vdev, struct vhost_user_msg* msg)
     return 0;
 }
 
-static int vhost_reset_owner(struct vhd_vdev* vdev, struct vhost_user_msg* msg)
+static int vhost_reset_owner(struct vhd_vdev *vdev, struct vhost_user_msg *msg)
 {
     VHD_LOG_TRACE();
 
     VHD_UNUSED(vdev);
     VHD_UNUSED(msg);
 
-    /* This is no longer used in vhost-spec spec so we don't support it either */
+    /*
+     * This is no longer used in vhost-spec spec so we don't support it either
+     */
     return ENOTSUP;
 }
 
@@ -615,7 +634,7 @@ out:
     return ret;
 }
 
-static int vhost_get_config(struct vhd_vdev* vdev, struct vhost_user_msg* msg)
+static int vhost_get_config(struct vhd_vdev *vdev, struct vhost_user_msg *msg)
 {
     VHD_LOG_TRACE();
 
@@ -629,7 +648,7 @@ static int vhost_get_config(struct vhd_vdev* vdev, struct vhost_user_msg* msg)
     return vhost_send(vdev, msg);
 }
 
-static int vhost_set_config(struct vhd_vdev* vdev, struct vhost_user_msg* msg)
+static int vhost_set_config(struct vhd_vdev *vdev, struct vhost_user_msg *msg)
 {
     VHD_LOG_TRACE();
 
@@ -640,26 +659,28 @@ static int vhost_set_config(struct vhd_vdev* vdev, struct vhost_user_msg* msg)
     return ENOTSUP;
 }
 
-static int vhost_get_queue_num(struct vhd_vdev* vdev, struct vhost_user_msg* msg)
+static int vhost_get_queue_num(struct vhd_vdev *vdev,
+                               struct vhost_user_msg *msg)
 {
     VHD_LOG_TRACE();
 
     return vhost_send_reply(vdev, msg, vdev->max_queues);
 }
 
-static struct vhd_vring* get_vring(struct vhd_vdev* vdev, uint32_t index)
+static struct vhd_vring *get_vring(struct vhd_vdev *vdev, uint32_t index)
 {
     if (index >= vdev->num_queues) {
-        VHD_LOG_ERROR("vring index out of bounds (%d >= %d)", index, vdev->num_queues);
+        VHD_LOG_ERROR("vring index out of bounds (%d >= %d)", index,
+                      vdev->num_queues);
         return NULL;
     }
 
     return vdev->vrings + index;
 }
 
-static struct vhd_vring* get_vring_not_enabled(struct vhd_vdev* vdev, int index)
+static struct vhd_vring *get_vring_not_enabled(struct vhd_vdev *vdev, int index)
 {
-    struct vhd_vring* vring = get_vring(vdev, index);
+    struct vhd_vring *vring = get_vring(vdev, index);
     if (vring && vring->is_enabled) {
         VHD_LOG_ERROR("vring %d is enabled", index);
         return NULL;
@@ -670,7 +691,9 @@ static struct vhd_vring* get_vring_not_enabled(struct vhd_vdev* vdev, int index)
 
 enum vring_desc_type { VRING_KICKFD, VRING_CALLFD, VRING_ERRFD };
 
-static int vhost_set_vring_fd_common(struct vhd_vdev* vdev, struct vhost_user_msg* msg, int fd, enum vring_desc_type type)
+static int vhost_set_vring_fd_common(struct vhd_vdev *vdev,
+                                     struct vhost_user_msg *msg, int fd,
+                                     enum vring_desc_type type)
 {
     VHD_LOG_DEBUG("payload = 0x%llx", (unsigned long long) msg->payload.u64);
 
@@ -682,7 +705,7 @@ static int vhost_set_vring_fd_common(struct vhd_vdev* vdev, struct vhost_user_ms
         return ENOTSUP;
     }
 
-    struct vhd_vring* vring = get_vring(vdev, vring_idx);
+    struct vhd_vring *vring = get_vring(vdev, vring_idx);
     if (!vring) {
         return EINVAL;
     }
@@ -691,10 +714,14 @@ static int vhost_set_vring_fd_common(struct vhd_vdev* vdev, struct vhost_user_ms
     case VRING_KICKFD: {
         vring->kickfd = fd;
 
-        /* If we did not negotiate VHOST_USER_F_PROTOCOL_FEATURES then vring should start automatically
+        /*
+         * If we did not negotiate VHOST_USER_F_PROTOCOL_FEATURES
+         * then vring should start automatically
          * when we get VHOST_USER_SET_VRING_KICK from guest.
-         * Otherwise we should wait for explicit VHOST_USER_SET_VRING_ENABLE(1) */
-        if (!has_feature(vdev->negotiated_features, VHOST_USER_F_PROTOCOL_FEATURES)) {
+         * Otherwise we should wait for explicit VHOST_USER_SET_VRING_ENABLE(1)
+         */
+        if (!has_feature(vdev->negotiated_features,
+                         VHOST_USER_F_PROTOCOL_FEATURES)) {
             return vring_set_enable(vring, true);
         }
 
@@ -715,7 +742,8 @@ static int vhost_set_vring_fd_common(struct vhd_vdev* vdev, struct vhost_user_ms
         break;
     }
 
-    default: VHD_ASSERT(0);
+    default:
+        VHD_ASSERT(0);
     }
 
     return 0;
@@ -760,13 +788,14 @@ static int vhost_set_vring_err(struct vhd_vdev *vdev,
     return vhost_set_vring_fd_common(vdev, msg, fds[0], VRING_ERRFD);
 }
 
-static int vhost_set_vring_num(struct vhd_vdev* vdev, struct vhost_user_msg* msg)
+static int vhost_set_vring_num(struct vhd_vdev *vdev,
+                               struct vhost_user_msg *msg)
 {
     VHD_LOG_TRACE();
 
-    struct vhost_user_vring_state* vrstate = &msg->payload.vring_state;
+    struct vhost_user_vring_state *vrstate = &msg->payload.vring_state;
 
-    struct vhd_vring* vring = get_vring_not_enabled(vdev, vrstate->index);
+    struct vhd_vring *vring = get_vring_not_enabled(vdev, vrstate->index);
     if (!vring) {
         return EINVAL;
     }
@@ -775,13 +804,14 @@ static int vhost_set_vring_num(struct vhd_vdev* vdev, struct vhost_user_msg* msg
     return 0;
 }
 
-static int vhost_set_vring_base(struct vhd_vdev* vdev, struct vhost_user_msg* msg)
+static int vhost_set_vring_base(struct vhd_vdev *vdev,
+                                struct vhost_user_msg *msg)
 {
     VHD_LOG_TRACE();
 
-    struct vhost_user_vring_state* vrstate = &msg->payload.vring_state;
+    struct vhost_user_vring_state *vrstate = &msg->payload.vring_state;
 
-    struct vhd_vring* vring = get_vring_not_enabled(vdev, vrstate->index);
+    struct vhd_vring *vring = get_vring_not_enabled(vdev, vrstate->index);
     if (!vring) {
         return EINVAL;
     }
@@ -790,21 +820,26 @@ static int vhost_set_vring_base(struct vhd_vdev* vdev, struct vhost_user_msg* ms
     return 0;
 }
 
-static int vhost_get_vring_base(struct vhd_vdev* vdev, struct vhost_user_msg* msg)
+static int vhost_get_vring_base(struct vhd_vdev *vdev,
+                                struct vhost_user_msg *msg)
 {
     VHD_LOG_TRACE();
 
-    struct vhost_user_vring_state* vrstate = &msg->payload.vring_state;
+    struct vhost_user_vring_state *vrstate = &msg->payload.vring_state;
 
-    struct vhd_vring* vring = get_vring(vdev, vrstate->index);
+    struct vhd_vring *vring = get_vring(vdev, vrstate->index);
     if (!vring) {
         return EINVAL;
     }
 
-    /* If we did not negotiate VHOST_USER_F_PROTOCOL_FEATURES then vring should stop automatically
+    /*
+     * If we did not negotiate VHOST_USER_F_PROTOCOL_FEATURES
+     * then vring should stop automatically
      * when we get VHOST_USER_GET_VRING_BASE from guest.
-     * Otherwise we should wait for explicit VHOST_USER_SET_VRING_ENABLE(0) */
-    if (!has_feature(vdev->negotiated_features, VHOST_USER_F_PROTOCOL_FEATURES)) {
+     * Otherwise we should wait for explicit VHOST_USER_SET_VRING_ENABLE(0)
+     */
+    if (!has_feature(vdev->negotiated_features,
+                     VHOST_USER_F_PROTOCOL_FEATURES)) {
         int error = vring_set_enable(vring, false);
         if (error) {
             VHD_LOG_ERROR("Could not disable vring: %d", error);
@@ -815,21 +850,22 @@ static int vhost_get_vring_base(struct vhd_vdev* vdev, struct vhost_user_msg* ms
     return vhost_send_vring_state(vdev, msg, vring->vq.last_avail);
 }
 
-static int vhost_set_vring_addr(struct vhd_vdev* vdev, struct vhost_user_msg* msg)
+static int vhost_set_vring_addr(struct vhd_vdev *vdev,
+                                struct vhost_user_msg *msg)
 {
     VHD_LOG_TRACE();
 
-    struct vhost_user_vring_addr* vraddr = &msg->payload.vring_addr;
+    struct vhost_user_vring_addr *vraddr = &msg->payload.vring_addr;
 
-    struct vhd_vring* vring = get_vring(vdev, vraddr->index);
+    struct vhd_vring *vring = get_vring(vdev, vraddr->index);
     if (!vring) {
         return EINVAL;
     }
 
     /* TODO: we don't have to do full lookup 3 times, we can do it in 1 */
-    void* desc_addr = map_uva(vdev->guest_memmap, vraddr->desc_addr);
-    void* used_addr = map_uva(vdev->guest_memmap, vraddr->used_addr);
-    void* avail_addr = map_uva(vdev->guest_memmap, vraddr->avail_addr);
+    void *desc_addr = map_uva(vdev->guest_memmap, vraddr->desc_addr);
+    void *used_addr = map_uva(vdev->guest_memmap, vraddr->used_addr);
+    void *avail_addr = map_uva(vdev->guest_memmap, vraddr->avail_addr);
 
     if (!vring->is_enabled) {
         if (!desc_addr || !used_addr || !avail_addr) {
@@ -860,12 +896,13 @@ static int vhost_set_vring_addr(struct vhd_vdev* vdev, struct vhost_user_msg* ms
     return 0;
 }
 
-static int vhost_set_vring_enable(struct vhd_vdev* vdev, struct vhost_user_msg* msg)
+static int vhost_set_vring_enable(struct vhd_vdev *vdev,
+                                  struct vhost_user_msg *msg)
 {
     VHD_LOG_TRACE();
 
-    struct vhost_user_vring_state* vrstate = &msg->payload.vring_state;
-    struct vhd_vring* vring = get_vring(vdev, vrstate->index);
+    struct vhost_user_vring_state *vrstate = &msg->payload.vring_state;
+    struct vhd_vring *vring = get_vring(vdev, vrstate->index);
     if (!vring) {
         return EINVAL;
     }
@@ -873,16 +910,16 @@ static int vhost_set_vring_enable(struct vhd_vdev* vdev, struct vhost_user_msg* 
     return vring_set_enable(vring, vrstate->num == 1);
 }
 
-bool vhd_logging_started(struct virtio_virtq* vq)
+bool vhd_logging_started(struct virtio_virtq *vq)
                                  __attribute__ ((weak));
-bool vhd_logging_started(struct virtio_virtq* vq)
+bool vhd_logging_started(struct virtio_virtq *vq)
 {
-    struct vhd_vring* vring = containerof(vq, struct vhd_vring, vq);
+    struct vhd_vring *vring = containerof(vq, struct vhd_vring, vq);
     return has_feature(vring->vdev->negotiated_features, VHOST_F_LOG_ALL);
 }
 
-static int vhost_set_log_base(struct vhd_vdev* vdev,
-                              struct vhost_user_msg* msg,
+static int vhost_set_log_base(struct vhd_vdev *vdev,
+                              struct vhost_user_msg *msg,
                               int *fds,
                               size_t num_fds)
 {
@@ -899,9 +936,10 @@ static int vhost_set_log_base(struct vhd_vdev* vdev,
         return ENOTSUP;
     }
 
-    struct vhost_user_log* log = &msg->payload.log;
+    struct vhost_user_log *log = &msg->payload.log;
 
-    void* log_addr = mmap(NULL, log->size, PROT_READ | PROT_WRITE, MAP_SHARED, fds[0], log->offset);
+    void *log_addr = mmap(NULL, log->size, PROT_READ | PROT_WRITE, MAP_SHARED,
+                          fds[0], log->offset);
     close(fds[0]);
 
     if (log_addr == MAP_FAILED) {
@@ -925,7 +963,7 @@ static void inflight_split_region_init(struct inflight_split_region *region,
     region->used_idx = 0;
 }
 
-static int inflight_mmap_region(struct vhd_vdev* vdev, int fd, uint64_t size)
+static int inflight_mmap_region(struct vhd_vdev *vdev, int fd, uint64_t size)
 {
     void *buf;
 
@@ -949,11 +987,13 @@ static int vhost_get_inflight_fd(struct vhd_vdev *vdev,
     uint64_t size;
     int fd;
     int ret;
-    void* buf;
+    void *buf;
     int i;
 
-    /* TODO: should it be carefully cleanup? Could we get this command
-     * during vringq processing? */
+    /*
+     * TODO: should it be carefully cleanup? Could we get this command
+     * during vringq processing?
+     */
     vhd_vdev_inflight_cleanup(vdev);
 
     idesc = &msg->payload.inflight_desc;
@@ -1028,12 +1068,18 @@ static int vhost_set_inflight_fd(struct vhd_vdev *vdev,
     return ret;
 }
 
-////////////////////////////////////////////////////////////////////////////////
+/*////////////////////////////////////////////////////////////////////////////*/
 
-static int vhost_ack_request_if_needed(struct vhd_vdev* vdev, const struct vhost_user_msg* msg, int ret)
+static int vhost_ack_request_if_needed(struct vhd_vdev *vdev,
+                                       const struct vhost_user_msg *msg,
+                                       int ret)
 {
-    /* If REPLY_ACK protocol feature was not negotiated then we have nothing to do */
-    if (!has_feature(vdev->negotiated_protocol_features, VHOST_USER_PROTOCOL_F_REPLY_ACK)) {
+    /*
+     * If REPLY_ACK protocol feature was not negotiated
+     * then we have nothing to do
+     */
+    if (!has_feature(vdev->negotiated_protocol_features,
+                     VHOST_USER_PROTOCOL_F_REPLY_ACK)) {
         return 0;
     }
 
@@ -1042,7 +1088,10 @@ static int vhost_ack_request_if_needed(struct vhd_vdev* vdev, const struct vhost
         return 0;
     }
 
-    /* We negotiated REPLY_ACK but message already has an explicit reply which was successfully sent */
+    /*
+     * We negotiated REPLY_ACK but message already has an explicit reply
+     * which was successfully sent
+     */
     if (ret == 0) {
         switch (msg->req) {
         case VHOST_USER_GET_FEATURES:
@@ -1070,100 +1119,101 @@ static int vhost_handle_request(struct vhd_vdev *vdev,
     VHD_ASSERT(msg);
 
     ret = 0;
-    VHD_LOG_DEBUG("Handle command %d, flags 0x%x, size %u", msg->req, msg->flags, msg->size);
+    VHD_LOG_DEBUG("Handle command %d, flags 0x%x, size %u",
+                  msg->req, msg->flags, msg->size);
     switch (msg->req) {
-        case VHOST_USER_GET_FEATURES:
-            ret = vhost_get_features(vdev, msg);
-            break;
-        case VHOST_USER_SET_FEATURES:
-            ret = vhost_set_features(vdev, msg);
-            break;
-        case VHOST_USER_SET_OWNER:
-            ret = vhost_set_owner(vdev, msg);
-            break;
-        case VHOST_USER_RESET_OWNER:
-            ret = vhost_reset_owner(vdev, msg);
-            break;
-        case VHOST_USER_GET_PROTOCOL_FEATURES:
-            ret = vhost_get_protocol_features(vdev, msg);
-            break;
-        case VHOST_USER_SET_PROTOCOL_FEATURES:
-            ret = vhost_set_protocol_features(vdev, msg);
-            break;
-        case VHOST_USER_GET_CONFIG:
-            ret = vhost_get_config(vdev, msg);
-            break;
-        case VHOST_USER_SET_CONFIG:
-            ret = vhost_set_config(vdev, msg);
-            break;
-        case VHOST_USER_SET_MEM_TABLE:
-            ret = vhost_set_mem_table(vdev, msg, fds, num_fds);
-            break;
-        case VHOST_USER_GET_QUEUE_NUM:
-            ret = vhost_get_queue_num(vdev, msg);
-            break;
-        case VHOST_USER_SET_LOG_BASE:
-            ret = vhost_set_log_base(vdev, msg, fds, num_fds);
-            break;
+    case VHOST_USER_GET_FEATURES:
+        ret = vhost_get_features(vdev, msg);
+        break;
+    case VHOST_USER_SET_FEATURES:
+        ret = vhost_set_features(vdev, msg);
+        break;
+    case VHOST_USER_SET_OWNER:
+        ret = vhost_set_owner(vdev, msg);
+        break;
+    case VHOST_USER_RESET_OWNER:
+        ret = vhost_reset_owner(vdev, msg);
+        break;
+    case VHOST_USER_GET_PROTOCOL_FEATURES:
+        ret = vhost_get_protocol_features(vdev, msg);
+        break;
+    case VHOST_USER_SET_PROTOCOL_FEATURES:
+        ret = vhost_set_protocol_features(vdev, msg);
+        break;
+    case VHOST_USER_GET_CONFIG:
+        ret = vhost_get_config(vdev, msg);
+        break;
+    case VHOST_USER_SET_CONFIG:
+        ret = vhost_set_config(vdev, msg);
+        break;
+    case VHOST_USER_SET_MEM_TABLE:
+        ret = vhost_set_mem_table(vdev, msg, fds, num_fds);
+        break;
+    case VHOST_USER_GET_QUEUE_NUM:
+        ret = vhost_get_queue_num(vdev, msg);
+        break;
+    case VHOST_USER_SET_LOG_BASE:
+        ret = vhost_set_log_base(vdev, msg, fds, num_fds);
+        break;
 
-        /*
-         * vrings
-         */
+    /*
+     * vrings
+     */
 
-        case VHOST_USER_SET_VRING_CALL:
-            ret = vhost_set_vring_call(vdev, msg, fds, num_fds);
-            break;
-        case VHOST_USER_SET_VRING_KICK:
-            ret = vhost_set_vring_kick(vdev, msg, fds, num_fds);
-            break;
-        case VHOST_USER_SET_VRING_ERR:
-            ret = vhost_set_vring_err(vdev, msg, fds, num_fds);
-            break;
-        case VHOST_USER_SET_VRING_NUM:
-            ret = vhost_set_vring_num(vdev, msg);
-            break;
-        case VHOST_USER_SET_VRING_BASE:
-            ret = vhost_set_vring_base(vdev, msg);
-            break;
-        case VHOST_USER_GET_VRING_BASE:
-            ret = vhost_get_vring_base(vdev, msg);
-            break;
-        case VHOST_USER_SET_VRING_ADDR:
-            ret = vhost_set_vring_addr(vdev, msg);
-            break;
-        case VHOST_USER_SET_VRING_ENABLE:
-            ret = vhost_set_vring_enable(vdev, msg);
-            break;
+    case VHOST_USER_SET_VRING_CALL:
+        ret = vhost_set_vring_call(vdev, msg, fds, num_fds);
+        break;
+    case VHOST_USER_SET_VRING_KICK:
+        ret = vhost_set_vring_kick(vdev, msg, fds, num_fds);
+        break;
+    case VHOST_USER_SET_VRING_ERR:
+        ret = vhost_set_vring_err(vdev, msg, fds, num_fds);
+        break;
+    case VHOST_USER_SET_VRING_NUM:
+        ret = vhost_set_vring_num(vdev, msg);
+        break;
+    case VHOST_USER_SET_VRING_BASE:
+        ret = vhost_set_vring_base(vdev, msg);
+        break;
+    case VHOST_USER_GET_VRING_BASE:
+        ret = vhost_get_vring_base(vdev, msg);
+        break;
+    case VHOST_USER_SET_VRING_ADDR:
+        ret = vhost_set_vring_addr(vdev, msg);
+        break;
+    case VHOST_USER_SET_VRING_ENABLE:
+        ret = vhost_set_vring_enable(vdev, msg);
+        break;
 
-        /*
-         * TODO
-         */
+    /*
+     * TODO
+     */
 
-        case VHOST_USER_SET_LOG_FD:
-        case VHOST_USER_SEND_RARP:
-        case VHOST_USER_NET_SET_MTU:
-        case VHOST_USER_SET_SLAVE_REQ_FD:
-        case VHOST_USER_IOTLB_MSG:
-        case VHOST_USER_SET_VRING_ENDIAN:
-        case VHOST_USER_CREATE_CRYPTO_SESSION:
-        case VHOST_USER_CLOSE_CRYPTO_SESSION:
-        case VHOST_USER_POSTCOPY_ADVISE:
-        case VHOST_USER_POSTCOPY_LISTEN:
-        case VHOST_USER_POSTCOPY_END:
-            VHD_LOG_WARN("Command = %d, not supported", msg->req);
-            ret = ENOTSUP;
-            break;
-        case VHOST_USER_GET_INFLIGHT_FD:
-            ret = vhost_get_inflight_fd(vdev, msg);
-            break;
-        case VHOST_USER_SET_INFLIGHT_FD:
-            ret = vhost_set_inflight_fd(vdev, msg, fds, num_fds);
-            break;
-        case VHOST_USER_NONE:
-        default:
-            VHD_LOG_ERROR("Command = %d, not defined", msg->req);
-            ret = EINVAL;
-            break;
+    case VHOST_USER_SET_LOG_FD:
+    case VHOST_USER_SEND_RARP:
+    case VHOST_USER_NET_SET_MTU:
+    case VHOST_USER_SET_SLAVE_REQ_FD:
+    case VHOST_USER_IOTLB_MSG:
+    case VHOST_USER_SET_VRING_ENDIAN:
+    case VHOST_USER_CREATE_CRYPTO_SESSION:
+    case VHOST_USER_CLOSE_CRYPTO_SESSION:
+    case VHOST_USER_POSTCOPY_ADVISE:
+    case VHOST_USER_POSTCOPY_LISTEN:
+    case VHOST_USER_POSTCOPY_END:
+        VHD_LOG_WARN("Command = %d, not supported", msg->req);
+        ret = ENOTSUP;
+        break;
+    case VHOST_USER_GET_INFLIGHT_FD:
+        ret = vhost_get_inflight_fd(vdev, msg);
+        break;
+    case VHOST_USER_SET_INFLIGHT_FD:
+        ret = vhost_set_inflight_fd(vdev, msg, fds, num_fds);
+        break;
+    case VHOST_USER_NONE:
+    default:
+        VHD_LOG_ERROR("Command = %d, not defined", msg->req);
+        ret = EINVAL;
+        break;
     }
 
     if (ret != 0) {
@@ -1172,17 +1222,19 @@ static int vhost_handle_request(struct vhd_vdev *vdev,
 
     int reply_ret = vhost_ack_request_if_needed(vdev, msg, ret);
     if (reply_ret != 0) {
-        /* We've logged failed ret above,
-         * so we are probably ok with overriding it if ack now failed as well */
+        /*
+         * We've logged failed ret above,
+         * so we are probably ok with overriding it if ack now failed as well
+         */
         ret = reply_ret;
     }
 
     return ret;
 }
 
-////////////////////////////////////////////////////////////////////////////////
+/*////////////////////////////////////////////////////////////////////////////*/
 
-void vhd_vdev_stop(struct vhd_vdev* vdev)
+void vhd_vdev_stop(struct vhd_vdev *vdev)
 {
     for (uint32_t i = 0; i < vdev->max_queues; ++i) {
         vhd_vring_stop(vdev->vrings + i);
@@ -1190,7 +1242,7 @@ void vhd_vdev_stop(struct vhd_vdev* vdev)
 
 }
 
-void vhd_vdev_release(struct vhd_vdev* vdev)
+void vhd_vdev_release(struct vhd_vdev *vdev)
 {
     close(vdev->listenfd);
     close(vdev->connfd);
@@ -1206,7 +1258,8 @@ void vhd_vdev_release(struct vhd_vdev* vdev)
     vdev->type->free(vdev);
 }
 
-static int change_device_state(struct vhd_vdev* vdev, enum vhd_vdev_state new_state)
+static int change_device_state(struct vhd_vdev *vdev,
+                               enum vhd_vdev_state new_state)
 {
     int ret = 0;
 
@@ -1214,7 +1267,10 @@ static int change_device_state(struct vhd_vdev* vdev, enum vhd_vdev_state new_st
 
         switch (vdev->state) {
         case VDEV_CONNECTED:
-            /* We're terminating existing connection and going back to listen mode */
+            /*
+             * We're terminating existing connection
+             * and going back to listen mode
+             */
             vhd_del_vhost_event(vdev->connfd);
             vdev->is_owned = false;
 
@@ -1228,7 +1284,8 @@ static int change_device_state(struct vhd_vdev* vdev, enum vhd_vdev_state new_st
 
         case VDEV_INITIALIZED:
             /* Normal listening init */
-            ret = vhd_add_vhost_event(vdev->listenfd, vdev, &g_server_sock_ops, &vdev->sock_ev);
+            ret = vhd_add_vhost_event(vdev->listenfd, vdev, &g_server_sock_ops,
+                                      &vdev->sock_ev);
             if (ret != 0) {
                 return ret;
             }
@@ -1243,12 +1300,16 @@ static int change_device_state(struct vhd_vdev* vdev, enum vhd_vdev_state new_st
         switch (vdev->state) {
         case VDEV_LISTENING:
             /* Establish new connection and exiting listen-mode */
-            ret = vhd_add_vhost_event(vdev->connfd, vdev, &g_conn_sock_ops, &vdev->sock_ev);
+            ret = vhd_add_vhost_event(vdev->connfd, vdev, &g_conn_sock_ops,
+                                      &vdev->sock_ev);
             if (ret != 0) {
                 return ret;
             }
 
-            /* Remove server fd from event loop. We don't want multiple clients */
+            /*
+             * Remove server fd from event loop.
+             * We don't want multiple clients
+             */
             vhd_del_vhost_event(vdev->listenfd);
             break;
         default:
@@ -1267,20 +1328,22 @@ static int change_device_state(struct vhd_vdev* vdev, enum vhd_vdev_state new_st
     return ret;
 
 invalid_transition:
-    VHD_LOG_ERROR("invalid state transition from %d to %d", vdev->state, new_state);
+    VHD_LOG_ERROR("invalid state transition from %d to %d",
+                  vdev->state, new_state);
     return -EINVAL;
 }
 
 /*
  * Accept connection and add the client socket to the IO polling.
- * Will close server socket on first connection since we're only support 1 active master.
+ * Will close server socket on first connection since we're only support
+ * 1 active master.
  */
-static int server_read(void* data)
+static int server_read(void *data)
 {
     int flags;
     int connfd;
 
-    struct vhd_vdev* vdev = (struct vhd_vdev*)data;
+    struct vhd_vdev *vdev = (struct vhd_vdev *)data;
     VHD_ASSERT(vdev);
 
     connfd = accept(vdev->listenfd, NULL, NULL);
@@ -1296,7 +1359,8 @@ static int server_read(void* data)
     }
 
     if (fcntl(connfd, F_SETFL, flags | O_NONBLOCK) < 0) {
-        VHD_LOG_ERROR("Can't set O_NONBLOCK mode on the client socket: %d", errno);
+        VHD_LOG_ERROR("Can't set O_NONBLOCK mode on the client socket: %d",
+                      errno);
         goto close_client;
     }
 
@@ -1313,7 +1377,7 @@ close_client:
     return 0;
 }
 
-static int conn_read(void* data)
+static int conn_read(void *data)
 {
     struct vhost_user_msg msg;
     int fds[VHOST_USER_MAX_FDS];
@@ -1337,7 +1401,8 @@ err_out:
     return 0;
 }
 
-/* Prepare the sock path for the server. Return 0 if the requested path
+/*
+ * Prepare the sock path for the server. Return 0 if the requested path
  * can be used for the bind() and listen() calls. In case of error, return
  * error code.
  * Note that if the file with such path exists and it is socket, then it
@@ -1366,7 +1431,7 @@ static int prepare_server_sock_path(const char *path)
     return 0;
 }
 
-// TODO: properly destroy server on close
+/* TODO: properly destroy server on close */
 int sock_create_server(const char *path)
 {
     int fd;
@@ -1377,15 +1442,17 @@ int sock_create_server(const char *path)
     VHD_VERIFY(path);
 
     if (strlen(path) >= sizeof(sockaddr.sun_path)) {
-        VHD_LOG_ERROR("Path = %s to socket is too long, it should be less than %lu",
-                path, sizeof(sockaddr.sun_path));
+        VHD_LOG_ERROR(
+            "Path = %s to socket is too long, it should be less than %lu",
+            path, sizeof(sockaddr.sun_path));
         return -1;
     }
 
     ret = prepare_server_sock_path(path);
     if (ret) {
-        VHD_LOG_ERROR("Sock path = %s, is busy or can't be unlinked. Error code = %d, %s",
-                path, ret, strerror(ret));
+        VHD_LOG_ERROR(
+            "Sock path = %s, is busy or can't be unlinked. Error code = %d, %s",
+            path, ret, strerror(ret));
         return -1;
     }
 
@@ -1398,7 +1465,7 @@ int sock_create_server(const char *path)
     memset(&sockaddr, 0, sizeof(sockaddr));
     sockaddr.sun_family = AF_UNIX;
     strncpy(sockaddr.sun_path, path, sizeof(sockaddr.sun_path) - 1);
-    if (bind(fd, (struct sockaddr*)&sockaddr, sizeof(sockaddr)) < 0) {
+    if (bind(fd, (struct sockaddr *)&sockaddr, sizeof(sockaddr)) < 0) {
         VHD_LOG_ERROR("Can't bind socket to path = %s", path);
         goto close_fd;
     }
@@ -1426,12 +1493,12 @@ close_fd:
     return -1;
 }
 
-void vdev_ref(struct vhd_vdev* vdev)
+void vdev_ref(struct vhd_vdev *vdev)
 {
     vdev->refcount++;
 }
 
-void vdev_unref(struct vhd_vdev* vdev)
+void vdev_unref(struct vhd_vdev *vdev)
 {
     vdev->refcount--;
 
@@ -1443,22 +1510,22 @@ void vdev_unref(struct vhd_vdev* vdev)
     }
 }
 
-static void vdev_unregister_bh(void* opaque)
+static void vdev_unregister_bh(void *opaque)
 {
-    struct vhd_vdev* vdev = opaque;
+    struct vhd_vdev *vdev = opaque;
 
     vdev_unref(vdev);
 }
 
 int vhd_vdev_init_server(
-    struct vhd_vdev* vdev,
-    const char* socket_path,
-    const struct vhd_vdev_type* type,
+    struct vhd_vdev *vdev,
+    const char *socket_path,
+    const struct vhd_vdev_type *type,
     int max_queues,
-    struct vhd_request_queue* rq,
-    void* priv,
-    int (*map_cb)(void* addr, size_t len, void* priv),
-    int (*unmap_cb)(void* addr, size_t len, void* priv))
+    struct vhd_request_queue *rq,
+    void *priv,
+    int (*map_cb)(void *addr, size_t len, void *priv),
+    int (*unmap_cb)(void *addr, size_t len, void *priv))
 {
     int ret;
     int listenfd;
@@ -1485,7 +1552,8 @@ int vhd_vdev_init_server(
 
     vdev->supported_protocol_features = g_default_protocol_features;
     vdev->max_queues = max_queues;
-    vdev->num_queues = max_queues; /* May be overriden later by SET_CONFIG, but should be <= max_queues */
+    /* May be overriden later by SET_CONFIG, but should be <= max_queues */
+    vdev->num_queues = max_queues;
     vdev->vrings = vhd_calloc(max_queues, sizeof(vdev->vrings[0]));
     for (int i = 0; i < max_queues; ++i) {
         vhd_vring_init(vdev->vrings + i, i, vdev);
@@ -1508,7 +1576,8 @@ int vhd_vdev_init_server(
     return ret;
 }
 
-void vhd_vdev_stop_server(struct vhd_vdev* vdev, void (*unregister_complete)(void*), void* arg)
+void vhd_vdev_stop_server(struct vhd_vdev *vdev,
+                          void (*unregister_complete)(void *), void *arg)
 {
     if (!vdev) {
         return;
@@ -1523,7 +1592,7 @@ void vhd_vdev_stop_server(struct vhd_vdev* vdev, void (*unregister_complete)(voi
     vhd_run_in_rq(vdev->rq, vdev_unregister_bh, vdev);
 }
 
-static void vhd_vdev_inflight_cleanup(struct vhd_vdev* vdev)
+static void vhd_vdev_inflight_cleanup(struct vhd_vdev *vdev)
 {
     if (!vdev->inflight_mem) {
         /* Nothing to clean up. */
@@ -1534,29 +1603,36 @@ static void vhd_vdev_inflight_cleanup(struct vhd_vdev* vdev)
     vdev->inflight_mem = NULL;
 }
 
-////////////////////////////////////////////////////////////////////////////////
+/*////////////////////////////////////////////////////////////////////////////*/
 
-static int vring_io_event(void* ctx)
+static int vring_io_event(void *ctx)
 {
-    struct vhd_vring* vring = (struct vhd_vring*) ctx;
+    struct vhd_vring *vring = (struct vhd_vring *) ctx;
     VHD_ASSERT(vring);
 
-    /* TODO: is it possible for client to enqueue a bunch of requests and then disable queue? */
+    /*
+     * TODO: is it possible for client to enqueue a bunch of requests
+     * and then disable queue?
+     */
     if (!vring->is_enabled) {
         VHD_LOG_ERROR("Somehow we got an event on disabled vring");
         return -EINVAL;
     }
 
-    /* Clear vring event now, before processing virtq.
-     * Otherwise we might lose events if guest has managed to signal eventfd again while we were processing */
+    /*
+     * Clear vring event now, before processing virtq.
+     * Otherwise we might lose events if guest has managed to
+     * signal eventfd again while we were processing
+     */
     vhd_clear_eventfd(vring->kickfd);
     return vhd_vdev_dispatch_requests(vring->vdev, vring);
 }
 
-static int vring_set_enable(struct vhd_vring* vring, bool do_enable)
+static int vring_set_enable(struct vhd_vring *vring, bool do_enable)
 {
     if (do_enable == vring->is_enabled) {
-        VHD_LOG_WARN("strange VRING_ENABLE call from client (vring %d is already %s)",
+        VHD_LOG_WARN(
+            "strange VRING_ENABLE call from client (vring %d is already %s)",
             vring->id, vring->is_enabled ? "enabled" : "disabled");
         return 0;
     }
@@ -1605,13 +1681,15 @@ static int vring_set_enable(struct vhd_vring* vring, bool do_enable)
     return 0;
 }
 
-void vhd_vring_init(struct vhd_vring* vring, int id, struct vhd_vdev* vdev)
+void vhd_vring_init(struct vhd_vring *vring, int id, struct vhd_vdev *vdev)
 {
     VHD_ASSERT(vring);
 
-    /* According to vhost spec we should check that PROTOCOL_FEATURES
+    /*
+     * According to vhost spec we should check that PROTOCOL_FEATURES
      * have been negotiated with the client here. However we explicitly
-     * don't support clients that don't negotiate it, so it makes no difference. */
+     * don't support clients that don't negotiate it, so it makes no difference.
+     */
     vring->is_enabled = false;
 
     vring->id = id;
@@ -1620,7 +1698,7 @@ void vhd_vring_init(struct vhd_vring* vring, int id, struct vhd_vdev* vdev)
     vring->vdev = vdev;
 }
 
-void vhd_vring_stop(struct vhd_vring* vring)
+void vhd_vring_stop(struct vhd_vring *vring)
 {
     if (!vring || !vring->is_enabled) {
         return;
@@ -1629,9 +1707,9 @@ void vhd_vring_stop(struct vhd_vring* vring)
     vring_set_enable(vring, false);
 }
 
-////////////////////////////////////////////////////////////////////////////////
+/*////////////////////////////////////////////////////////////////////////////*/
 
-void* vhd_vdev_get_priv(struct vhd_vdev* vdev)
+void *vhd_vdev_get_priv(struct vhd_vdev *vdev)
 {
     return vdev->priv;
 }
@@ -1647,9 +1725,9 @@ static uint64_t vring_inflight_buf_size(int num)
     return size;
 }
 
-static void vring_inflight_addr_init(struct vhd_vring* vring)
+static void vring_inflight_addr_init(struct vhd_vring *vring)
 {
-    struct inflight_split_region* mem;
+    struct inflight_split_region *mem;
     uint64_t size;
     uint64_t qsize;
     uint8_t idx;
@@ -1664,8 +1742,9 @@ static void vring_inflight_addr_init(struct vhd_vring* vring)
     idx = vring->id;
     qsize = vring_inflight_buf_size(vring->client_info.num);
     if (qsize * (idx + 1) > size) {
-        VHD_LOG_WARN("inflight buffer for queue %d ends at %lu and doesn't fit in buffer of size %lu",
-                idx, qsize * (idx + 1), size);
+        VHD_LOG_WARN(
+            "inflight buffer for queue %d ends at %lu and doesn't fit in buffer of size %lu",
+            idx, qsize * (idx + 1), size);
         return;
     }
 
@@ -1675,7 +1754,7 @@ static void vring_inflight_addr_init(struct vhd_vring* vring)
 /**
  * metrics - output parameter.
  * Returns 0 on success, -errno on failure
-*/
+ */
 int vhd_vdev_get_queue_stat(struct vhd_vdev *vdev, uint32_t queue_num,
                             struct vhd_vq_metrics *metrics)
 {
