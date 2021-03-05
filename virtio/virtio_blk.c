@@ -14,10 +14,9 @@
 #define IS_ALIGNED_TO_SECTOR(val)       (((val) & (VIRTIO_BLK_SECTOR_SIZE - 1)) == 0)
 
 /* virtio blk data for bdev io */
-struct virtio_blk_io
-{
-    struct virtio_virtq* vq;
-    struct virtio_iov* iov;
+struct virtio_blk_io {
+    struct virtio_virtq *vq;
+    struct virtio_iov *iov;
     struct vhd_bio bio;
 };
 
@@ -31,25 +30,25 @@ static uint8_t translate_status(enum vhd_bdev_io_result status)
     }
 }
 
-static void set_status(struct virtio_iov* iov, uint8_t status)
+static void set_status(struct virtio_iov *iov, uint8_t status)
 {
-    *((uint8_t*)iov->buffers[iov->nvecs - 1].base) = status;
+    *((uint8_t *)iov->buffers[iov->nvecs - 1].base) = status;
 }
 
-static void abort_request(struct virtio_virtq* vq, struct virtio_iov* iov)
+static void abort_request(struct virtio_virtq *vq, struct virtio_iov *iov)
 {
     virtq_commit_buffers(vq, iov);
 }
 
-static void fail_request(struct virtio_virtq* vq, struct virtio_iov* iov)
+static void fail_request(struct virtio_virtq *vq, struct virtio_iov *iov)
 {
     set_status(iov, VIRTIO_BLK_S_IOERR);
     abort_request(vq, iov);
 }
 
-static void complete_io(struct vhd_bio* bio)
+static void complete_io(struct vhd_bio *bio)
 {
-    struct virtio_blk_io* vbio = containerof(bio, struct virtio_blk_io, bio);
+    struct virtio_blk_io *vbio = containerof(bio, struct virtio_blk_io, bio);
 
     set_status(vbio->iov, translate_status(bio->status));
 
@@ -59,27 +58,27 @@ static void complete_io(struct vhd_bio* bio)
     vhd_free(vbio);
 }
 
-static inline bool vhd_buffer_is_read_only(const struct vhd_buffer* buf)
+static inline bool vhd_buffer_is_read_only(const struct vhd_buffer *buf)
 {
     return !buf->write_only;
 }
 
-static inline bool vhd_buffer_is_write_only(const struct vhd_buffer* buf)
+static inline bool vhd_buffer_is_write_only(const struct vhd_buffer *buf)
 {
     return buf->write_only;
 }
 
-static inline bool vhd_buffer_can_read(const struct vhd_buffer* buf)
+static inline bool vhd_buffer_can_read(const struct vhd_buffer *buf)
 {
     return vhd_buffer_is_read_only(buf);
 }
 
-static inline bool vhd_buffer_can_write(const struct vhd_buffer* buf)
+static inline bool vhd_buffer_can_write(const struct vhd_buffer *buf)
 {
     return vhd_buffer_is_write_only(buf);
 }
 
-static bool check_status_buffer(struct vhd_buffer* buf)
+static bool check_status_buffer(struct vhd_buffer *buf)
 {
     /* Check that status vector has expected size */
     if (buf->len != sizeof(uint8_t)) {
@@ -94,10 +93,10 @@ static bool check_status_buffer(struct vhd_buffer* buf)
     return true;
 }
 
-static int handle_inout(struct virtio_blk_dev* dev,
-                        struct virtio_blk_req_hdr* req,
-                        struct virtio_virtq* vq,
-                        struct virtio_iov* iov)
+static int handle_inout(struct virtio_blk_dev *dev,
+                        struct virtio_blk_req_hdr *req,
+                        struct virtio_virtq *vq,
+                        struct virtio_iov *iov)
 {
     VHD_ASSERT(req->type == VIRTIO_BLK_T_IN || req->type == VIRTIO_BLK_T_OUT);
 
@@ -108,8 +107,8 @@ static int handle_inout(struct virtio_blk_dev* dev,
         return -EINVAL;
     }
 
-    struct vhd_buffer* status_buf = &iov->buffers[iov->nvecs - 1];
-    struct vhd_buffer* pdata = &iov->buffers[1];
+    struct vhd_buffer *status_buf = &iov->buffers[iov->nvecs - 1];
+    struct vhd_buffer *pdata = &iov->buffers[1];
     size_t ndatabufs = iov->nvecs - 2;
 
     if (!check_status_buffer(status_buf)) {
@@ -121,20 +120,24 @@ static int handle_inout(struct virtio_blk_dev* dev,
     uint64_t total_sectors = 0;
     for (size_t i = 0; i < ndatabufs; ++i) {
         if (!IS_ALIGNED_TO_SECTOR(pdata[i].len)) {
-            VHD_LOG_ERROR("Data buffer %zu length %zu is not aligned to sector size", i, pdata[i].len);
+            VHD_LOG_ERROR(
+                "Data buffer %zu length %zu is not aligned to sector size",
+                i, pdata[i].len);
             fail_request(vq, iov);
             return -EINVAL;
         }
 
         /* Buffer should be write-only if this is a read request */
-        if (req->type == VIRTIO_BLK_T_IN && !vhd_buffer_is_write_only(pdata + i)) {
+        if (req->type == VIRTIO_BLK_T_IN &&
+            !vhd_buffer_is_write_only(pdata + i)) {
             VHD_LOG_ERROR("Cannot write to data buffer %zu", i);
             fail_request(vq, iov);
             return -EINVAL;
         }
 
         /* Buffer should be read-only if this is a write request */
-        if (req->type == VIRTIO_BLK_T_OUT && !vhd_buffer_is_read_only(pdata + i)) {
+        if (req->type == VIRTIO_BLK_T_OUT &&
+            !vhd_buffer_is_read_only(pdata + i)) {
             VHD_LOG_ERROR("Cannot read from data buffer %zu", i);
             fail_request(vq, iov);
             return -EINVAL;
@@ -152,12 +155,13 @@ static int handle_inout(struct virtio_blk_dev* dev,
     uint64_t last_sector = req->sector + total_sectors - 1;
     if (last_sector < req->sector /* overflow */ ||
         last_sector >= dev->config.capacity) {
-        VHD_LOG_ERROR("Request out of bdev range, last sector = %llu", (unsigned long long) last_sector);
+        VHD_LOG_ERROR("Request out of bdev range, last sector = %llu",
+                      (unsigned long long) last_sector);
         fail_request(vq, iov);
         return -EINVAL;
     }
 
-    struct virtio_blk_io* vbio = vhd_zalloc(sizeof(*vbio));
+    struct virtio_blk_io *vbio = vhd_zalloc(sizeof(*vbio));
     vbio->vq = vq;
     vbio->iov = iov;
     vbio->bio.bdev_io.type = req->type == VIRTIO_BLK_T_IN ? VHD_BDEV_READ :
@@ -178,10 +182,10 @@ static int handle_inout(struct virtio_blk_dev* dev,
     return 0;
 }
 
-static int handle_getid(struct virtio_blk_dev* dev,
-                        struct virtio_blk_req_hdr* req,
-                        struct virtio_virtq* vq,
-                        struct virtio_iov* iov)
+static int handle_getid(struct virtio_blk_dev *dev,
+                        struct virtio_blk_req_hdr *req,
+                        struct virtio_virtq *vq,
+                        struct virtio_iov *iov)
 {
     VHD_ASSERT(req->type == VIRTIO_BLK_T_GET_ID);
     VHD_UNUSED(req);
@@ -192,8 +196,8 @@ static int handle_getid(struct virtio_blk_dev* dev,
         return -EINVAL;
     }
 
-    struct vhd_buffer* status_buf = &iov->buffers[2];
-    struct vhd_buffer* id_buf = &iov->buffers[1];
+    struct vhd_buffer *status_buf = &iov->buffers[2];
+    struct vhd_buffer *id_buf = &iov->buffers[1];
 
     if (!check_status_buffer(status_buf)) {
         VHD_LOG_ERROR("Bad status buffer");
@@ -201,14 +205,18 @@ static int handle_getid(struct virtio_blk_dev* dev,
         return -EINVAL;
     }
 
-    if (id_buf->len != VIRTIO_BLK_DISKID_LENGTH || !vhd_buffer_can_write(id_buf)) {
+    if (id_buf->len != VIRTIO_BLK_DISKID_LENGTH ||
+        !vhd_buffer_can_write(id_buf)) {
         VHD_LOG_ERROR("Bad id buffer (len %zu)", id_buf->len);
         fail_request(vq, iov);
         return -EINVAL;
     }
 
-    /* strncpy will not add a null-term if src length is >= desc->len, which is what we need */
-    strncpy((char*) id_buf->base, dev->bdev->id, id_buf->len);
+    /*
+     * strncpy will not add a null-term if src length is >= desc->len, which is
+     * what we need
+     */
+    strncpy((char *) id_buf->base, dev->bdev->id, id_buf->len);
 
     /* Complete request */
     set_status(iov, VIRTIO_BLK_S_OK);
@@ -218,28 +226,32 @@ static int handle_getid(struct virtio_blk_dev* dev,
     return 0;
 }
 
-static void handle_buffers(void* arg, struct virtio_virtq* vq, struct virtio_iov* iov)
+static void handle_buffers(void *arg, struct virtio_virtq *vq,
+                           struct virtio_iov *iov)
 {
     int res;
-    struct virtio_blk_dev* dev = (struct virtio_blk_dev*) arg;
+    struct virtio_blk_dev *dev = (struct virtio_blk_dev *) arg;
 
     VHD_ASSERT(iov->nvecs >= 1);
 
-    /* We don't negotiate VIRTIO_F_ANY_LAYOUT, so our message framing should be:
+    /*
+     * We don't negotiate VIRTIO_F_ANY_LAYOUT, so our message framing should be:
      * - 8 byte header buffer
      * - data buffer for In/Out/GetId requests
-     * - 1 byte status buffer for !GetId requests */
+     * - 1 byte status buffer for !GetId requests
+     */
 
-    struct vhd_buffer* req_buf = &iov->buffers[0];
+    struct vhd_buffer *req_buf = &iov->buffers[0];
     if (!vhd_buffer_can_read(req_buf)) {
         VHD_LOG_ERROR("Request header is not readable by device");
         abort_request(vq, iov);
         return;
     }
 
-    struct virtio_blk_req_hdr* req = (struct virtio_blk_req_hdr*) req_buf->base;
+    struct virtio_blk_req_hdr *req = (struct virtio_blk_req_hdr *)req_buf->base;
     if (iov->buffers[0].len != sizeof(*req)) {
-        VHD_LOG_ERROR("virtio blk request invalid size %zu", iov->buffers[0].len);
+        VHD_LOG_ERROR("virtio blk request invalid size %zu",
+                      iov->buffers[0].len);
         abort_request(vq, iov);
         return;
     }
@@ -263,7 +275,7 @@ static void handle_buffers(void* arg, struct virtio_virtq* vq, struct virtio_iov
     }
 }
 
-////////////////////////////////////////////////////////////////////////////////
+/*////////////////////////////////////////////////////////////////////////////*/
 
 int virtio_blk_dispatch_requests(struct virtio_blk_dev *dev,
                                  struct virtio_virtq *vq,
@@ -276,21 +288,24 @@ int virtio_blk_dispatch_requests(struct virtio_blk_dev *dev,
 }
 
 int virtio_blk_init_dev(
-    struct virtio_blk_dev* dev,
-    struct vhd_bdev_info* bdev,
-    virtio_blk_io_dispatch* dispatch)
+    struct virtio_blk_dev *dev,
+    struct vhd_bdev_info *bdev,
+    virtio_blk_io_dispatch *dispatch)
 {
     VHD_VERIFY(dev);
     VHD_VERIFY(bdev);
 
     /* block size should be a multiple of vblk sector size */
-    if (!bdev->block_size || (bdev->block_size & (VIRTIO_BLK_SECTOR_SIZE - 1))) {
-        VHD_LOG_ERROR("block size %llu should be a multiple of virtio blk sector size (512 bytes)",
+    if (!bdev->block_size ||
+        (bdev->block_size & (VIRTIO_BLK_SECTOR_SIZE - 1))) {
+        VHD_LOG_ERROR("block size %llu should be a multiple of virtio blk "
+                      "sector size (512 bytes)",
                       (unsigned long long)bdev->block_size);
         return -EINVAL;
     }
 
-    dev->block_shift = vhd_find_first_bit32(bdev->block_size >> VIRTIO_BLK_SECTOR_SHIFT);
+    dev->block_shift = vhd_find_first_bit32(
+        bdev->block_size >> VIRTIO_BLK_SECTOR_SHIFT);
     dev->dispatch = dispatch;
     dev->bdev = bdev;
 

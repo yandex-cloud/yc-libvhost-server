@@ -22,7 +22,7 @@ struct vhd_bio {
     struct vhd_vdev *vdev;
     struct vhd_request_queue *rq;
 
-    void (*completion_handler)(struct vhd_bio* bio);
+    void (*completion_handler)(struct vhd_bio *bio);
 
     TAILQ_ENTRY(vhd_bio) submission_link;
     SLIST_ENTRY(vhd_bio) completion_link;

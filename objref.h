@@ -30,7 +30,8 @@ struct objref {
     void (*release)(struct objref *objref);
 };
 
-static inline void objref_init(struct objref *objref, void (*release)(struct objref *objref))
+static inline void objref_init(struct objref *objref,
+                               void (*release)(struct objref *objref))
 {
     objref->release = release;
     atomic_set(&objref->refcount, 1);

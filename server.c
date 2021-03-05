@@ -10,7 +10,7 @@
 
 #define VHOST_EVENT_LOOP_EVENTS 128
 
-static struct vhd_event_loop* g_vhost_evloop;
+static struct vhd_event_loop *g_vhost_evloop;
 static pthread_t g_vhost_thread;
 
 static inline void free_vhost_event_loop(void)
@@ -19,7 +19,7 @@ static inline void free_vhost_event_loop(void)
     g_vhost_evloop = NULL;
 }
 
-static void* vhost_evloop_func(void* arg)
+static void *vhost_evloop_func(void *arg)
 {
     VHD_UNUSED(arg);
 
@@ -69,7 +69,8 @@ void vhd_stop_vhost_server(void)
     free_vhost_event_loop();
 }
 
-int vhd_add_vhost_event(int fd, void* priv, const struct vhd_event_ops* ops, struct vhd_event_ctx* ctx)
+int vhd_add_vhost_event(int fd, void *priv, const struct vhd_event_ops *ops,
+                        struct vhd_event_ctx *ctx)
 {
     if (!g_vhost_evloop) {
         return -ENXIO;
@@ -87,18 +88,17 @@ void vhd_del_vhost_event(int fd)
     vhd_del_event(g_vhost_evloop, fd);
 }
 
-////////////////////////////////////////////////////////////////////////////////
+/*////////////////////////////////////////////////////////////////////////////*/
 
-//
-// Request queues
-//
+/*
+ * Request queues
+ */
 
 typedef SLIST_HEAD_ATOMIC(, vhd_bio) vhd_bio_list;
 
 /* TODO: bounded queue */
-struct vhd_request_queue
-{
-    struct vhd_event_loop* evloop;
+struct vhd_request_queue {
+    struct vhd_event_loop *evloop;
 
     TAILQ_HEAD(, vhd_bio) submission;
 
@@ -106,7 +106,8 @@ struct vhd_request_queue
     struct vhd_bh *completion_bh;
 };
 
-void vhd_run_in_rq(struct vhd_request_queue *rq, void (*cb)(void *), void *opaque)
+void vhd_run_in_rq(struct vhd_request_queue *rq, void (*cb)(void *),
+                   void *opaque)
 {
     vhd_bh_schedule_oneshot(rq->evloop, cb, opaque);
 }
@@ -138,16 +139,16 @@ static void rq_complete_bh(void *opaque)
         }
         SLIST_REMOVE_HEAD(&bio_list, completion_link);
 
-        struct vhd_vdev* vdev = bio->vdev;
+        struct vhd_vdev *vdev = bio->vdev;
         bio->completion_handler(bio);
 
         vdev_unref(vdev);
     }
 }
 
-struct vhd_request_queue* vhd_create_request_queue(void)
+struct vhd_request_queue *vhd_create_request_queue(void)
 {
-    struct vhd_request_queue* rq = vhd_alloc(sizeof(*rq));
+    struct vhd_request_queue *rq = vhd_alloc(sizeof(*rq));
 
     rq->evloop = vhd_create_event_loop(VHD_EVENT_LOOP_DEFAULT_MAX_EVENTS);
     if (!rq->evloop) {
@@ -162,7 +163,7 @@ struct vhd_request_queue* vhd_create_request_queue(void)
     return rq;
 }
 
-void vhd_release_request_queue(struct vhd_request_queue* rq)
+void vhd_release_request_queue(struct vhd_request_queue *rq)
 {
     assert(TAILQ_EMPTY(&rq->submission));
     assert(SLIST_EMPTY(&rq->completion));
@@ -171,7 +172,8 @@ void vhd_release_request_queue(struct vhd_request_queue* rq)
     vhd_free(rq);
 }
 
-int vhd_attach_event(struct vhd_request_queue* rq, int fd, struct vhd_event_ctx* ev)
+int vhd_attach_event(struct vhd_request_queue *rq, int fd,
+                     struct vhd_event_ctx *ev)
 {
     if (!rq) {
         return -EINVAL;
@@ -180,7 +182,7 @@ int vhd_attach_event(struct vhd_request_queue* rq, int fd, struct vhd_event_ctx*
     return vhd_add_event(rq->evloop, fd, ev);
 }
 
-void vhd_detach_event(struct vhd_request_queue* rq, int fd)
+void vhd_detach_event(struct vhd_request_queue *rq, int fd)
 {
     if (!rq) {
         return;
@@ -189,7 +191,7 @@ void vhd_detach_event(struct vhd_request_queue* rq, int fd)
     vhd_del_event(rq->evloop, fd);
 }
 
-int vhd_run_queue(struct vhd_request_queue* rq)
+int vhd_run_queue(struct vhd_request_queue *rq)
 {
     VHD_VERIFY(rq);
 
@@ -202,13 +204,14 @@ int vhd_run_queue(struct vhd_request_queue* rq)
     return 0;
 }
 
-void vhd_stop_queue(struct vhd_request_queue* rq)
+void vhd_stop_queue(struct vhd_request_queue *rq)
 {
     VHD_VERIFY(rq);
     vhd_interrupt_event_loop(rq->evloop);
 }
 
-bool vhd_dequeue_request(struct vhd_request_queue* rq, struct vhd_request* out_req)
+bool vhd_dequeue_request(struct vhd_request_queue *rq,
+                         struct vhd_request *out_req)
 {
     struct vhd_bio *bio = TAILQ_FIRST(&rq->submission);
 
@@ -224,8 +227,8 @@ bool vhd_dequeue_request(struct vhd_request_queue* rq, struct vhd_request* out_r
     return true;
 }
 
-int vhd_enqueue_block_request(struct vhd_request_queue* rq,
-                              struct vhd_vdev* vdev, struct vhd_bio* bio)
+int vhd_enqueue_block_request(struct vhd_request_queue *rq,
+                              struct vhd_vdev *vdev, struct vhd_bio *bio)
 {
     bio->rq = rq;
     bio->vdev = vdev;
@@ -240,7 +243,8 @@ int vhd_enqueue_block_request(struct vhd_request_queue* rq,
  * can be called from arbitrary thread; will schedule completion on the rq
  * event loop
  */
-void vhd_complete_bio(struct vhd_bdev_io* bdev_io, enum vhd_bdev_io_result status)
+void vhd_complete_bio(struct vhd_bdev_io *bdev_io,
+                      enum vhd_bdev_io_result status)
 {
     struct vhd_bio *bio = containerof(bdev_io, struct vhd_bio, bdev_io);
     struct vhd_request_queue *rq = bio->rq;

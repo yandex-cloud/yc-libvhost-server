@@ -14,16 +14,17 @@
 #define PAGE_SHIFT  12
 #define PAGE_SIZE   (1ul << PAGE_SHIFT)
 
-////////////////////////////////////////////////////////////////////////////////
+/*////////////////////////////////////////////////////////////////////////////*/
 
 #if !defined(NDEBUG)
 #   define VHD_DEBUG
 #endif
 
-////////////////////////////////////////////////////////////////////////////////
+/*////////////////////////////////////////////////////////////////////////////*/
 
 #if !defined(containerof)
-#   define containerof(ptr, type, member) ((type *) ((char *)(ptr) - offsetof(type, member)))
+#   define containerof(ptr, type, member) \
+    ((type *) ((char *)(ptr) - offsetof(type, member)))
 #endif
 
 #if !defined(countof)
@@ -38,7 +39,7 @@
 #   error Implement me
 #endif
 
-// TODO: compiler-specifics for non-gcc?
+/* TODO: compiler-specifics for non-gcc? */
 #ifdef __GNUC__
 #   define __STRINGIFY(x)           #x
 #   define VHD_NORETURN             __attribute__((noreturn))
@@ -46,13 +47,15 @@
 #   define VHD_PACKED               __attribute__((packed))
 
 /* Return 0-based index of first least significant bit set in 32-bit value */
-static inline int vhd_find_first_bit32(uint32_t val) {
+static inline int vhd_find_first_bit32(uint32_t val)
+{
     VHD_STATIC_ASSERT(sizeof(val) == sizeof(int));
     return __builtin_ctz(val);
 }
 
 /* Return 0-based index of first least significant bit set in 64-bit value */
-static inline int vhd_find_first_bit64(uint64_t val) {
+static inline int vhd_find_first_bit64(uint64_t val)
+{
     VHD_STATIC_ASSERT(sizeof(val) == sizeof(long long));
     return __builtin_ctzll(val);
 }
@@ -67,85 +70,88 @@ static inline int vhd_find_first_bit64(uint64_t val) {
 
 #define VHD_UNUSED(var) ((void)(var))
 
-////////////////////////////////////////////////////////////////////////////////
+/*////////////////////////////////////////////////////////////////////////////*/
 
 static inline void VHD_NORETURN _vhd_verify_helper(
-    const char* what,
-    const char* file,
+    const char *what,
+    const char *file,
     unsigned long line)
 {
-    // TODO: smarter logging
+    /* TODO: smarter logging */
     fprintf(stderr, "Verify failed: \"%s\" at %s:%lu\n", what, file, line);
     exit(EXIT_FAILURE);
 }
 
 #define VHD_ASSERT(cond) assert(cond)
 
-// Verify is not compiled out in release builds
+/* Verify is not compiled out in release builds */
 #define VHD_VERIFY(cond)                                  \
     do {                                                  \
         if (!(cond)) {                                    \
             _vhd_verify_helper(#cond, __FILE__, __LINE__); \
         }                                                 \
-    } while (0);
+    } while (0)
 
-////////////////////////////////////////////////////////////////////////////////
+/*////////////////////////////////////////////////////////////////////////////*/
 
 #ifdef VHD_MEMCHECK
 #   include <valgrind/memcheck.h>
-#   define VHD_MEMCHECK_DEFINED(addr, len)      VALGRIND_MAKE_MEM_DEFINED(addr, len)
-#   define VHD_MEMCHECK_UNDEFINED(addr, len)    VALGRIND_MAKE_MEM_UNDEFINED(addr, len)
+#   define VHD_MEMCHECK_DEFINED(addr, len)   \
+    VALGRIND_MAKE_MEM_DEFINED(addr, len)
+#   define VHD_MEMCHECK_UNDEFINED(addr, len) \
+    VALGRIND_MAKE_MEM_UNDEFINED(addr, len)
 #else
 #   define VHD_MEMCHECK_DEFINED(addr, len)
 #   define VHD_MEMCHECK_UNDEFINED(addr, len)
 #endif
 
-////////////////////////////////////////////////////////////////////////////////
+/*////////////////////////////////////////////////////////////////////////////*/
 
 #define __VHD_ALIGN_UP_MASK(x, mask)    (((x) + (mask)) & ~(mask))
 #define VHD_ALIGN_UP(x, a)              __VHD_ALIGN_UP_MASK(x, (VHD_TYPEOF(x))(a) - 1)
 #define VHD_ALIGN_DOWN(x, a)            ((x) & ~((VHD_TYPEOF(x))(a) - 1))
 #define VHD_IS_ALIGNED(x, a)            (!((x) & ((VHD_TYPEOF(x))(a) - 1)))
 
-static inline void* vhd_alloc(size_t bytes)
+static inline void *vhd_alloc(size_t bytes)
 {
-    // malloc actually accepts 0 sizes, but this is still most likely a bug..
+    /* malloc actually accepts 0 sizes, but this is still most likely a bug.. */
     VHD_ASSERT(bytes != 0);
 
-    void* p = malloc(bytes);
+    void *p = malloc(bytes);
     VHD_VERIFY(p != NULL);
     return p;
 }
 
-static inline void* vhd_zalloc(size_t bytes)
+static inline void *vhd_zalloc(size_t bytes)
 {
-    // calloc actually accepts 0 sizes, but this is still most likely a bug..
+    /* calloc actually accepts 0 sizes, but this is still most likely a bug.. */
     VHD_ASSERT(bytes != 0);
 
-    void* p = calloc(bytes, 1);
+    void *p = calloc(bytes, 1);
     VHD_VERIFY(p != NULL);
     return p;
 }
 
-static inline void* vhd_calloc(size_t nmemb, size_t size)
+static inline void *vhd_calloc(size_t nmemb, size_t size)
 {
     VHD_ASSERT(nmemb != 0 && size != 0);
 
-    void* p = calloc(nmemb, size);
+    void *p = calloc(nmemb, size);
     VHD_VERIFY(p != NULL);
     return p;
 }
 
-// TODO: aligned alloc
+/* TODO: aligned alloc */
 
-static inline void vhd_free(void* p)
+static inline void vhd_free(void *p)
 {
     free(p);
 }
 
-////////////////////////////////////////////////////////////////////////////////
+/*////////////////////////////////////////////////////////////////////////////*/
 
-/* Support memfd_create syscall.
+/*
+ * Support memfd_create syscall.
  * The support for the memfd_create syscall is introduced in glibc-2.27.
  * Right now we are using xenial with glibc-2.23.
  */

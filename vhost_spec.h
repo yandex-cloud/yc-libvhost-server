@@ -10,7 +10,8 @@
 extern "C" {
 #endif
 
-/* Define protocol structures and definitions based on the vhost user
+/*
+ * Define protocol structures and definitions based on the vhost user
  * protocol specification:
  * https://github.com/qemu/qemu/blob/master/docs/interop/vhost-user.txt
  */
@@ -22,7 +23,8 @@ extern "C" {
 #define VHOST_USER_MSG_FLAGS_REPLY     ((1 << 2) | VHOST_USER_MSG_VERSION)
 #define VHOST_USER_MSG_FLAGS_REPLY_ACK (1 << 3)
 
-/* Vhost user protocol features (GET_PROTOCOL_FEATURES and
+/*
+ * Vhost user protocol features (GET_PROTOCOL_FEATURES and
  * SET_PROTOCOL_FEATURES commands).
  */
 #define VHOST_USER_PROTOCOL_F_MQ             0
@@ -44,7 +46,8 @@ extern "C" {
 #define VIRTIO_F_RING_EVENT_IDX             29
 #define VIRTIO_F_VERSION_1                  32
 
-/* Invalid FD bit for the VHOST_USER_SET_VRING_KICK and
+/*
+ * Invalid FD bit for the VHOST_USER_SET_VRING_KICK and
  * VHOST_USER_SET_VRING_CALL commands. If this bit is
  * set then the communication is forced to use polling
  * instead of using for a kick.
@@ -55,7 +58,8 @@ extern "C" {
 /* Maximum size of the device PCI configuration space. */
 #define VHOST_USER_CONFIG_SPACE_MAX 256
 
-/* According to the protocol specification this is the maximum number
+/*
+ * According to the protocol specification this is the maximum number
  * of memory regions sent in one command. Also it is the maximum number
  * of file descriptors.
  */
@@ -167,7 +171,8 @@ struct vhost_user_msg {
     uint32_t flags;
     uint32_t size;
     union {
-        /* VHOST_USER_GET_QUEUE_NUM, VHOST_USER_GET_PROTOCOL_FEATURES,
+        /*
+         * VHOST_USER_GET_QUEUE_NUM, VHOST_USER_GET_PROTOCOL_FEATURES,
          * VHOST_USER_GET_FEATURES
          */
         uint64_t u64;
@@ -175,7 +180,8 @@ struct vhost_user_msg {
         struct vhost_user_config_space config;
         /* VHOST_USER_SET_MEM_TABLE */
         struct vhost_user_mem_desc mem_desc;
-        /* VHOST_USER_GET_VRING_BASE, VHOST_USER_SET_VRING_BASE,
+        /*
+         * VHOST_USER_GET_VRING_BASE, VHOST_USER_SET_VRING_BASE,
          * VHOST_USER_SET_VRING_NUM
          */
         struct vhost_user_vring_state vring_state;

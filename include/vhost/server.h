@@ -15,7 +15,7 @@ enum LogLevel {
     LOG_DEBUG = 3
 };
 
-typedef void (*log_function)(enum LogLevel level, const char* format, ...);
+typedef void (*log_function)(enum LogLevel level, const char *format, ...);
 
 /**
  * Start vhost server
@@ -38,13 +38,12 @@ void vhd_stop_vhost_server(void);
 /**
  * Request instance stored in request queue
  */
-struct vhd_request
-{
+struct vhd_request {
     /* Device that generated this request */
-    struct vhd_vdev* vdev;
+    struct vhd_vdev *vdev;
 
     /* TODO: this should be device type-specific */
-    struct vhd_bdev_io* bio;
+    struct vhd_bdev_io *bio;
 };
 
 /**
@@ -59,37 +58,39 @@ struct vhd_request_queue;
 /**
  * Create new request queue
  */
-struct vhd_request_queue* vhd_create_request_queue(void);
+struct vhd_request_queue *vhd_create_request_queue(void);
 
 /**
  * Destroy request queue.
  * Don't call this until there are devices attached to this queue.
  */
-void vhd_release_request_queue(struct vhd_request_queue* rq);
+void vhd_release_request_queue(struct vhd_request_queue *rq);
 
 /**
  * Run queue in calling thread.
  * Will block until any of the devices enqueue requests.
  */
-int vhd_run_queue(struct vhd_request_queue* rq);
+int vhd_run_queue(struct vhd_request_queue *rq);
 
 /**
  * Unblock running request queue.
- * After calling this vhd_run_queue will eventually return and can the be reeintered.
+ * After calling this vhd_run_queue will eventually return and can the be
+ * reeintered.
  */
-void vhd_stop_queue(struct vhd_request_queue* rq);
+void vhd_stop_queue(struct vhd_request_queue *rq);
 
 /**
  * Dequeue next request.
  */
-bool vhd_dequeue_request(struct vhd_request_queue* rq, struct vhd_request* out_req);
+bool vhd_dequeue_request(struct vhd_request_queue *rq,
+                         struct vhd_request *out_req);
 
 /*
  * Complete the processing of the request.  The backend calls this to indicate
  * that it's done with the request and the library may signal completion to the
  * guest driver and dispose of the request.
  */
-void vhd_complete_bio(struct vhd_bdev_io* bio, enum vhd_bdev_io_result status);
+void vhd_complete_bio(struct vhd_bdev_io *bio, enum vhd_bdev_io_result status);
 
 #ifdef __cplusplus
 }

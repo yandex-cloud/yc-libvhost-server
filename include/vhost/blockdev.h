@@ -11,17 +11,15 @@ extern "C" {
 struct vhd_request_queue;
 struct vhd_vdev;
 
-struct vhd_sglist
-{
+struct vhd_sglist {
     uint32_t nbuffers;
-    struct vhd_buffer* buffers;
+    struct vhd_buffer *buffers;
 };
 
 /**
  * Block io request type
  */
-enum vhd_bdev_io_type
-{
+enum vhd_bdev_io_type {
     VHD_BDEV_READ,
     VHD_BDEV_WRITE
 };
@@ -29,8 +27,7 @@ enum vhd_bdev_io_type
 /**
  * Block io request result
  */
-enum vhd_bdev_io_result
-{
+enum vhd_bdev_io_result {
     VHD_BDEV_SUCCESS = 0,
     VHD_BDEV_IOERR,
 };
@@ -41,8 +38,7 @@ enum vhd_bdev_io_result
 /**
  * In-flight blockdev io request
  */
-struct vhd_bdev_io
-{
+struct vhd_bdev_io {
     enum vhd_bdev_io_type type;
 
     uint64_t first_sector;
@@ -53,10 +49,9 @@ struct vhd_bdev_io
 /**
  * Client-supplied block device backend definition
  */
-struct vhd_bdev_info
-{
+struct vhd_bdev_info {
     /* Blockdev id, will be used to create listen sockets */
-    const char* id;
+    const char *id;
 
     /* Block size in bytes */
     uint32_t block_size;
@@ -68,10 +63,10 @@ struct vhd_bdev_info
     uint64_t total_blocks;
 
     /* Gets called after mapping guest memory region */
-    int (*map_cb)(void* addr, size_t len, void* priv);
+    int (*map_cb)(void *addr, size_t len, void *priv);
 
     /* Gets called before unmapping guest memory region */
-    int (*unmap_cb)(void* addr, size_t len, void* priv);
+    int (*unmap_cb)(void *addr, size_t len, void *priv);
 };
 
 /**
@@ -84,17 +79,20 @@ struct vhd_bdev_info
  * @rq          Request queue to use for dispatch device I/O requests.
  * @priv        Caller private data to associate with resulting vdev.
  */
-struct vhd_vdev* vhd_register_blockdev(struct vhd_bdev_info* bdev, struct vhd_request_queue* rq, void* priv);
+struct vhd_vdev *vhd_register_blockdev(struct vhd_bdev_info *bdev,
+                                       struct vhd_request_queue *rq,
+                                       void *priv);
 
 /**
  * Unregister vhost block device.
  */
-void vhd_unregister_blockdev(struct vhd_vdev* vdev, void (*unregister_complete)(void*), void* arg);
+void vhd_unregister_blockdev(struct vhd_vdev *vdev,
+                             void (*unregister_complete)(void *), void *arg);
 
 /**
  * Get private data associated with vdev
  */
-void* vhd_vdev_get_priv(struct vhd_vdev* vdev);
+void *vhd_vdev_get_priv(struct vhd_vdev *vdev);
 
 /**
  * Get statistics for device's queue
