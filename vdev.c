@@ -197,6 +197,57 @@ struct vhd_guest_memory_map {
     struct vhd_guest_memory_region regions[];
 };
 
+static void *map_memory(void *addr, size_t len, int fd, off_t offset)
+{
+    size_t aligned_len = VHD_ALIGN_PTR_UP(len, HUGE_PAGE_SIZE);
+    size_t map_len = aligned_len + HUGE_PAGE_SIZE + PAGE_SIZE;
+
+    char *map = mmap(addr, map_len, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1,
+                     0);
+    if (map == MAP_FAILED) {
+        VHD_LOG_ERROR("unable to map memory: %s", strerror(errno));
+        return MAP_FAILED;
+    }
+
+    char *aligned_addr = VHD_ALIGN_PTR_UP(map + PAGE_SIZE, HUGE_PAGE_SIZE);
+    addr = mmap(aligned_addr, len, PROT_READ | PROT_WRITE,
+                MAP_SHARED | MAP_FIXED, fd, offset);
+    if (addr == MAP_FAILED) {
+        VHD_LOG_ERROR("unable to remap memory region %p-%p: %s", aligned_addr,
+                      aligned_addr + len, strerror(errno));
+        munmap(map, map_len);
+        return MAP_FAILED;
+    }
+    aligned_addr = addr;
+
+    size_t tail_len = aligned_len - len;
+    if (tail_len) {
+        char *tail = aligned_addr + len;
+        addr = mmap(tail, tail_len, PROT_READ | PROT_WRITE,
+                    MAP_SHARED | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
+        if (addr == MAP_FAILED) {
+            VHD_LOG_ERROR("unable to remap memory region %p-%p: %s", tail,
+                          tail + tail_len, strerror(errno));
+            munmap(map, map_len);
+            return MAP_FAILED;
+        }
+    }
+
+    char *start = aligned_addr - PAGE_SIZE;
+    char *end = aligned_addr + aligned_len + PAGE_SIZE;
+    munmap(map, start - map);
+    munmap(end, map + map_len - end);
+
+    return aligned_addr;
+}
+
+static int unmap_memory(void *addr, size_t len)
+{
+    size_t map_len = VHD_ALIGN_PTR_UP(len, HUGE_PAGE_SIZE) + PAGE_SIZE * 2;
+    char *map = addr - PAGE_SIZE;
+    return munmap(map, map_len);
+}
+
 /*
  * Map guest memory region to the vhost server.
  */
@@ -208,17 +259,18 @@ static int map_guest_region(struct vhd_guest_memory_region *region,
 {
     void *vaddr;
 
-    vaddr = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, offset);
+    vaddr = map_memory(NULL, size, fd, offset);
     if (vaddr == MAP_FAILED) {
         VHD_LOG_ERROR("Can't mmap guest memory: %s", strerror(errno));
         return -errno;
     }
 
     if (map_cb) {
-        int ret = map_cb(vaddr, size, priv);
+        size_t len = VHD_ALIGN_PTR_UP(size, HUGE_PAGE_SIZE);
+        int ret = map_cb(vaddr, len, priv);
         if (ret) {
             VHD_LOG_ERROR("map callback failed for region %p-%p: %s",
-                          vaddr, vaddr + size, strerror(-ret));
+                          vaddr, vaddr + len, strerror(-ret));
             munmap(vaddr, size);
             return ret;
         }
@@ -240,14 +292,15 @@ static void unmap_guest_region(struct vhd_guest_memory_region *reg,
     int ret;
 
     if (unmap_cb) {
-        ret = unmap_cb(reg->hva, reg->size, priv);
+        size_t len = VHD_ALIGN_PTR_UP(reg->size, HUGE_PAGE_SIZE);
+        ret = unmap_cb(reg->hva, len, priv);
         if (ret) {
             VHD_LOG_ERROR("unmap callback failed for region %p-%p: %s",
                           reg->hva, reg->hva + reg->size, strerror(-ret));
         }
     }
 
-    ret = munmap(reg->hva, reg->size);
+    ret = unmap_memory(reg->hva, reg->size);
     if (ret != 0) {
         VHD_LOG_ERROR("failed to unmap guest region at %p", reg->hva);
     }
