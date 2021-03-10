@@ -161,6 +161,10 @@ void vhd_interrupt_vhost_event_loop(void);
  * @type            Device type description
  * @vdev            vdev instance to initialize
  * @max_queues      Maximum number of queues this device can support
+ * @rq              Associated request queue
+ * @priv            User private data
+ * @map_cb          User function to call after mapping guest memory
+ * @unmap_cb        User function to call before unmapping guest memory
  */
 int vhd_vdev_init_server(
     struct vhd_vdev *vdev,
