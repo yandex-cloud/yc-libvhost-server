@@ -107,10 +107,12 @@ static inline void VHD_NORETURN _vhd_verify_helper(
 
 /*////////////////////////////////////////////////////////////////////////////*/
 
-#define __VHD_ALIGN_UP_MASK(x, mask)    (((x) + (mask)) & ~(mask))
-#define VHD_ALIGN_UP(x, a)              __VHD_ALIGN_UP_MASK(x, (VHD_TYPEOF(x))(a) - 1)
-#define VHD_ALIGN_DOWN(x, a)            ((x) & ~((VHD_TYPEOF(x))(a) - 1))
-#define VHD_IS_ALIGNED(x, a)            (!((x) & ((VHD_TYPEOF(x))(a) - 1)))
+#define VHD_ALIGN_UP(x, a) ({ \
+    VHD_TYPEOF(x) __mask = (VHD_TYPEOF(x))(a) - 1; \
+    ((x) + __mask) & ~__mask; \
+})
+#define VHD_ALIGN_DOWN(x, a)    ((x) & ~((VHD_TYPEOF(x))(a) - 1))
+#define VHD_IS_ALIGNED(x, a)    (!((x) & ((VHD_TYPEOF(x))(a) - 1)))
 
 static inline void *vhd_alloc(size_t bytes)
 {
