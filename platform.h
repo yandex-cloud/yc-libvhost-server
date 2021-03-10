@@ -14,6 +14,8 @@
 #define PAGE_SHIFT  12
 #define PAGE_SIZE   (1ul << PAGE_SHIFT)
 
+#define HUGE_PAGE_SIZE 0x200000
+
 /*////////////////////////////////////////////////////////////////////////////*/
 
 #if !defined(NDEBUG)
@@ -113,6 +115,7 @@ static inline void VHD_NORETURN _vhd_verify_helper(
 })
 #define VHD_ALIGN_DOWN(x, a)    ((x) & ~((VHD_TYPEOF(x))(a) - 1))
 #define VHD_IS_ALIGNED(x, a)    (!((x) & ((VHD_TYPEOF(x))(a) - 1)))
+#define VHD_ALIGN_PTR_UP(x, a)  (VHD_TYPEOF(x))VHD_ALIGN_UP((uintptr_t)x, a)
 
 static inline void *vhd_alloc(size_t bytes)
 {
