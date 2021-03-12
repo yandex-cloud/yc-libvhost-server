@@ -28,7 +28,8 @@ struct virtq_iov_private {
 static int virtq_dequeue_one(struct virtio_virtq *vq,
                              struct vhd_guest_memory_map *mm, uint16_t head,
                              virtq_handle_buffers_cb handle_buffers_cb,
-                             void *arg);
+                             void *arg,
+                             bool resubmit);
 
 static struct virtq_iov_private *alloc_iov(uint16_t nvecs)
 {
@@ -267,7 +268,7 @@ static int virtq_inflight_resubmit(struct virtio_virtq *vq,
     VHD_LOG_DEBUG("cnt = %d inflight requests should be resubmitted", cnt);
     for (i = 0; i < cnt; i++) {
         res = virtq_dequeue_one(vq, mm, resubmit_array[i].head,
-                handle_buffers_cb, arg);
+                handle_buffers_cb, arg, true);
         if (res) {
             break;
         }
@@ -427,12 +428,11 @@ int virtq_dequeue_many(struct virtio_virtq *vq,
     for (i = 0; i < num_avail; ++i) {
         /* Grab next descriptor head */
         head = vq->avail->ring[vq->last_avail % vq->qsz];
-        res = virtq_dequeue_one(vq, mm, head, handle_buffers_cb, arg);
+        res = virtq_dequeue_one(vq, mm, head, handle_buffers_cb, arg, false);
         if (res) {
             goto queue_broken;
         }
 
-        virtq_inflight_avail_update(vq, head);
         vq->stat.metrics.request_total++;
     }
 
@@ -447,7 +447,8 @@ queue_broken:
 static int virtq_dequeue_one(struct virtio_virtq *vq,
                              struct vhd_guest_memory_map *mm, uint16_t head,
                              virtq_handle_buffers_cb handle_buffers_cb,
-                             void *arg)
+                             void *arg,
+                             bool resubmit)
 {
     uint16_t descnum;
     uint16_t chain_len = 0;
@@ -525,6 +526,10 @@ static int virtq_dequeue_one(struct virtio_virtq *vq,
     priv->mm = mm;
     /* matched with unref in virtq_commit_buffers */
     vhd_memmap_ref(mm);
+
+    if (!resubmit) {
+        virtq_inflight_avail_update(vq, head);
+    }
 
     /* Send this over to handler */
     handle_buffers_cb(arg, vq, &priv->iov);
