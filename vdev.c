@@ -1672,8 +1672,8 @@ static int vring_io_event(void *ctx)
      * and then disable queue?
      */
     if (!vring->is_enabled) {
-        VHD_LOG_ERROR("Somehow we got an event on disabled vring");
-        return -EINVAL;
+        VHD_LOG_WARN("Somehow we got an event on disabled vring %d", vring->id);
+        return 0;
     }
 
     /*
