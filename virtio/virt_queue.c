@@ -59,6 +59,11 @@ static int add_buffer(struct virtio_virtq *vq, void *addr, size_t len,
                       bool write_only)
 {
     if (vq->next_buffer == vq->qsz) {
+        /*
+         * We always reserve space beforehand, so this is a descriptor
+         * loop
+         */
+        VHD_LOG_ERROR("Descriptor loop found, vring is broken");
         return -ENOSPC;
     }
 
@@ -77,6 +82,7 @@ static int map_buffer(struct virtio_virtq *vq, struct vhd_guest_memory_map *mm,
 {
     void *addr = virtio_map_guest_phys_range(mm, gpa, len);
     if (!addr) {
+        VHD_LOG_ERROR("Failed to map GPA 0x%lx, vring is broken", gpa);
         return -EINVAL;
     }
 
@@ -505,12 +511,7 @@ static int virtq_dequeue_one(struct virtio_virtq *vq,
             res = map_buffer(vq, mm, desc.addr, desc.len,
                              desc.flags & VIRTQ_DESC_F_WRITE);
             if (res != 0) {
-                /*
-                 * We always reserve space beforehand, so this is a descriptor
-                 * loop
-                 */
-                VHD_LOG_ERROR("Descriptor loop found, vring is broken");
-                return -EINVAL;
+                return res;
             }
         }
 
