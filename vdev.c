@@ -81,6 +81,10 @@ static int net_recv_msg(int fd, struct vhost_user_msg *msg,
     } else if (msgh.msg_flags & MSG_CTRUNC) {
         VHD_LOG_ERROR("recvmsg(): file descriptor array truncated");
         return -ENOBUFS;
+    } else if (msg->size > sizeof(msg->payload)) {
+        VHD_LOG_ERROR("Payload size = %d exceeds buffer size = %lu",
+                msg->size, sizeof(msg->payload));
+        return -EMSGSIZE;
     }
 
     /* Fill in file descriptors, if any. */
