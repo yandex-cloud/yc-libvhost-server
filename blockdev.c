@@ -39,6 +39,9 @@ static int vblk_set_features(struct vhd_vdev *vdev, uint64_t features)
     return 0;
 }
 
+/* vhost_get_config assumes that config is less than VHOST_USER_CONFIG_SPACE_MAX */
+VHD_STATIC_ASSERT(sizeof(struct virtio_blk_config) <= VHOST_USER_CONFIG_SPACE_MAX);
+
 static size_t vblk_get_config(struct vhd_vdev *vdev, void *cfgbuf,
                               size_t bufsize, size_t offset)
 {
