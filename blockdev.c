@@ -40,13 +40,17 @@ static int vblk_set_features(struct vhd_vdev *vdev, uint64_t features)
 }
 
 static size_t vblk_get_config(struct vhd_vdev *vdev, void *cfgbuf,
-                              size_t bufsize)
+                              size_t bufsize, size_t offset)
 {
     struct vhd_bdev *dev = VHD_BLOCKDEV_FROM_VDEV(vdev);
 
-    size_t data_size = MIN(bufsize, sizeof(dev->vblk.config));
+    if (offset >= sizeof(dev->vblk.config)) {
+        return 0;
+    }
 
-    memcpy(cfgbuf, (char *)(&dev->vblk.config), data_size);
+    size_t data_size = MIN(bufsize, sizeof(dev->vblk.config) - offset);
+
+    memcpy(cfgbuf, (char *)(&dev->vblk.config) + offset, data_size);
 
     return data_size;
 }
