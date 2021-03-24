@@ -693,15 +693,25 @@ out:
 
 static int vhost_get_config(struct vhd_vdev *vdev, struct vhost_user_msg *msg)
 {
-    VHD_LOG_TRACE();
 
-    struct vhost_user_config_space *config;
+    struct vhost_user_config_space *config = &msg->payload.config;
 
-    config = &msg->payload.config;
-    config->size = vhd_vdev_get_config(vdev, config->payload, config->size);
+    VHD_LOG_DEBUG("msg->size %d, config->size %d",
+                  msg->size,
+                  config->size);
+
+    /* check that msg has enough space for requested buffer */
+    if (msg->size < VHOST_CONFIG_HDR_SIZE + config->size) {
+        VHD_LOG_WARN("Message size is not enough for requested data");
+        config->size = msg->size - VHOST_CONFIG_HDR_SIZE;
+    }
+
+    config->size = vhd_vdev_get_config(vdev,
+                                       config->payload,
+                                       config->size);
 
     msg->flags = VHOST_USER_MSG_FLAGS_REPLY;
-    msg->size = sizeof(*config) - sizeof(config->payload) + config->size;
+
     return vhost_send(vdev, msg);
 }
 

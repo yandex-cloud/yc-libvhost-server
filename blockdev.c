@@ -43,14 +43,12 @@ static size_t vblk_get_config(struct vhd_vdev *vdev, void *cfgbuf,
                               size_t bufsize)
 {
     struct vhd_bdev *dev = VHD_BLOCKDEV_FROM_VDEV(vdev);
-    struct virtio_blk_config *blk_config = (struct virtio_blk_config *)cfgbuf;
 
-    if (bufsize < sizeof(struct virtio_blk_config)) {
-        return 0;
-    }
+    size_t data_size = MIN(bufsize, sizeof(dev->vblk.config));
 
-    *blk_config = dev->vblk.config;
-    return sizeof(*blk_config);
+    memcpy(cfgbuf, (char *)(&dev->vblk.config), data_size);
+
+    return data_size;
 }
 
 static int vblk_dispatch(struct vhd_vdev *vdev, struct vhd_vring *vring,
