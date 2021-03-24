@@ -711,6 +711,11 @@ static int vhost_get_config(struct vhd_vdev *vdev, struct vhost_user_msg *msg)
                                        config->size,
                                        config->offset);
 
+    /* zero-fill leftover space */
+    memset(config->payload + config->size,
+           0,
+           msg->size - VHOST_CONFIG_HDR_SIZE - config->size);
+
     msg->flags = VHOST_USER_MSG_FLAGS_REPLY;
 
     return vhost_send(vdev, msg);
