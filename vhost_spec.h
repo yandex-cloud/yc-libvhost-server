@@ -137,6 +137,7 @@ struct vhost_user_config_space {
     uint32_t flags;
     uint8_t payload[VHOST_USER_CONFIG_SPACE_MAX];
 } __attribute__((packed));
+#define VHOST_CONFIG_HDR_SIZE (offsetof(struct vhost_user_config_space, payload))
 
 struct vhost_user_inflight_desc {
     uint64_t mmap_size;
