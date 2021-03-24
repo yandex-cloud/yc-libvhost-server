@@ -40,7 +40,8 @@ struct vhd_vdev_type {
     /* Polymorphic type ops */
     uint64_t (*get_features)(struct vhd_vdev *vdev);
     int (*set_features)(struct vhd_vdev *vdev, uint64_t features);
-    size_t (*get_config)(struct vhd_vdev *vdev, void *cfgbuf, size_t bufsize);
+    size_t (*get_config)(struct vhd_vdev *vdev, void *cfgbuf,
+                         size_t bufsize, size_t offset);
     int (*dispatch_requests)(struct vhd_vdev *vdev, struct vhd_vring *vring,
                              struct vhd_request_queue *rq);
     void (*free)(struct vhd_vdev *vdev);
@@ -196,10 +197,10 @@ static inline int vhd_vdev_set_features(struct vhd_vdev *vdev,
 }
 
 static inline size_t vhd_vdev_get_config(struct vhd_vdev *vdev, void *cfgbuf,
-                                         size_t bufsize)
+                                         size_t bufsize, size_t offset)
 {
     VHD_ASSERT(vdev && vdev->type && vdev->type->get_config);
-    return vdev->type->get_config(vdev, cfgbuf, bufsize);
+    return vdev->type->get_config(vdev, cfgbuf, bufsize, offset);
 }
 
 static inline int vhd_vdev_dispatch_requests(struct vhd_vdev *vdev,

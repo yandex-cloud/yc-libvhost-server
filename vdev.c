@@ -708,7 +708,8 @@ static int vhost_get_config(struct vhd_vdev *vdev, struct vhost_user_msg *msg)
 
     config->size = vhd_vdev_get_config(vdev,
                                        config->payload,
-                                       config->size);
+                                       config->size,
+                                       config->offset);
 
     msg->flags = VHOST_USER_MSG_FLAGS_REPLY;
 
