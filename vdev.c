@@ -487,7 +487,8 @@ static const uint64_t g_default_protocol_features =
     (1UL << VHOST_USER_PROTOCOL_F_INFLIGHT_SHMFD);
 
 static int vring_io_event(void *ctx);
-static int vring_set_enable(struct vhd_vring *vring, bool do_enable);
+static int vring_enable(struct vhd_vring *vring);
+static void vring_disable(struct vhd_vring *vring);
 
 static inline bool has_feature(uint64_t features_qword, size_t feature_bit)
 {
@@ -795,7 +796,7 @@ static int vhost_set_vring_fd_common(struct vhd_vdev *vdev,
          */
         if (!has_feature(vdev->negotiated_features,
                          VHOST_USER_F_PROTOCOL_FEATURES)) {
-            return vring_set_enable(vring, true);
+            return vring_enable(vring);
         }
 
         break;
@@ -913,11 +914,7 @@ static int vhost_get_vring_base(struct vhd_vdev *vdev,
      */
     if (!has_feature(vdev->negotiated_features,
                      VHOST_USER_F_PROTOCOL_FEATURES)) {
-        int error = vring_set_enable(vring, false);
-        if (error) {
-            VHD_LOG_ERROR("Could not disable vring: %d", error);
-            return error;
-        }
+        vring_disable(vring);
     }
 
     return vhost_send_vring_state(vdev, msg, vring->vq.last_avail);
@@ -1704,57 +1701,63 @@ static int vring_io_event(void *ctx)
     return vhd_vdev_dispatch_requests(vring->vdev, vring);
 }
 
-static int vring_set_enable(struct vhd_vring *vring, bool do_enable)
+static int vring_enable(struct vhd_vring *vring)
 {
-    if (do_enable == vring->is_enabled) {
-        VHD_LOG_WARN(
-            "strange VRING_ENABLE call from client (vring %d is already %s)",
-            vring->id, vring->is_enabled ? "enabled" : "disabled");
+    int res;
+
+    if (vring->is_enabled) {
+        VHD_LOG_ERROR("Try to enable already enabled vring: vring %d",
+                      vring->id);
         return 0;
     }
 
-    if (do_enable) {
-        int res;
+    vring_inflight_addr_init(vring);
+    res = virtio_virtq_attach(&vring->vq,
+              vring->client_info.flags,
+              vring->client_info.desc_addr,
+              vring->client_info.avail_addr,
+              vring->client_info.used_addr,
+              vring->client_info.used_gpa_base,
+              vring->client_info.num,
+              vring->client_info.base,
+              vring->client_info.inflight_addr);
+    if (res != 0) {
+        VHD_LOG_ERROR("virtq attach failed: %d", res);
+       return res;
+    }
 
-        vring_inflight_addr_init(vring);
-        res = virtio_virtq_attach(&vring->vq,
-                vring->client_info.flags,
-                vring->client_info.desc_addr,
-                vring->client_info.avail_addr,
-                vring->client_info.used_addr,
-                vring->client_info.used_gpa_base,
-                vring->client_info.num,
-                vring->client_info.base,
-                vring->client_info.inflight_addr);
-        if (res != 0) {
-            VHD_LOG_ERROR("virtq attach failed: %d", res);
-            return res;
-        }
+    virtq_set_notify_fd(&vring->vq, vring->callfd);
 
-        virtq_set_notify_fd(&vring->vq, vring->callfd);
+    static const struct vhd_event_ops g_vring_ops = {
+        .read = vring_io_event,
+    };
 
-        static const struct vhd_event_ops g_vring_ops = {
-            .read = vring_io_event,
-        };
+    vring->kickev.priv = vring;
+    vring->kickev.ops = &g_vring_ops;
+    vring->is_enabled = true;
+    res = vhd_attach_event(vring->vdev->rq, vring->kickfd, &vring->kickev);
 
-        vring->kickev.priv = vring;
-        vring->kickev.ops = &g_vring_ops;
-        vring->is_enabled = true;
-        res = vhd_attach_event(vring->vdev->rq, vring->kickfd, &vring->kickev);
-        if (res != 0) {
-            vring->is_enabled = false;
-            virtio_virtq_release(&vring->vq);
-            VHD_LOG_ERROR("Could not create vring event from kickfd: %d", res);
-            return res;
-        }
-
-    } else {
-        vhd_detach_event(vring->vdev->rq, vring->kickfd);
+    if (res != 0) {
         vring->is_enabled = false;
         virtio_virtq_release(&vring->vq);
+        VHD_LOG_ERROR("Could not create vring event from kickfd: %d", res);
+        return res;
     }
 
     return 0;
+}
+
+static void vring_disable(struct vhd_vring *vring)
+{
+    if (!vring->is_enabled) {
+        VHD_LOG_ERROR("Try to disable already disabled vring: %d",
+                      vring->id);
+        return;
+    }
+
+    vhd_detach_event(vring->vdev->rq, vring->kickfd);
+    vring->is_enabled = false;
+    virtio_virtq_release(&vring->vq);
 }
 
 void vhd_vring_init(struct vhd_vring *vring, int id, struct vhd_vdev *vdev)
@@ -1780,7 +1783,7 @@ void vhd_vring_stop(struct vhd_vring *vring)
         return;
     }
 
-    vring_set_enable(vring, false);
+    vring_disable(vring);
 }
 
 /*////////////////////////////////////////////////////////////////////////////*/
