@@ -49,7 +49,7 @@ struct virtio_virtq {
     int qsz;
 
     /* Shadow avail ring index */
-    int last_avail;
+    uint16_t  last_avail;
 
     /*
      * 2.4.5.3.1: A driver MUST NOT create a descriptor chain longer than
