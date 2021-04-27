@@ -12,7 +12,7 @@
 extern "C" {
 #endif
 
-struct vhd_vdev;
+struct vhd_vring;
 struct vhd_request_queue;
 
 struct vhd_bio {

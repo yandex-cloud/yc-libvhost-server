@@ -525,18 +525,22 @@ static int vhost_send_reply(struct vhd_vdev *vdev,
     return vhost_send(vdev, &reply);
 }
 
-static int vhost_send_vring_state(struct vhd_vdev *vdev,
-                                  const struct vhost_user_msg *msgin,
-                                  int last_avail)
+static int vhost_send_vring_base(struct vhd_vring *vring)
 {
+    int ret;
     struct vhost_user_msg reply;
-    reply.req = msgin->req;
+    reply.req = VHOST_USER_GET_VRING_BASE;
     reply.size = sizeof(reply.payload.vring_state);
     reply.flags = VHOST_USER_MSG_FLAGS_REPLY;
-    reply.payload.vring_state.index = msgin->payload.vring_state.index;
-    reply.payload.vring_state.num = last_avail;
+    reply.payload.vring_state.index = vring->id;
+    reply.payload.vring_state.num = vring->vq.last_avail;
 
-    return vhost_send(vdev, &reply);
+    ret = vhost_send(vring->vdev, &reply);
+    if (ret) {
+        VHD_LOG_ERROR("Can't send vring base to master. vring id: %d",
+                      vring->id);
+    }
+    return ret;
 }
 
 static int vhost_get_protocol_features(struct vhd_vdev *vdev,
@@ -917,7 +921,7 @@ static int vhost_get_vring_base(struct vhd_vdev *vdev,
         vring_disable(vring);
     }
 
-    return vhost_send_vring_state(vdev, msg, vring->vq.last_avail);
+    return vhost_send_vring_base(vring);
 }
 
 static int vhost_set_vring_addr(struct vhd_vdev *vdev,
