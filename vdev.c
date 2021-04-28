@@ -1760,12 +1760,7 @@ static int vring_io_event(void *ctx)
     struct vhd_vring *vring = (struct vhd_vring *) ctx;
     VHD_ASSERT(vring);
 
-    /*
-     * TODO: is it possible for client to enqueue a bunch of requests
-     * and then disable queue?
-     */
     if (!vring->is_enabled) {
-        VHD_LOG_WARN("Somehow we got an event on disabled vring %d", vring->id);
         return 0;
     }
 
