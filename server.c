@@ -207,7 +207,7 @@ int vhd_run_queue(struct vhd_request_queue *rq)
 void vhd_stop_queue(struct vhd_request_queue *rq)
 {
     VHD_VERIFY(rq);
-    vhd_interrupt_event_loop(rq->evloop);
+    vhd_terminate_event_loop(rq->evloop);
 }
 
 bool vhd_dequeue_request(struct vhd_request_queue *rq,
