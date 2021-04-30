@@ -1320,10 +1320,6 @@ void vhd_vdev_release(struct vhd_vdev *vdev)
     close(vdev->listenfd);
     close(vdev->connfd);
 
-    for (uint32_t i = 0; i < vdev->max_queues; ++i) {
-        virtio_virtq_release(&vdev->vrings[i].vq);
-    }
-
     vhd_vdev_inflight_cleanup(vdev);
 
     LIST_REMOVE(vdev, vdev_list);
