@@ -165,6 +165,7 @@ struct vhd_request_queue *vhd_create_request_queue(void)
 
 void vhd_release_request_queue(struct vhd_request_queue *rq)
 {
+    assert(vhd_event_loop_terminated(rq->evloop));
     assert(TAILQ_EMPTY(&rq->submission));
     assert(SLIST_EMPTY(&rq->completion));
     vhd_bh_delete(rq->completion_bh);
