@@ -72,6 +72,9 @@ struct vhd_event_loop {
     struct epoll_event *events;
     size_t max_events;
 
+    /* number of currently attached events */
+    atomic_int num_events_attached;
+
     vhd_bh_list bh_list;
 };
 
@@ -281,6 +284,7 @@ struct vhd_event_loop *vhd_create_event_loop(size_t max_events)
     evloop->max_events = max_events + 1; /* +1 for interrupt eventfd */
     evloop->events = vhd_calloc(sizeof(evloop->events[0]), evloop->max_events);
     SLIST_INIT(&evloop->bh_list);
+    atomic_set(&evloop->num_events_attached, 0);
 
     return evloop;
 
@@ -352,11 +356,22 @@ void vhd_terminate_event_loop(struct vhd_event_loop *evloop)
  */
 void vhd_free_event_loop(struct vhd_event_loop *evloop)
 {
+    VHD_ASSERT(atomic_read(&evloop->num_events_attached) == 0);
     bh_cleanup(evloop);
     close(evloop->epollfd);
     close(evloop->interruptfd);
     vhd_free(evloop->events);
     vhd_free(evloop);
+}
+
+static void event_loop_inc_events(struct vhd_event_loop *evloop)
+{
+    VHD_ASSERT(atomic_fetch_inc(&evloop->num_events_attached) >= 0);
+}
+
+static void event_loop_dec_events(struct vhd_event_loop *evloop)
+{
+   VHD_ASSERT(atomic_fetch_dec(&evloop->num_events_attached) > 0);
 }
 
 int vhd_add_event(struct vhd_event_loop *evloop, int fd,
@@ -371,6 +386,7 @@ int vhd_add_event(struct vhd_event_loop *evloop, int fd,
         VHD_LOG_ERROR("Can't add event: %d", errno);
         return -errno;
     }
+    event_loop_inc_events(evloop);
 
     return 0;
 }
@@ -381,6 +397,7 @@ int vhd_del_event(struct vhd_event_loop *evloop, int fd)
         VHD_LOG_ERROR("Can't delete event: %d", errno);
         return -errno;
     }
+    event_loop_dec_events(evloop);
 
     return 0;
 }
