@@ -1385,6 +1385,21 @@ static int change_device_state(struct vhd_vdev *vdev,
             goto invalid_transition;
         };
 
+    } else if (new_state == VDEV_TERMINATING) {
+
+        switch (vdev->state) {
+        case VDEV_LISTENING:
+            vhd_del_vhost_event(vdev->listenfd);
+            break;
+        case VDEV_CONNECTED:
+            vhd_del_vhost_event(vdev->connfd);
+            break;
+        case VDEV_INITIALIZED:
+            break;
+        default:
+            goto invalid_transition;
+        };
+
     } else {
         goto invalid_transition;
     }
@@ -1657,6 +1672,7 @@ void vhd_vdev_stop_server(struct vhd_vdev *vdev,
         vdev->unregister_arg = arg;
     }
 
+    change_device_state(vdev, VDEV_TERMINATING);
     vhd_vdev_stop(vdev);
     vhd_run_in_rq(vdev->rq, vdev_unregister_bh, vdev);
 }

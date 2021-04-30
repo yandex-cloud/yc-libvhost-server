@@ -28,6 +28,11 @@ enum vhd_vdev_state {
      * handshake
      */
     VDEV_CONNECTED,
+
+    /*
+     * Device is being unregistered
+     */
+    VDEV_TERMINATING,
 };
 
 /**
