@@ -21,14 +21,15 @@ static inline void free_vhost_event_loop(void)
 
 static void *vhost_evloop_func(void *arg)
 {
+    int res;
     VHD_UNUSED(arg);
 
-    while (!vhd_event_loop_terminated(g_vhost_evloop)) {
-        int res = vhd_run_event_loop(g_vhost_evloop, -1);
-        if (res < 0) {
-            VHD_LOG_ERROR("vhost event loop iteration failed: %d", res);
-            break;
-        }
+    do {
+        res = vhd_run_event_loop(g_vhost_evloop, -1);
+    } while (res == -EAGAIN);
+
+    if (res < 0) {
+        VHD_LOG_ERROR("vhost event loop iteration failed: %d", res);
     }
 
     return NULL;
@@ -196,13 +197,7 @@ int vhd_run_queue(struct vhd_request_queue *rq)
 {
     VHD_VERIFY(rq);
 
-    int res = vhd_run_event_loop(rq->evloop, -1);
-    if (res < 0) {
-        VHD_LOG_ERROR("vhd_run_event_loop returned %d", res);
-        return res;
-    }
-
-    return 0;
+    return vhd_run_event_loop(rq->evloop, -1);
 }
 
 void vhd_stop_queue(struct vhd_request_queue *rq)
