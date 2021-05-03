@@ -69,6 +69,10 @@ void vhd_release_request_queue(struct vhd_request_queue *rq);
 /**
  * Run queue in calling thread.
  * Will block until any of the devices enqueue requests.
+ * Returns:
+ *    0         - when the request queue shouldn't be running any more
+ *   -EAGAIN    - when the request should be running further
+ *   <0         - on other errors
  */
 int vhd_run_queue(struct vhd_request_queue *rq);
 

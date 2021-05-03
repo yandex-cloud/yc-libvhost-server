@@ -303,10 +303,10 @@ int vhd_run_event_loop(struct vhd_event_loop *evloop, int timeout_ms)
     int nev = epoll_wait(evloop->epollfd, evloop->events, evloop->max_events,
                          timeout_ms);
     if (!nev) {
-        return 0;
+        return -EAGAIN;
     } else if (nev < 0) {
         if (errno == EINTR) {
-            return 0;
+            return -EAGAIN;
         }
 
         VHD_LOG_ERROR("epoll_wait internal error: %d", errno);
@@ -322,7 +322,7 @@ int vhd_run_event_loop(struct vhd_event_loop *evloop, int timeout_ms)
         return -EIO;
     }
 
-    return nev;
+    return -EAGAIN;
 }
 
 void vhd_interrupt_event_loop(struct vhd_event_loop *evloop)
