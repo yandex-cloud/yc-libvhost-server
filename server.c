@@ -250,6 +250,8 @@ void vhd_complete_bio(struct vhd_bdev_io *bdev_io,
     struct vhd_request_queue *rq = bio->rq;
     bio->status = status;
 
+    VHD_ASSERT(!vhd_event_loop_terminated(rq->evloop));
+
     /*
      * if this is not the first completion on the list scheduling the bh can be
      * skipped because the first one must have done so
