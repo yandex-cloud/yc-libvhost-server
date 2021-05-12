@@ -152,7 +152,7 @@ static int net_send_msg_fds(int fd, const struct vhost_user_msg *msg,
     if (len < 0) {
         VHD_LOG_ERROR("sendmsg() failed: %d", errno);
         return -errno;
-    } else if (len != (VHOST_MSG_HDR_SIZE + msg->size)) {
+    } else if ((unsigned)len != (VHOST_MSG_HDR_SIZE + msg->size)) {
         VHD_LOG_ERROR("sendmsg() puts less bytes = %d, than required = %lu",
                 len, VHOST_MSG_HDR_SIZE + msg->size);
         return -EIO;
@@ -408,7 +408,7 @@ void vhd_gpa_range_mark_dirty(struct vhd_guest_memory_map *mm,
      */
     do {
         uint64_t mask = 0UL;
-        int chunk = page / 64;
+        uint64_t chunk = page / 64;
         for (; page <= last_page && page / 64 == chunk; ++page) {
             mask |= 1LU << (page % 64);
         }
