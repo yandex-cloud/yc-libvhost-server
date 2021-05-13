@@ -1844,7 +1844,6 @@ int vhd_vdev_get_queue_stat(struct vhd_vdev *vdev, uint32_t queue_num,
                             struct vhd_vq_metrics *metrics)
 {
     VHD_VERIFY(vdev);
-    VHD_VERIFY(stat);
 
     if (queue_num >= vdev->num_queues) {
         return -EINVAL;
