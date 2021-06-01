@@ -969,20 +969,6 @@ static int vhost_set_vring_addr(struct vhd_vdev *vdev,
     return 0;
 }
 
-static int vhost_set_vring_enable(struct vhd_vdev *vdev,
-                                  struct vhost_user_msg *msg)
-{
-    VHD_LOG_TRACE();
-
-    struct vhost_user_vring_state *vrstate = &msg->payload.vring_state;
-    struct vhd_vring *vring = get_vring(vdev, vrstate->index);
-    if (!vring) {
-        return EINVAL;
-    }
-
-    return vring_set_enable(vring, vrstate->num == 1);
-}
-
 bool vhd_logging_started(struct virtio_virtq *vq)
                                  __attribute__ ((weak));
 bool vhd_logging_started(struct virtio_virtq *vq)
@@ -1255,9 +1241,14 @@ static int vhost_handle_request(struct vhd_vdev *vdev,
         ret = vhost_set_vring_addr(vdev, msg);
         break;
     case VHOST_USER_SET_VRING_ENABLE:
-        ret = vhost_set_vring_enable(vdev, msg);
-        break;
-
+        /*
+         * qemu doesn't use VHOST_USER_SET_VRING_ENABLE because it doesn't
+         * negotiate VHOST_USER_F_PROTOCOL_FEATURES. It seems it is and will be
+         * so for a while. So we remove VHOST_USER_SET_VRING_ENABLE handler to
+         * get rid from the dead code.
+         */
+        VHD_LOG_ERROR("Got unexpected VHOST_USER_SET_VRING_ENABLE command");
+        /* fall through to ENOTSUP */
     /*
      * TODO
      */
