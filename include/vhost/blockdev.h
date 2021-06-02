@@ -50,8 +50,11 @@ struct vhd_bdev_io {
  * Client-supplied block device backend definition
  */
 struct vhd_bdev_info {
-    /* Blockdev id, will be used to create listen sockets */
-    const char *id;
+    /* Blockdev serial */
+    const char *serial;
+
+    /* Path to create listen sockets */
+    const char *socket_path;
 
     /* Block size in bytes */
     uint32_t block_size;
