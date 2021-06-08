@@ -29,7 +29,7 @@ struct virtio_blk_dev;
 /**
  * Virtio block I/O dispatch context.
  */
-typedef int virtio_blk_io_dispatch(struct virtio_blk_dev *vblk,
+typedef int virtio_blk_io_dispatch(struct virtio_virtq *vq,
                                    struct vhd_bio *bio);
 
 /**

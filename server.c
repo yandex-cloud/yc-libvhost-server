@@ -140,7 +140,8 @@ static void rq_complete_bh(void *opaque)
         }
         SLIST_REMOVE_HEAD(&bio_list, completion_link);
 
-        struct vhd_vdev *vdev = bio->vdev;
+        /* completion_handler destroys bio. save vdev for unref */
+        struct vhd_vdev *vdev = bio->vring->vdev;
         bio->completion_handler(bio);
 
         vdev_unref(vdev);
@@ -217,17 +218,16 @@ bool vhd_dequeue_request(struct vhd_request_queue *rq,
 
     TAILQ_REMOVE(&rq->submission, bio, submission_link);
 
-    out_req->vdev = bio->vdev;
+    out_req->vdev = bio->vring->vdev;
     out_req->bio = &bio->bdev_io;
 
     return true;
 }
 
-int vhd_enqueue_block_request(struct vhd_request_queue *rq,
-                              struct vhd_vdev *vdev, struct vhd_bio *bio)
+
+int vhd_enqueue_block_request(struct vhd_request_queue *rq, struct vhd_bio *bio)
 {
-    bio->rq = rq;
-    bio->vdev = vdev;
+    struct vhd_vdev *vdev = bio->vring->vdev;
 
     vdev_ref(vdev);
 
@@ -243,7 +243,7 @@ void vhd_complete_bio(struct vhd_bdev_io *bdev_io,
                       enum vhd_bdev_io_result status)
 {
     struct vhd_bio *bio = containerof(bdev_io, struct vhd_bio, bdev_io);
-    struct vhd_request_queue *rq = bio->rq;
+    struct vhd_request_queue *rq = bio->vring->vdev->rq;
     bio->status = status;
 
     VHD_ASSERT(!vhd_event_loop_terminated(rq->evloop));
