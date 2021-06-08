@@ -126,20 +126,15 @@ struct vhd_vdev {
     uint64_t inflight_size;
 
     /**
-     * Refcounting and delayed release
-     * refcont is not atomic and after vdev is registered it must be modified
-     * only from event loop to be consistent, for unregister bottom half is used
+     * Refcount and callback for device stopping
      */
-    uint64_t refcount;
+    atomic_uint refcount;
     void (*unregister_cb)(void *);
     void *unregister_arg;
 
     /** Global vdev list */
     LIST_ENTRY(vhd_vdev) vdev_list;
 };
-
-void vdev_ref(struct vhd_vdev *vdev);
-void vdev_unref(struct vhd_vdev *vdev);
 
 /**
  * Create and run default vhost event loop.
@@ -266,7 +261,21 @@ struct vhd_vring {
 
     /* Low-level virtio queue */
     struct virtio_virtq vq;
+
+    /*
+     * Is called when vring is drained.
+     */
+    int (*on_drain_cb)(struct vhd_vring *);
+
+   /*
+    * refcount for in-flight requests per vring
+    * not atomic - is supposed to be accessed from vdev's request queue (bh)
+    */
+    uint64_t refcount;
 };
+
+void vhd_vring_ref(struct vhd_vring *vring);
+void vhd_vring_unref(struct vhd_vring *vring);
 
 /**
  * Initialize vring

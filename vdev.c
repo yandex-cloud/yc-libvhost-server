@@ -898,6 +898,17 @@ static int vhost_set_vring_base(struct vhd_vdev *vdev,
     return 0;
 }
 
+static void vring_set_on_drain_cb(struct vhd_vring *vring,
+                                  int (*on_drain_cb)(struct vhd_vring *))
+{
+    vring->on_drain_cb = on_drain_cb;
+}
+
+static void vring_clear_on_drain_cb(struct vhd_vring *vring)
+{
+    vring->on_drain_cb = NULL;
+}
+
 static int vhost_get_vring_base(struct vhd_vdev *vdev,
                                 struct vhost_user_msg *msg)
 {
@@ -918,7 +929,15 @@ static int vhost_get_vring_base(struct vhd_vdev *vdev,
      */
     if (!has_feature(vdev->negotiated_features,
                      VHOST_USER_F_PROTOCOL_FEATURES)) {
+        /*
+         * we don't reply to the command at once but send a reply when
+         * the vring is drained. qemu won't send another commands until
+         * it gets the reply from this one.
+         */
+        vring_set_on_drain_cb(vring, vhost_send_vring_base);
+        /* callback we just set will be cleared when the vring is drained */
         vring_disable(vring);
+        return 0;
     }
 
     return vhost_send_vring_base(vring);
@@ -1304,7 +1323,6 @@ void vhd_vdev_stop(struct vhd_vdev *vdev)
     for (uint32_t i = 0; i < vdev->max_queues; ++i) {
         vhd_vring_stop(vdev->vrings + i);
     }
-
 }
 
 void vhd_vdev_release(struct vhd_vdev *vdev)
@@ -1569,20 +1587,75 @@ close_fd:
     return -1;
 }
 
-void vdev_ref(struct vhd_vdev *vdev)
+static void vdev_ref(struct vhd_vdev *vdev)
 {
-    vdev->refcount++;
+    atomic_inc(&vdev->refcount);
 }
 
-void vdev_unref(struct vhd_vdev *vdev)
+static void vdev_unref(struct vhd_vdev *vdev)
 {
-    vdev->refcount--;
-
-    if (!vdev->refcount) {
+    /* check refcount drops to 0 */
+    if (atomic_fetch_dec(&vdev->refcount) == 1) {
         if (vdev->unregister_cb) {
             vdev->unregister_cb(vdev->unregister_arg);
         }
         vhd_vdev_release(vdev);
+    }
+}
+
+/*
+ * We use two different types of refcounters for device:
+ *  - per-vring refcounter
+ *  - per-device refcounter
+ * Per-vring refcounter counts active requests for its vring, also
+ * it does ref vring when it's enabled and does unref vring when its disabled.
+ * Vring does ref for each request as soon as it's consumed from
+ * virtio vitqueue and unref when the request completion has processed.
+ *
+ * When per-vring refcounter drops to 0 it calls darin callback if set.
+ * The vring refcounter drops to 0 only when there're no active requests and
+ *    vring is DISABLED.
+ * Another words, to make a vring call the drain callback
+ * one needs to disable vring and let it wait for all its active requests
+ * send their completions. In this case, after the last completion vring does
+ * unref which calls the vring drain callback.
+ * Vring draining is based on vring refcounting (see vhost_get_vring_base).
+ *
+ * Per-device refcounter counts sum of enabled vrings. It is initialized with 1
+ * and does unref on vdev stopping.
+ * When per-device refcounter drops to 0 it calls its special callback (if set)
+ * This notification may happen:
+ *     - on the last device request completion
+ *     - on the last vring disabling if there were no in-flight reuests
+ *     - on the device unref if there were no enabled vrings
+ * Device stopping is based on vdev refcounting (see vhd_vdev_stop_server)
+ */
+
+/* called from vdev's request queue */
+void vhd_vring_ref(struct vhd_vring *vring)
+{
+    vring->refcount++;
+}
+
+/* called from vdev's request queue */
+void vhd_vring_unref(struct vhd_vring *vring)
+{
+    vring->refcount--;
+    /*
+     * vring->refcount == 0 only when we unref-ed vring
+     * for disabling
+     */
+    if (!vring->refcount) {
+        if (vring->on_drain_cb) {
+            vring->on_drain_cb(vring);
+            vring_clear_on_drain_cb(vring);
+            virtio_virtq_release(&vring->vq);
+        }
+        /*
+         * unref vdev on vring disabling
+         * this pairs with dev_ref in vring_enable
+         */
+        vdev_unref(vring->vdev);
     }
 }
 
@@ -1739,10 +1812,16 @@ static int vring_enable(struct vhd_vring *vring)
     vring->kickev.priv = vring;
     vring->kickev.ops = &g_vring_ops;
     vring->is_enabled = true;
+    /* pairs with unref in vring_disable_bh() */
+    vhd_vring_ref(vring);
+    /* pairs with vdev_unref in vring_unref on vring disabling */
+    vdev_ref(vring->vdev);
     res = vhd_attach_event(vring->vdev->rq, vring->kickfd, &vring->kickev);
 
     if (res != 0) {
         vring->is_enabled = false;
+        vhd_vring_unref(vring);
+        vdev_unref(vring->vdev);
         virtio_virtq_release(&vring->vq);
         VHD_LOG_ERROR("Could not create vring event from kickfd: %d", res);
         return res;
@@ -1751,17 +1830,21 @@ static int vring_enable(struct vhd_vring *vring)
     return 0;
 }
 
-static void vring_disable(struct vhd_vring *vring)
+static void vring_disable_bh(void *opaque)
 {
-    if (!vring->is_enabled) {
-        VHD_LOG_ERROR("Try to disable already disabled vring: %d",
-                      vring->id);
-        return;
-    }
-
+    struct vhd_vring *vring = (struct vhd_vring *) opaque;
     vhd_detach_event(vring->vdev->rq, vring->kickfd);
     vring->is_enabled = false;
-    virtio_virtq_release(&vring->vq);
+    /* pairs with ref in vring_enable() */
+    vhd_vring_unref(vring);
+}
+
+static void vring_disable(struct vhd_vring *vring)
+{
+    /* there should be no cases when we disable already disabled vring */
+    VHD_ASSERT(vring->is_enabled);
+
+    vhd_run_in_rq(vring->vdev->rq, vring_disable_bh, vring);
 }
 
 void vhd_vring_init(struct vhd_vring *vring, int id, struct vhd_vdev *vdev)

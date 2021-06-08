@@ -140,11 +140,10 @@ static void rq_complete_bh(void *opaque)
         }
         SLIST_REMOVE_HEAD(&bio_list, completion_link);
 
-        /* completion_handler destroys bio. save vdev for unref */
-        struct vhd_vdev *vdev = bio->vring->vdev;
+        /* completion_handler destroys bio. save vring for unref */
+        struct vhd_vring *vring = bio->vring;
         bio->completion_handler(bio);
-
-        vdev_unref(vdev);
+        vhd_vring_unref(vring);
     }
 }
 
@@ -227,9 +226,7 @@ bool vhd_dequeue_request(struct vhd_request_queue *rq,
 
 int vhd_enqueue_block_request(struct vhd_request_queue *rq, struct vhd_bio *bio)
 {
-    struct vhd_vdev *vdev = bio->vring->vdev;
-
-    vdev_ref(vdev);
+    vhd_vring_ref(bio->vring);
 
     TAILQ_INSERT_TAIL(&rq->submission, bio, submission_link);
     return 0;
