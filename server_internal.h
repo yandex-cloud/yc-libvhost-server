@@ -32,7 +32,7 @@ struct vhd_bio;
  * Enqueue block IO request
  */
 int vhd_enqueue_block_request(struct vhd_request_queue *rq,
-                              struct vhd_vdev *vdev, struct vhd_bio *bio);
+                              struct vhd_bio *bio);
 
 /**
  * Run callback in request queue

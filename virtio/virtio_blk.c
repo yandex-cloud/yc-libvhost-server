@@ -172,7 +172,7 @@ static int handle_inout(struct virtio_blk_dev *dev,
     vbio->bio.bdev_io.sglist.buffers = pdata;
     vbio->bio.completion_handler = complete_io;
 
-    int res = dev->dispatch(dev, &vbio->bio);
+    int res = dev->dispatch(vbio->vq, &vbio->bio);
     if (res != 0) {
         VHD_LOG_ERROR("bdev request submission failed with %d", res);
         fail_request(vq, iov);

@@ -22,7 +22,7 @@ struct vhd_bdev {
 LIST_HEAD(, vhd_bdev) g_bdev_list = LIST_HEAD_INITIALIZER(g_bdev_list);
 
 #define VHD_BLOCKDEV_FROM_VDEV(ptr) containerof(ptr, struct vhd_bdev, vdev)
-#define VHD_BLOCKDEV_FROM_VBLK(ptr) containerof(ptr, struct vhd_bdev, vblk)
+#define VHD_VRING_FROM_VQ(ptr) containerof(ptr, struct vhd_vring, vq)
 
 /*////////////////////////////////////////////////////////////////////////////*/
 
@@ -85,11 +85,10 @@ const struct vhd_vdev_type g_virtio_blk_vdev_type = {
     .free               = vblk_free,
 };
 
-static int vblk_handle_request(struct virtio_blk_dev *vblk, struct vhd_bio *bio)
+static int vblk_handle_request(struct virtio_virtq *vq, struct vhd_bio *bio)
 {
-    struct vhd_bdev *dev = VHD_BLOCKDEV_FROM_VBLK(vblk);
-
-    return vhd_enqueue_block_request(dev->vdev.rq, &dev->vdev, bio);
+    bio->vring = VHD_VRING_FROM_VQ(vq);
+    return vhd_enqueue_block_request(bio->vring->vdev->rq, bio);
 }
 
 struct vhd_vdev *vhd_register_blockdev(struct vhd_bdev_info *bdev,
