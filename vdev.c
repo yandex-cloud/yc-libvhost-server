@@ -1594,8 +1594,10 @@ static void vdev_ref(struct vhd_vdev *vdev)
 
 static void vdev_unref(struct vhd_vdev *vdev)
 {
+    unsigned int val = atomic_fetch_dec(&vdev->refcount);
+    VHD_ASSERT(val);
     /* check refcount drops to 0 */
-    if (atomic_fetch_dec(&vdev->refcount) == 1) {
+    if (val == 1) {
         if (vdev->unregister_cb) {
             vdev->unregister_cb(vdev->unregister_arg);
         }
@@ -1641,6 +1643,9 @@ void vhd_vring_ref(struct vhd_vring *vring)
 void vhd_vring_unref(struct vhd_vring *vring)
 {
     vring->refcount--;
+
+    VHD_ASSERT(vring->refcount >= 0);
+
     /*
      * vring->refcount == 0 only when we unref-ed vring
      * for disabling
