@@ -166,7 +166,6 @@ struct vhd_request_queue *vhd_create_request_queue(void)
 
 void vhd_release_request_queue(struct vhd_request_queue *rq)
 {
-    assert(vhd_event_loop_terminated(rq->evloop));
     assert(TAILQ_EMPTY(&rq->submission));
     assert(SLIST_EMPTY(&rq->completion));
     vhd_bh_delete(rq->completion_bh);
@@ -242,8 +241,6 @@ void vhd_complete_bio(struct vhd_bdev_io *bdev_io,
     struct vhd_bio *bio = containerof(bdev_io, struct vhd_bio, bdev_io);
     struct vhd_request_queue *rq = bio->vring->vdev->rq;
     bio->status = status;
-
-    VHD_ASSERT(!vhd_event_loop_terminated(rq->evloop));
 
     /*
      * if this is not the first completion on the list scheduling the bh can be
