@@ -62,7 +62,7 @@ struct vhd_event_loop {
     int epollfd;
 
     /* eventfd we use to cancel epoll_wait if needed */
-    int interruptfd;
+    int notifyfd;
     atomic_bool notified;
 
     /* vhd_terminate_event_loop has been completed */
@@ -78,10 +78,10 @@ struct vhd_event_loop {
     vhd_bh_list bh_list;
 };
 
-static void vhd_interrupt_event_loop(struct vhd_event_loop *evloop)
+static void evloop_notify(struct vhd_event_loop *evloop)
 {
     if (!atomic_xchg(&evloop->notified, true)) {
-        vhd_set_eventfd(evloop->interruptfd);
+        vhd_set_eventfd(evloop->notifyfd);
     }
 }
 
@@ -112,7 +112,7 @@ static void bh_enqueue(struct vhd_bh *bh, unsigned new_flags)
         SLIST_INSERT_HEAD_ATOMIC(&ctx->bh_list, bh, next);
     }
 
-    vhd_interrupt_event_loop(ctx);
+    evloop_notify(ctx);
 }
 
 /* only called from bh_poll() and bh_cleanup() */
@@ -130,8 +130,7 @@ static struct vhd_bh *bh_dequeue(vhd_bh_list *head, unsigned *flags)
      * The atomic_and is paired with bh_enqueue().  The implicit memory barrier
      * ensures that the callback sees all writes done by the scheduling thread.
      * It also ensures that the scheduling thread sees the cleared flag before
-     * bh->cb has run, and thus will call vhd_interrupt_event_loop again if
-     * necessary.
+     * bh->cb has run, and thus will call evloop_notify again if necessary.
      */
     *flags = atomic_fetch_and(&bh->flags, ~(BH_PENDING | BH_SCHEDULED));
     return bh;
@@ -260,7 +259,7 @@ static int handle_events(struct vhd_event_loop *evloop, int nevents)
 
 struct vhd_event_loop *vhd_create_event_loop(size_t max_events)
 {
-    int interruptfd = -1;
+    int notifyfd = -1;
     int epollfd = -1;
 
     epollfd = epoll_create1(0);
@@ -269,26 +268,26 @@ struct vhd_event_loop *vhd_create_event_loop(size_t max_events)
         goto error_out;
     }
 
-    interruptfd = eventfd(0, EFD_NONBLOCK);
-    if (interruptfd < 0) {
+    notifyfd = eventfd(0, EFD_NONBLOCK);
+    if (notifyfd < 0) {
         VHD_LOG_ERROR("eventfd() failed: %d", errno);
         goto error_out;
     }
 
-    /* Register interrupt eventfd, make sure it is level-triggered */
+    /* Register notify eventfd, make sure it is level-triggered */
     struct epoll_event ev = {0};
     ev.events = EPOLLIN;
-    if (epoll_ctl(epollfd, EPOLL_CTL_ADD, interruptfd, &ev) == -1) {
+    if (epoll_ctl(epollfd, EPOLL_CTL_ADD, notifyfd, &ev) == -1) {
         VHD_LOG_ERROR("Can't add event: %d", errno);
         goto error_out;
     }
 
     struct vhd_event_loop *evloop = vhd_alloc(sizeof(*evloop));
     evloop->epollfd = epollfd;
-    evloop->interruptfd = interruptfd;
+    evloop->notifyfd = notifyfd;
     atomic_set(&evloop->notified, false);
     evloop->is_terminated = false;
-    evloop->max_events = max_events + 1; /* +1 for interrupt eventfd */
+    evloop->max_events = max_events + 1; /* +1 for notify eventfd */
     evloop->events = vhd_calloc(sizeof(evloop->events[0]), evloop->max_events);
     SLIST_INIT(&evloop->bh_list);
     atomic_set(&evloop->num_events_attached, 0);
@@ -296,7 +295,7 @@ struct vhd_event_loop *vhd_create_event_loop(size_t max_events)
     return evloop;
 
 error_out:
-    close(interruptfd);
+    close(notifyfd);
     close(epollfd);
     return NULL;
 }
@@ -359,7 +358,7 @@ void vhd_free_event_loop(struct vhd_event_loop *evloop)
     VHD_ASSERT(atomic_read(&evloop->num_events_attached) == 0);
     bh_cleanup(evloop);
     close(evloop->epollfd);
-    close(evloop->interruptfd);
+    close(evloop->notifyfd);
     vhd_free(evloop->events);
     vhd_free(evloop);
 }
