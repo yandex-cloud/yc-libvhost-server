@@ -78,6 +78,21 @@ struct vhd_event_loop {
     vhd_bh_list bh_list;
 };
 
+static void vhd_interrupt_event_loop(struct vhd_event_loop *evloop)
+{
+    if (!atomic_xchg(&evloop->notified, true)) {
+        vhd_set_eventfd(evloop->interruptfd);
+    }
+}
+
+static void notify_accept(struct vhd_event_loop *evloop)
+{
+    if (atomic_read(&evloop->notified)) {
+        vhd_clear_eventfd(evloop->notifyfd);
+        atomic_xchg(&evloop->notified, false);
+    }
+}
+
 /* called concurrently from any thread */
 static void bh_enqueue(struct vhd_bh *bh, unsigned new_flags)
 {
@@ -216,14 +231,6 @@ static void bh_cleanup(struct vhd_event_loop *ctx)
     }
 }
 
-static void notify_accept(struct vhd_event_loop *evloop)
-{
-    if (atomic_read(&evloop->notified)) {
-        vhd_clear_eventfd(evloop->interruptfd);
-        atomic_xchg(&evloop->notified, false);
-    }
-}
-
 static int handle_one_event(struct vhd_event_ctx *ev, int event_code)
 {
     if ((event_code & (EPOLLIN | EPOLLERR | EPOLLRDHUP)) && ev->ops->read) {
@@ -323,13 +330,6 @@ int vhd_run_event_loop(struct vhd_event_loop *evloop, int timeout_ms)
     }
 
     return -EAGAIN;
-}
-
-void vhd_interrupt_event_loop(struct vhd_event_loop *evloop)
-{
-    if (!atomic_xchg(&evloop->notified, true)) {
-        vhd_set_eventfd(evloop->interruptfd);
-    }
 }
 
 bool vhd_event_loop_terminated(struct vhd_event_loop *evloop)

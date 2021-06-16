@@ -48,12 +48,6 @@ void vhd_free_event_loop(struct vhd_event_loop *evloop);
 int vhd_run_event_loop(struct vhd_event_loop *evloop, int timeout_ms);
 
 /**
- * Kick running event loop out of waiting before timeout expires.
- * Meant to be called in a thread parallel to vhd_run_event_loop.
- */
-void vhd_interrupt_event_loop(struct vhd_event_loop *evloop);
-
-/**
  * Abort event loop running in another thread.
  *
  * After calling this function vhd_run_event_loop should (eventually) return and
