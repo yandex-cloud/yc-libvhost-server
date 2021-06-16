@@ -152,11 +152,6 @@ int vhd_start_vhost_event_loop(void);
 void vhd_stop_vhost_event_loop(void);
 
 /**
- * Interrupt vhost event loop once
- */
-void vhd_interrupt_vhost_event_loop(void);
-
-/**
  * Init new generic vhost device in server mode
  * @socket_path     Listen socket path
  * @type            Device type description
