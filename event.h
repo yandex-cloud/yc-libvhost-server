@@ -30,45 +30,23 @@ struct vhd_event_loop *vhd_create_event_loop(size_t max_events);
 
 /**
  * Free event loop.
- *
- * May be called when event loop is running,
- * in which case it will be freed when running iteration ends.
  */
 void vhd_free_event_loop(struct vhd_event_loop *evloop);
 
 /**
- * Run event loop with timeout in milliseconds
+ * Run a single iteration of the event loop
+ *
  * @timeout     0 to return immediately, -1 to block indefinitely, milliseconds
  *              value otherwise.
  *
- * @return      Number of events handled in this run or 0 if we have been
- *              interrupted or timed out.
- *              Negative code on error.
+ * @return      0 if the event loop is terminated upon request
+ *              -EAGAIN if the event loop should keep going
+ *              another negative code on error
  */
 int vhd_run_event_loop(struct vhd_event_loop *evloop, int timeout_ms);
 
 /**
- * Abort event loop running in another thread.
- *
- * After calling this function vhd_run_event_loop should (eventually) return and
- * will always immediately return 0 on subsequent run attempts (but it is still
- * safe to attempt to run).
- *
- * vhd_event_loop_terminated will also start to return true.
- * Assumed caller pattern is to poll termination in one thread and terminate
- * from another, i.e.:
- *
- * Thread 1:
- * --------
- * while (!vhd_event_loop_terminated(evloop)) {
- *     vhd_event_loop_run(evloop);
- * }
- *
- * vhd_event_loop_free(evloop);
- *
- * Thread 2:
- * --------
- * vhd_terminate_event_loop(evloop);
+ * Request event loop termination
  */
 void vhd_terminate_event_loop(struct vhd_event_loop *evloop);
 
