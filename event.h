@@ -73,11 +73,6 @@ int vhd_run_event_loop(struct vhd_event_loop *evloop, int timeout_ms);
 void vhd_terminate_event_loop(struct vhd_event_loop *evloop);
 
 /**
- * Tell if vhd_terminate_event_loop has been called
- */
-bool vhd_event_loop_terminated(struct vhd_event_loop *evloop);
-
-/**
  * Caller-provided event handler ops
  */
 struct vhd_event_ops {

@@ -302,7 +302,7 @@ error_out:
 
 int vhd_run_event_loop(struct vhd_event_loop *evloop, int timeout_ms)
 {
-    if (vhd_event_loop_terminated(evloop)) {
+    if (evloop->is_terminated) {
         return 0;
     }
 
@@ -331,11 +331,6 @@ int vhd_run_event_loop(struct vhd_event_loop *evloop, int timeout_ms)
     return -EAGAIN;
 }
 
-bool vhd_event_loop_terminated(struct vhd_event_loop *evloop)
-{
-    return evloop->is_terminated;
-}
-
 void evloop_stop_bh(void *opaque)
 {
     struct vhd_event_loop *evloop = opaque;
@@ -355,6 +350,7 @@ void vhd_terminate_event_loop(struct vhd_event_loop *evloop)
  */
 void vhd_free_event_loop(struct vhd_event_loop *evloop)
 {
+    VHD_ASSERT(evloop->is_terminated);
     VHD_ASSERT(atomic_read(&evloop->num_events_attached) == 0);
     bh_cleanup(evloop);
     close(evloop->epollfd);
