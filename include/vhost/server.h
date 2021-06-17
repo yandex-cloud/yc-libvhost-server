@@ -103,6 +103,12 @@ void vhd_complete_bio(struct vhd_bdev_io *bio, enum vhd_bdev_io_result status);
  */
 void *vhd_vdev_get_priv(struct vhd_vdev *vdev);
 
+/**
+ * Get statistics for device's queue.
+ */
+int vhd_vdev_get_queue_stat(struct vhd_vdev *vdev, uint32_t queue_num,
+                            struct vhd_vq_metrics *metrics);
+
 #ifdef __cplusplus
 }
 #endif
