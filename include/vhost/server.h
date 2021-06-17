@@ -8,6 +8,8 @@
 extern "C" {
 #endif
 
+struct vhd_vdev;
+
 enum LogLevel {
     LOG_ERROR = 0,
     LOG_WARNING = 1,
@@ -95,6 +97,11 @@ bool vhd_dequeue_request(struct vhd_request_queue *rq,
  * guest driver and dispose of the request.
  */
 void vhd_complete_bio(struct vhd_bdev_io *bio, enum vhd_bdev_io_result status);
+
+/**
+ * Get private data associated with vdev.
+ */
+void *vhd_vdev_get_priv(struct vhd_vdev *vdev);
 
 #ifdef __cplusplus
 }
