@@ -8,6 +8,7 @@
 #pragma once
 
 #include "platform.h"
+#include "virtio_types.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -19,9 +20,9 @@ extern "C" {
 
 struct virtq_desc {
     /* Address (guest-physical). */
-    uint64_t addr;
+    le64 addr;
     /* Length. */
-    uint32_t len;
+    le32 len;
 
     /* This marks a buffer as continuing via the next field. */
 #define VIRTQ_DESC_F_NEXT       1
@@ -30,33 +31,33 @@ struct virtq_desc {
     /* This means the buffer contains a list of buffer descriptors. */
 #define VIRTQ_DESC_F_INDIRECT   4
     /* The flags as indicated above. */
-    uint16_t flags;
+    le16 flags;
     /* Next field if flags & NEXT */
-    uint16_t next;
+    le16 next;
 };
 VHD_STATIC_ASSERT(sizeof(struct virtq_desc) == 16);
 
 struct virtq_avail {
 #define VIRTQ_AVAIL_F_NO_INTERRUPT      1
-    uint16_t flags;
-    uint16_t idx;
-    uint16_t ring[]; /* Queue Size */
+    le16 flags;
+    le16 idx;
+    le16 ring[]; /* Queue Size */
 };
 VHD_STATIC_ASSERT(sizeof(struct virtq_avail) == 4);
 
 /* le32 is used here for ids for padding reasons. */
 struct virtq_used_elem {
     /* Index of start of used descriptor chain. */
-    uint32_t id;
+    le32 id;
     /* Total length of the descriptor chain which was used (written to) */
-    uint32_t len;
+    le32 len;
 };
 VHD_STATIC_ASSERT(sizeof(struct virtq_used_elem) == 8);
 
 struct virtq_used {
 #define VIRTQ_USED_F_NO_NOTIFY  1
-    uint16_t flags;
-    uint16_t idx;
+    le16 flags;
+    le16 idx;
     struct virtq_used_elem ring[]; /* Queue Size */
 };
 VHD_STATIC_ASSERT(sizeof(struct virtq_used) == 4);
@@ -70,10 +71,10 @@ VHD_STATIC_ASSERT(sizeof(struct virtq_used) == 4);
  *
  *     // A ring of available descriptor heads with free-running index.
  *     struct virtq_avail avail;
- *     uint16_t used_event; // Only if VIRTIO_F_EVENT_IDX
+ *     le16 used_event; // Only if VIRTIO_F_EVENT_IDX
  *
  *     // Padding to the next PAGE_SIZE boundary.
- *     uint8_t pad[ Padding ];
+ *     u8 pad[ Padding ];
  *
  *     // A ring of used descriptor heads with free-running index.
  *     struct virtq_used used;
@@ -84,8 +85,8 @@ VHD_STATIC_ASSERT(sizeof(struct virtq_used) == 4);
 static inline unsigned virtq_size(unsigned int qsz)
 {
     return VIRTQ_ALIGN(sizeof(struct virtq_desc) * qsz +
-                       sizeof(uint16_t) * (3 + qsz))
-         + VIRTQ_ALIGN(sizeof(uint16_t) * 3 +
+                       sizeof(le16) * (3 + qsz))
+         + VIRTQ_ALIGN(sizeof(le16) * 3 +
                        sizeof(struct virtq_used_elem) * qsz);
 }
 
