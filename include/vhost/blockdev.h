@@ -1,7 +1,7 @@
 #pragma once
 
 #include <stdint.h>
-
+#include <stddef.h>
 #include "vhost/types.h"
 
 #ifdef __cplusplus
