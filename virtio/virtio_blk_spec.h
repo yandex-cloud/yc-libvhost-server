@@ -7,6 +7,10 @@
 #include "platform.h"
 #include "virtio_types.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define VIRTIO_BLK_SECTOR_SIZE      512
 #define VIRTIO_BLK_SECTOR_SHIFT     9
 #define VIRTIO_BLK_DISKID_LENGTH    20
@@ -89,3 +93,7 @@ VHD_STATIC_ASSERT(sizeof(struct virtio_blk_req_hdr) == 16);
 #define VIRTIO_BLK_S_OK         0
 #define VIRTIO_BLK_S_IOERR      1
 #define VIRTIO_BLK_S_UNSUPP     2
+
+#ifdef __cplusplus
+}
+#endif
