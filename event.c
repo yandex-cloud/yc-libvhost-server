@@ -366,12 +366,14 @@ void vhd_free_event_loop(struct vhd_event_loop *evloop)
 
 static void event_loop_inc_events(struct vhd_event_loop *evloop)
 {
-    VHD_ASSERT(atomic_fetch_inc(&evloop->num_events_attached) >= 0);
+    int prev = atomic_fetch_inc(&evloop->num_events_attached);
+    VHD_VERIFY(prev >= 0);
 }
 
 static void event_loop_dec_events(struct vhd_event_loop *evloop)
 {
-   VHD_ASSERT(atomic_fetch_dec(&evloop->num_events_attached) > 0);
+    int prev = atomic_fetch_dec(&evloop->num_events_attached);
+    VHD_VERIFY(prev > 0);
 }
 
 int vhd_add_event(struct vhd_event_loop *evloop, int fd,
