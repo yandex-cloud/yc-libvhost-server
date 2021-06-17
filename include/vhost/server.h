@@ -1,6 +1,8 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stdint.h>
+#include "vhost/types.h"
 
 #include "blockdev.h"
 
@@ -9,6 +11,7 @@ extern "C" {
 #endif
 
 struct vhd_vdev;
+struct vhd_bdev_io;
 
 /**
  * Logging support
