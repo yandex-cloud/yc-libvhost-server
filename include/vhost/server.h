@@ -10,6 +10,10 @@ extern "C" {
 
 struct vhd_vdev;
 
+/**
+ * Logging support
+ */
+
 enum LogLevel {
     LOG_ERROR = 0,
     LOG_WARNING = 1,
