@@ -7,6 +7,10 @@
 
 #pragma once
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef uint8_t  u8;
 
 #if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
@@ -15,4 +19,8 @@ typedef uint32_t le32;
 typedef uint64_t le64;
 #else
 #   error Implement me
+#endif
+
+#ifdef __cplusplus
+}
 #endif

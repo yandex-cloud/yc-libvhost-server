@@ -8,6 +8,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct vhd_buffer {
     void *base;
     size_t len;
@@ -40,3 +44,7 @@ struct vhd_vq_metrics {
     /* max queue len was processed during 60s period */
     uint16_t queue_len_max_60s;
 };
+
+#ifdef __cplusplus
+}
+#endif
