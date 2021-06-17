@@ -5,12 +5,7 @@
 #pragma once
 
 #include "platform.h"
-
-/* TODO: move to common virtio spec header */
-typedef uint8_t  u8;
-typedef uint16_t le16;
-typedef uint32_t le32;
-typedef uint64_t le64;
+#include "virtio_types.h"
 
 #define VIRTIO_BLK_SECTOR_SIZE      512
 #define VIRTIO_BLK_SECTOR_SHIFT     9
