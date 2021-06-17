@@ -11,11 +11,6 @@ extern "C" {
 struct vhd_request_queue;
 struct vhd_vdev;
 
-struct vhd_sglist {
-    uint32_t nbuffers;
-    struct vhd_buffer *buffers;
-};
-
 /**
  * Block io request type
  */

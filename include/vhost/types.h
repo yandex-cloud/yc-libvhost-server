@@ -16,6 +16,11 @@ struct vhd_buffer {
     bool write_only;
 };
 
+struct vhd_sglist {
+    uint32_t nbuffers;
+    struct vhd_buffer *buffers;
+};
+
 /**
  * virtqueue usage statistics
  */
