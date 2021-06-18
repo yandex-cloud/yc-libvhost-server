@@ -19,14 +19,6 @@ enum vhd_bdev_io_type {
     VHD_BDEV_WRITE
 };
 
-/**
- * Block io request result
- */
-enum vhd_bdev_io_result {
-    VHD_BDEV_SUCCESS = 0,
-    VHD_BDEV_IOERR,
-};
-
 #define VHD_SECTOR_SHIFT    (9)
 #define VHD_SECTOR_SIZE     (1ull << VHD_SECTOR_SHIFT)
 
