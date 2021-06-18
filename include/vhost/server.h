@@ -4,8 +4,6 @@
 #include <stdint.h>
 #include "vhost/types.h"
 
-#include "blockdev.h"
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -97,6 +95,14 @@ void vhd_stop_queue(struct vhd_request_queue *rq);
  */
 bool vhd_dequeue_request(struct vhd_request_queue *rq,
                          struct vhd_request *out_req);
+
+/**
+ * Block io request result
+ */
+enum vhd_bdev_io_result {
+    VHD_BDEV_SUCCESS = 0,
+    VHD_BDEV_IOERR,
+};
 
 /*
  * Complete the processing of the request.  The backend calls this to indicate

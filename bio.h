@@ -6,7 +6,7 @@
 #pragma once
 
 #include "queue.h"
-#include "vhost/blockdev.h"
+#include "vhost/server.h"
 
 #ifdef __cplusplus
 extern "C" {
