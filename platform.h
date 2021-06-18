@@ -81,7 +81,7 @@ static inline void VHD_NORETURN _vhd_verify_helper(
 {
     /* TODO: smarter logging */
     fprintf(stderr, "Verify failed: \"%s\" at %s:%lu\n", what, file, line);
-    exit(EXIT_FAILURE);
+    abort();
 }
 
 #define VHD_ASSERT(cond) assert(cond)
