@@ -64,21 +64,21 @@ VHD_STATIC_ASSERT(sizeof(struct virtq_used) == 4);
 /*
  * Virtqueue layout cannot be represented by a C struct,
  * definition below is intentionally a comment.
-struct virtq {
-    // The actual descriptors (16 bytes each)
-    struct virtq_desc desc[ Queue Size ];
-
-    // A ring of available descriptor heads with free-running index.
-    struct virtq_avail avail;
-    uint16_t used_event; // Only if VIRTIO_F_EVENT_IDX
-
-    // Padding to the next PAGE_SIZE boundary.
-    uint8_t pad[ Padding ];
-
-    // A ring of used descriptor heads with free-running index.
-    struct virtq_used used;
-    le16 avail_event; // Only if VIRTIO_F_EVENT_IDX
-};
+ * struct virtq {
+ *     // The actual descriptors (16 bytes each)
+ *     struct virtq_desc desc[ Queue Size ];
+ *
+ *     // A ring of available descriptor heads with free-running index.
+ *     struct virtq_avail avail;
+ *     uint16_t used_event; // Only if VIRTIO_F_EVENT_IDX
+ *
+ *     // Padding to the next PAGE_SIZE boundary.
+ *     uint8_t pad[ Padding ];
+ *
+ *     // A ring of used descriptor heads with free-running index.
+ *     struct virtq_used used;
+ *     le16 avail_event; // Only if VIRTIO_F_EVENT_IDX
+ * };
 */
 
 static inline unsigned virtq_size(unsigned int qsz)
