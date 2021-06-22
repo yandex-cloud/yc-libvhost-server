@@ -253,8 +253,8 @@ struct vhd_vring {
     int callfd;
     int errfd;
 
-    /* vring can service requests */
-    bool is_enabled;
+    /* vring can service master's requests */
+    bool is_started;
 
     /* Client kick event */
     struct vhd_event_ctx kickev;
