@@ -593,6 +593,26 @@ static int vhost_set_features(struct vhd_vdev *vdev, struct vhost_user_msg *msg)
     VHD_LOG_TRACE();
 
     uint64_t requested_features = msg->payload.u64;
+
+    /*
+     * VHOST_USER_F_PROTOCOL_FEATURES normally doesn't need negotiation: it's just
+     * offered by the slave, and then the master may use
+     * VHOST_USER_[GS]ET_PROTOCOL_FEATURES to negotiate the vhost protocol features
+     * without interfering with the guest-visibile virtio features.
+     * There's one exception though: the master may use VHOST_USER_SET_VRING_ENABLE
+     * only when VHOST_USER_F_PROTOCOL_FEATURES itself is negotiated.  (Presumably
+     * that was a design fallout, it should have received its own within the
+     * protocol feature mask.)
+     * As we don't support VHOST_USER_SET_VRING_ENABLE, reject the master
+     * connections that try to negotiate VHOST_USER_F_PROTOCOL_FEATURES, even
+     * though offering it.
+     */
+    if (has_feature(requested_features, VHOST_USER_F_PROTOCOL_FEATURES)) {
+        VHD_LOG_ERROR("Vhost doesn't expect VHOST_USER_F_PROTOCOL_FEATURES "
+                      "to be negotiated");
+        return -EINVAL;
+    }
+
     vdev->negotiated_features = requested_features & vdev->supported_features;
 
     if (0 != (requested_features & ~vdev->supported_features)) {
@@ -792,18 +812,7 @@ static int vhost_set_vring_fd_common(struct vhd_vdev *vdev,
     case VRING_KICKFD: {
         vring->kickfd = fd;
 
-        /*
-         * If we did not negotiate VHOST_USER_F_PROTOCOL_FEATURES
-         * then vring should start automatically
-         * when we get VHOST_USER_SET_VRING_KICK from guest.
-         * Otherwise we should wait for explicit VHOST_USER_SET_VRING_ENABLE(1)
-         */
-        if (!has_feature(vdev->negotiated_features,
-                         VHOST_USER_F_PROTOCOL_FEATURES)) {
-            return vring_start(vring);
-        }
-
-        break;
+        return vring_start(vring);
     }
 
     case VRING_CALLFD: {
@@ -922,25 +931,14 @@ static int vhost_get_vring_base(struct vhd_vdev *vdev,
     }
 
     /*
-     * If we did not negotiate VHOST_USER_F_PROTOCOL_FEATURES
-     * then vring should stop automatically
-     * when we get VHOST_USER_GET_VRING_BASE from guest.
-     * Otherwise we should wait for explicit VHOST_USER_SET_VRING_ENABLE(0)
+     * we don't reply to the command at once but send a reply when
+     * the vring is drained. qemu won't send another commands until
+     * it gets the reply from this one.
      */
-    if (!has_feature(vdev->negotiated_features,
-                     VHOST_USER_F_PROTOCOL_FEATURES)) {
-        /*
-         * we don't reply to the command at once but send a reply when
-         * the vring is drained. qemu won't send another commands until
-         * it gets the reply from this one.
-         */
-        vring_set_on_drain_cb(vring, vhost_send_vring_base);
-        /* callback we just set will be cleared when the vring is drained */
-        vring_stop(vring);
-        return 0;
-    }
-
-    return vhost_send_vring_base(vring);
+    vring_set_on_drain_cb(vring, vhost_send_vring_base);
+    /* callback we just set will be cleared when the vring is drained */
+    vring_stop(vring);
+    return 0;
 }
 
 static int vhost_set_vring_addr(struct vhd_vdev *vdev,
