@@ -487,8 +487,8 @@ static const uint64_t g_default_protocol_features =
     (1UL << VHOST_USER_PROTOCOL_F_INFLIGHT_SHMFD);
 
 static int vring_io_event(void *ctx);
-static int vring_enable(struct vhd_vring *vring);
-static void vring_disable(struct vhd_vring *vring);
+static int vring_start(struct vhd_vring *vring);
+static void vring_stop(struct vhd_vring *vring);
 
 static inline bool has_feature(uint64_t features_qword, size_t feature_bit)
 {
@@ -756,11 +756,11 @@ static struct vhd_vring *get_vring(struct vhd_vdev *vdev, uint32_t index)
     return vdev->vrings + index;
 }
 
-static struct vhd_vring *get_vring_not_enabled(struct vhd_vdev *vdev, int index)
+static struct vhd_vring *get_vring_not_started(struct vhd_vdev *vdev, int index)
 {
     struct vhd_vring *vring = get_vring(vdev, index);
-    if (vring && vring->is_enabled) {
-        VHD_LOG_ERROR("vring %d is enabled", index);
+    if (vring && vring->is_started) {
+        VHD_LOG_ERROR("vring %d is started", index);
         return NULL;
     }
 
@@ -800,7 +800,7 @@ static int vhost_set_vring_fd_common(struct vhd_vdev *vdev,
          */
         if (!has_feature(vdev->negotiated_features,
                          VHOST_USER_F_PROTOCOL_FEATURES)) {
-            return vring_enable(vring);
+            return vring_start(vring);
         }
 
         break;
@@ -808,7 +808,7 @@ static int vhost_set_vring_fd_common(struct vhd_vdev *vdev,
 
     case VRING_CALLFD: {
         vring->callfd = fd;
-        if (vring->is_enabled) {
+        if (vring->is_started) {
             virtq_set_notify_fd(&vring->vq, fd);
         }
 
@@ -873,7 +873,7 @@ static int vhost_set_vring_num(struct vhd_vdev *vdev,
 
     struct vhost_user_vring_state *vrstate = &msg->payload.vring_state;
 
-    struct vhd_vring *vring = get_vring_not_enabled(vdev, vrstate->index);
+    struct vhd_vring *vring = get_vring_not_started(vdev, vrstate->index);
     if (!vring) {
         return EINVAL;
     }
@@ -889,7 +889,7 @@ static int vhost_set_vring_base(struct vhd_vdev *vdev,
 
     struct vhost_user_vring_state *vrstate = &msg->payload.vring_state;
 
-    struct vhd_vring *vring = get_vring_not_enabled(vdev, vrstate->index);
+    struct vhd_vring *vring = get_vring_not_started(vdev, vrstate->index);
     if (!vring) {
         return EINVAL;
     }
@@ -936,7 +936,7 @@ static int vhost_get_vring_base(struct vhd_vdev *vdev,
          */
         vring_set_on_drain_cb(vring, vhost_send_vring_base);
         /* callback we just set will be cleared when the vring is drained */
-        vring_disable(vring);
+        vring_stop(vring);
         return 0;
     }
 
@@ -960,7 +960,7 @@ static int vhost_set_vring_addr(struct vhd_vdev *vdev,
     void *used_addr = map_uva(vdev->guest_memmap, vraddr->used_addr);
     void *avail_addr = map_uva(vdev->guest_memmap, vraddr->avail_addr);
 
-    if (!vring->is_enabled) {
+    if (!vring->is_started) {
         if (!desc_addr || !used_addr || !avail_addr) {
             VHD_LOG_ERROR("invalid vring %d component address (%p, %p, %p)",
                 vraddr->index, desc_addr, used_addr, avail_addr);
@@ -1610,7 +1610,7 @@ static void vdev_unref(struct vhd_vdev *vdev)
  *  - per-vring refcounter
  *  - per-device refcounter
  * Per-vring refcounter counts active requests for its vring, also
- * it does ref vring when it's enabled and does unref vring when its disabled.
+ * it does ref vring when it's started and does unref vring when its stoppedd.
  * Vring does ref for each request as soon as it's consumed from
  * virtio vitqueue and unref when the request completion has processed.
  *
@@ -1618,18 +1618,18 @@ static void vdev_unref(struct vhd_vdev *vdev)
  * The vring refcounter drops to 0 only when there're no active requests and
  *    vring is DISABLED.
  * Another words, to make a vring call the drain callback
- * one needs to disable vring and let it wait for all its active requests
+ * one needs to stop vring and let it wait for all its active requests
  * send their completions. In this case, after the last completion vring does
  * unref which calls the vring drain callback.
  * Vring draining is based on vring refcounting (see vhost_get_vring_base).
  *
- * Per-device refcounter counts sum of enabled vrings. It is initialized with 1
+ * Per-device refcounter counts sum of started vrings. It is initialized with 1
  * and does unref on vdev stopping.
  * When per-device refcounter drops to 0 it calls its special callback (if set)
  * This notification may happen:
  *     - on the last device request completion
  *     - on the last vring disabling if there were no in-flight reuests
- *     - on the device unref if there were no enabled vrings
+ *     - on the device unref if there were no started vrings
  * Device stopping is based on vdev refcounting (see vhd_vdev_stop_server)
  */
 
@@ -1658,7 +1658,7 @@ void vhd_vring_unref(struct vhd_vring *vring)
         }
         /*
          * unref vdev on vring disabling
-         * this pairs with dev_ref in vring_enable
+         * this pairs with dev_ref in vring_start
          */
         vdev_unref(vring->vdev);
     }
@@ -1765,7 +1765,7 @@ static int vring_io_event(void *ctx)
     struct vhd_vring *vring = (struct vhd_vring *) ctx;
     VHD_ASSERT(vring);
 
-    if (!vring->is_enabled) {
+    if (!vring->is_started) {
         return 0;
     }
 
@@ -1778,12 +1778,12 @@ static int vring_io_event(void *ctx)
     return vhd_vdev_dispatch_requests(vring->vdev, vring);
 }
 
-static int vring_enable(struct vhd_vring *vring)
+static int vring_start(struct vhd_vring *vring)
 {
     int res;
 
-    if (vring->is_enabled) {
-        VHD_LOG_ERROR("Try to enable already enabled vring: vring %d",
+    if (vring->is_started) {
+        VHD_LOG_ERROR("Try to start already started vring: vring %d",
                       vring->id);
         return 0;
     }
@@ -1811,15 +1811,15 @@ static int vring_enable(struct vhd_vring *vring)
 
     vring->kickev.priv = vring;
     vring->kickev.ops = &g_vring_ops;
-    vring->is_enabled = true;
-    /* pairs with unref in vring_disable_bh() */
+    vring->is_started = true;
+    /* pairs with unref in vring_stop_bh() */
     vhd_vring_ref(vring);
     /* pairs with vdev_unref in vring_unref on vring disabling */
     vdev_ref(vring->vdev);
     res = vhd_attach_event(vring->vdev->rq, vring->kickfd, &vring->kickev);
 
     if (res != 0) {
-        vring->is_enabled = false;
+        vring->is_started = false;
         vhd_vring_unref(vring);
         vdev_unref(vring->vdev);
         virtio_virtq_release(&vring->vq);
@@ -1830,21 +1830,21 @@ static int vring_enable(struct vhd_vring *vring)
     return 0;
 }
 
-static void vring_disable_bh(void *opaque)
+static void vring_stop_bh(void *opaque)
 {
     struct vhd_vring *vring = (struct vhd_vring *) opaque;
     vhd_detach_event(vring->vdev->rq, vring->kickfd);
-    vring->is_enabled = false;
-    /* pairs with ref in vring_enable() */
+    vring->is_started = false;
+    /* pairs with ref in vring_started() */
     vhd_vring_unref(vring);
 }
 
-static void vring_disable(struct vhd_vring *vring)
+static void vring_stop(struct vhd_vring *vring)
 {
-    /* there should be no cases when we disable already disabled vring */
-    VHD_ASSERT(vring->is_enabled);
+    /* there should be no cases when we stop already stopped vring */
+    VHD_ASSERT(vring->is_started);
 
-    vhd_run_in_rq(vring->vdev->rq, vring_disable_bh, vring);
+    vhd_run_in_rq(vring->vdev->rq, vring_stop_bh, vring);
 }
 
 void vhd_vring_init(struct vhd_vring *vring, int id, struct vhd_vdev *vdev)
@@ -1856,7 +1856,7 @@ void vhd_vring_init(struct vhd_vring *vring, int id, struct vhd_vdev *vdev)
      * have been negotiated with the client here. However we explicitly
      * don't support clients that don't negotiate it, so it makes no difference.
      */
-    vring->is_enabled = false;
+    vring->is_started = false;
 
     vring->id = id;
     vring->kickfd = -1;
@@ -1866,11 +1866,11 @@ void vhd_vring_init(struct vhd_vring *vring, int id, struct vhd_vdev *vdev)
 
 void vhd_vring_stop(struct vhd_vring *vring)
 {
-    if (!vring || !vring->is_enabled) {
+    if (!vring || !vring->is_started) {
         return;
     }
 
-    vring_disable(vring);
+    vring_stop(vring);
 }
 
 /*////////////////////////////////////////////////////////////////////////////*/
