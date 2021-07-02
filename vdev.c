@@ -766,92 +766,70 @@ static struct vhd_vring *get_vring_not_started(struct vhd_vdev *vdev, int index)
     return vring;
 }
 
-enum vring_desc_type { VRING_KICKFD, VRING_CALLFD, VRING_ERRFD };
-
-static int vhost_set_vring_fd_common(struct vhd_vdev *vdev,
-                                     struct vhost_user_msg *msg, int fd,
-                                     enum vring_desc_type type)
+static struct vhd_vring *msg_get_vring(struct vhd_vdev *vdev,
+                                       struct vhost_user_msg *msg)
 {
-    VHD_LOG_DEBUG("payload = 0x%llx", (unsigned long long) msg->payload.u64);
-
     uint8_t vring_idx = msg->payload.u64 & VHOST_VRING_IDX_MASK;
-    bool has_fd = (msg->payload.u64 & VHOST_VRING_INVALID_FD) == 0;
+    return get_vring(vdev, vring_idx);
+}
 
-    if (!has_fd) {
-        VHD_LOG_ERROR("vring polling mode is not supported");
-        return ENOTSUP;
+static bool msg_valid_num_fds(struct vhost_user_msg *msg, size_t num_fds)
+{
+    bool has_fd = !(msg->payload.u64 & VHOST_VRING_INVALID_FD);
+    if (num_fds != has_fd) {
+        VHD_LOG_ERROR("unexpected #fds: %zu (expected %u)", num_fds, has_fd);
+        return false;
     }
-
-    struct vhd_vring *vring = get_vring(vdev, vring_idx);
-    if (!vring) {
-        return EINVAL;
-    }
-
-    switch (type) {
-    case VRING_KICKFD: {
-        vring->kickfd = fd;
-
-        return vring_start(vring);
-    }
-
-    case VRING_CALLFD: {
-        vring->callfd = fd;
-        if (vring->is_started) {
-            virtq_set_notify_fd(&vring->vq, fd);
-        }
-
-        break;
-    }
-
-    case VRING_ERRFD: {
-        vring->errfd = fd;
-        break;
-    }
-
-    default:
-        VHD_ASSERT(0);
-    }
-
-    return 0;
+    return true;
 }
 
 static int vhost_set_vring_call(struct vhd_vdev *vdev,
                                 struct vhost_user_msg *msg,
                                 int *fds, size_t num_fds)
 {
-    VHD_LOG_DEBUG("payload = 0x%llx, fd = %d",
-                  (unsigned long long)msg->payload.u64, fds[0]);
-    if (num_fds != 1) {
-        VHD_LOG_ERROR("unexpected #fds: %zu", num_fds);
+    struct vhd_vring *vring = msg_get_vring(vdev, msg);
+
+    if (!vring || !msg_valid_num_fds(msg, num_fds)) {
         return -EINVAL;
     }
-    return vhost_set_vring_fd_common(vdev, msg, fds[0], VRING_CALLFD);
+
+    vring->callfd = num_fds > 0 ? fds[0] : -1;
+    if (vring->is_started) {
+        virtq_set_notify_fd(&vring->vq, vring->callfd);
+    }
+    return 0;
 }
 
 static int vhost_set_vring_kick(struct vhd_vdev *vdev,
                                 struct vhost_user_msg *msg,
                                 int *fds, size_t num_fds)
 {
-    VHD_LOG_DEBUG("payload = 0x%llx, fd = %d",
-                  (unsigned long long)msg->payload.u64, fds[0]);
-    if (num_fds != 1) {
-        VHD_LOG_ERROR("unexpected #fds: %zu", num_fds);
+    struct vhd_vring *vring = msg_get_vring(vdev, msg);
+
+    if (!vring || !msg_valid_num_fds(msg, num_fds)) {
         return -EINVAL;
     }
-    return vhost_set_vring_fd_common(vdev, msg, fds[0], VRING_KICKFD);
+    if (num_fds == 0) {
+        VHD_LOG_ERROR("vring polling mode is not supported");
+        return -ENOTSUP;
+    }
+
+    vring->kickfd = fds[0];
+    return vring_start(vring);
 }
 
 static int vhost_set_vring_err(struct vhd_vdev *vdev,
                                 struct vhost_user_msg *msg,
                                 int *fds, size_t num_fds)
 {
-    VHD_LOG_DEBUG("payload = 0x%llx, fd = %d",
-                  (unsigned long long)msg->payload.u64, fds[0]);
-    if (num_fds != 1) {
-        VHD_LOG_ERROR("unexpected #fds: %zu", num_fds);
+    struct vhd_vring *vring = msg_get_vring(vdev, msg);
+
+    if (!vring || !msg_valid_num_fds(msg, num_fds)) {
         return -EINVAL;
     }
-    return vhost_set_vring_fd_common(vdev, msg, fds[0], VRING_ERRFD);
+
+    vring->errfd = num_fds > 0 ? fds[0] : -1;
+    return 0;
 }
 
 static int vhost_set_vring_num(struct vhd_vdev *vdev,
