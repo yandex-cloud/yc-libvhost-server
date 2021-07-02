@@ -174,7 +174,8 @@ struct vhost_user_msg {
     union {
         /*
          * VHOST_USER_GET_QUEUE_NUM, VHOST_USER_GET_PROTOCOL_FEATURES,
-         * VHOST_USER_GET_FEATURES
+         * VHOST_USER_GET_FEATURES,
+         * VHOST_USER_SET_VRING_KICK, VHOST_USER_SET_VRING_CALL
          */
         uint64_t u64;
         /* VHOST_USER_GET_CONFIG, VHOST_USER_SET_CONFIG */
@@ -188,8 +189,6 @@ struct vhost_user_msg {
         struct vhost_user_vring_state vring_state;
         /* VHOST_USER_SET_VRING_ADDR */
         struct vhost_user_vring_addr vring_addr;
-        /* VHOST_USER_SET_VRING_KICK, VHOST_USER_SET_VRING_CALL */
-        uint8_t index;
         /* VHOST_USER_GET_INFLIGHT_FD, VHOST_USER_SET_INFLIGHT_FD */
         struct vhost_user_inflight_desc inflight_desc;
         /* VHOST_USER_SET_LOG_BASE */
