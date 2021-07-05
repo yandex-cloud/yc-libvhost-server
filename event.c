@@ -76,6 +76,8 @@ struct vhd_event_loop {
     atomic_int num_events_attached;
 
     vhd_bh_list bh_list;
+
+    atomic_bool has_home_thread;
 };
 
 static void evloop_notify(struct vhd_event_loop *evloop)
@@ -291,6 +293,7 @@ struct vhd_event_loop *vhd_create_event_loop(size_t max_events)
     evloop->events = vhd_calloc(sizeof(evloop->events[0]), evloop->max_events);
     SLIST_INIT(&evloop->bh_list);
     atomic_set(&evloop->num_events_attached, 0);
+    atomic_set(&evloop->has_home_thread, false);
 
     return evloop;
 
@@ -300,8 +303,17 @@ error_out:
     return NULL;
 }
 
+static __thread struct vhd_event_loop *home_evloop;
+
 int vhd_run_event_loop(struct vhd_event_loop *evloop, int timeout_ms)
 {
+    if (!home_evloop) {
+        bool had_home_thread = atomic_xchg(&evloop->has_home_thread, true);
+        VHD_ASSERT(!had_home_thread);
+        home_evloop = evloop;
+    }
+    VHD_ASSERT(evloop == home_evloop);
+
     if (evloop->is_terminated) {
         return 0;
     }
