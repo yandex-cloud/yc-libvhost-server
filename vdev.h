@@ -231,19 +231,6 @@ struct vhd_vring {
 void vhd_vring_ref(struct vhd_vring *vring);
 void vhd_vring_unref(struct vhd_vring *vring);
 
-/**
- * Initialize vring
- * @vring       vring instance
- * @id          vring id
- * @vdev        vring owning device instance
- */
-void vhd_vring_init(struct vhd_vring *vring, int id, struct vhd_vdev *vdev);
-
-/**
- * Stop vring
- */
-void vhd_vring_stop(struct vhd_vring *vring);
-
 void vhd_memmap_ref(struct vhd_guest_memory_map *mm);
 void vhd_memmap_unref(struct vhd_guest_memory_map *mm);
 
