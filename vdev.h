@@ -73,14 +73,11 @@ struct vhd_vdev {
 
     /* Server socket fd when device is a vhost-user server */
     int listenfd;
+    struct vhd_io_handler *listen_handler;
 
     /* Connected device fd. Single active connection per device. */
     int connfd;
-
-    /*
-     * Handles both server and conn event (since only one can exist at a time)
-     */
-    struct vhd_event_ctx sock_ev;
+    struct vhd_io_handler *conn_handler;
 
     /* Attached request queue */
     struct vhd_request_queue *rq;
@@ -256,7 +253,7 @@ struct vhd_vring {
     bool is_started;
 
     /* Client kick event */
-    struct vhd_event_ctx kickev;
+    struct vhd_io_handler *kick_handler;
 
     /* Low-level virtio queue */
     struct virtio_virtq vq;

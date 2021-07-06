@@ -50,41 +50,34 @@ int vhd_run_event_loop(struct vhd_event_loop *evloop, int timeout_ms);
  */
 void vhd_terminate_event_loop(struct vhd_event_loop *evloop);
 
-/**
- * Caller-provided event handler ops
- */
-struct vhd_event_ops {
-    /** Data is available for reading */
-    int (*read)(void *ctx);
-};
+/* I/O handling to be associated with a file descriptor */
+struct vhd_io_handler;
 
-/**
- * Caller-provided event context
+/*
+ * Add io handler @read for @fd and attach it to @evloop.
  */
-struct vhd_event_ctx {
-    void *priv;
-    const struct vhd_event_ops *ops;
-};
+struct vhd_io_handler *vhd_add_io_handler(struct vhd_event_loop *evloop,
+                                          int fd, int (*read)(void *),
+                                          void *opaque);
 
-/**
- * Add event to event loop
- * @fd      event fd
- * @ctx     event context description
+/*
+ * Stop monitoring io handler @handler's file descriptor and calling its
+ * handler functions.
  */
-int vhd_add_event(struct vhd_event_loop *evloop, int fd,
-                  struct vhd_event_ctx *ctx);
 
-static inline int vhd_make_event(
-    struct vhd_event_loop *evloop,
-    int fd,
-    void *priv,
-    const struct vhd_event_ops *ops,
-    struct vhd_event_ctx *ctx)
-{
-    ctx->priv = priv;
-    ctx->ops = ops;
-    return vhd_add_event(evloop, fd, ctx);
-}
+int vhd_detach_io_handler(struct vhd_io_handler *handler);
+/*
+ * Resume monitoring io handler @handler's file descriptor and calling its
+ * handler functions.
+ * For safe data access must be called in @handler's event loop only.
+ */
+int vhd_attach_io_handler(struct vhd_io_handler *handler);
+
+/*
+ * Detach io handler @handler from its event loop and delete it.
+ * For safe data access must be called in @handler's event loop only.
+ */
+int vhd_del_io_handler(struct vhd_io_handler *handler);
 
 /**
  * Clear eventfd after handling it
@@ -95,11 +88,6 @@ void vhd_clear_eventfd(int fd);
  * Trigger eventfd
  */
 void vhd_set_eventfd(int fd);
-
-/**
- * Remove event from event loop
- */
-int vhd_del_event(struct vhd_event_loop *evloop, int fd);
 
 struct vhd_bh;
 typedef void vhd_bh_cb(void *opaque);

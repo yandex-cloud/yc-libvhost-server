@@ -21,26 +21,6 @@ static void vhd_vdev_inflight_cleanup(struct vhd_vdev *vdev);
 static uint64_t vring_inflight_buf_size(int num);
 static void vring_inflight_addr_init(struct vhd_vring *vring);
 
-/*////////////////////////////////////////////////////////////////////////////*/
-
-static int server_read(void *sock);
-
-/*
- * Event callbacks for vhost vdev listen socket
- */
-static const struct vhd_event_ops g_server_sock_ops = {
-    .read = server_read,
-};
-
-static int conn_read(void *data);
-
-/*
- * Event callbacks for vhost vdev client connection
- */
-static const struct vhd_event_ops g_conn_sock_ops = {
-    .read = conn_read,
-};
-
 /*
  * Receive and store the message from the socket. Fill in the file
  * descriptor array. Return number of bytes received or
@@ -486,7 +466,6 @@ static const uint64_t g_default_protocol_features =
     (1UL << VHOST_USER_PROTOCOL_F_CONFIG) |
     (1UL << VHOST_USER_PROTOCOL_F_INFLIGHT_SHMFD);
 
-static int vring_io_event(void *ctx);
 static int vring_start(struct vhd_vring *vring);
 static void vring_stop(struct vhd_vring *vring);
 
@@ -1375,11 +1354,12 @@ void vhd_vdev_release(struct vhd_vdev *vdev)
     vdev->type->free(vdev);
 }
 
+static int server_read(void *opaque);
+static int conn_read(void *opaque);
+
 static int change_device_state(struct vhd_vdev *vdev,
                                enum vhd_vdev_state new_state)
 {
-    int ret = 0;
-
     if (new_state == VDEV_LISTENING) {
 
         switch (vdev->state) {
@@ -1388,7 +1368,7 @@ static int change_device_state(struct vhd_vdev *vdev,
              * We're terminating existing connection
              * and going back to listen mode
              */
-            vhd_del_vhost_event(vdev->connfd);
+            vhd_del_io_handler(vdev->conn_handler);
             vdev->is_owned = false;
 
             vhd_vdev_stop(vdev);
@@ -1401,10 +1381,10 @@ static int change_device_state(struct vhd_vdev *vdev,
 
         case VDEV_INITIALIZED:
             /* Normal listening init */
-            ret = vhd_add_vhost_event(vdev->listenfd, vdev, &g_server_sock_ops,
-                                      &vdev->sock_ev);
-            if (ret != 0) {
-                return ret;
+            vdev->listen_handler = vhd_add_vhost_io_handler(vdev->listenfd,
+                                                            server_read, vdev);
+            if (!vdev->listen_handler) {
+                return -EIO;
             }
 
             break;
@@ -1417,17 +1397,17 @@ static int change_device_state(struct vhd_vdev *vdev,
         switch (vdev->state) {
         case VDEV_LISTENING:
             /* Establish new connection and exiting listen-mode */
-            ret = vhd_add_vhost_event(vdev->connfd, vdev, &g_conn_sock_ops,
-                                      &vdev->sock_ev);
-            if (ret != 0) {
-                return ret;
+            vdev->conn_handler = vhd_add_vhost_io_handler(vdev->connfd,
+                                                          conn_read, vdev);
+            if (!vdev->conn_handler) {
+                return -EIO;
             }
 
             /*
              * Remove server fd from event loop.
              * We don't want multiple clients
              */
-            vhd_del_vhost_event(vdev->listenfd);
+            vhd_del_io_handler(vdev->listen_handler);
             break;
         default:
             goto invalid_transition;
@@ -1437,10 +1417,10 @@ static int change_device_state(struct vhd_vdev *vdev,
 
         switch (vdev->state) {
         case VDEV_LISTENING:
-            vhd_del_vhost_event(vdev->listenfd);
+            vhd_del_io_handler(vdev->listen_handler);
             break;
         case VDEV_CONNECTED:
-            vhd_del_vhost_event(vdev->connfd);
+            vhd_del_io_handler(vdev->conn_handler);
             break;
         case VDEV_INITIALIZED:
             break;
@@ -1452,12 +1432,10 @@ static int change_device_state(struct vhd_vdev *vdev,
         goto invalid_transition;
     }
 
-    VHD_ASSERT(ret == 0);
-
     VHD_LOG_DEBUG("changing state from %d to %d", vdev->state, new_state);
     vdev->state = new_state;
 
-    return ret;
+    return 0;
 
 invalid_transition:
     VHD_LOG_ERROR("invalid state transition from %d to %d",
@@ -1816,10 +1794,9 @@ static void vhd_vdev_inflight_cleanup(struct vhd_vdev *vdev)
 
 /*////////////////////////////////////////////////////////////////////////////*/
 
-static int vring_io_event(void *ctx)
+static int vring_kick(void *opaque)
 {
-    struct vhd_vring *vring = (struct vhd_vring *) ctx;
-    VHD_ASSERT(vring);
+    struct vhd_vring *vring = opaque;
 
     if (!vring->is_started) {
         return 0;
@@ -1861,26 +1838,21 @@ static int vring_start(struct vhd_vring *vring)
 
     virtq_set_notify_fd(&vring->vq, vring->callfd);
 
-    static const struct vhd_event_ops g_vring_ops = {
-        .read = vring_io_event,
-    };
-
-    vring->kickev.priv = vring;
-    vring->kickev.ops = &g_vring_ops;
     vring->is_started = true;
     /* pairs with unref in vring_stop_bh() */
     vhd_vring_ref(vring);
     /* pairs with vdev_unref in vring_unref on vring disabling */
     vdev_ref(vring->vdev);
-    res = vhd_attach_event(vring->vdev->rq, vring->kickfd, &vring->kickev);
+    vring->kick_handler = vhd_add_rq_io_handler(vring->vdev->rq, vring->kickfd,
+                                                vring_kick, vring);
 
-    if (res != 0) {
+    if (!vring->kick_handler) {
         vring->is_started = false;
         vhd_vring_unref(vring);
         vdev_unref(vring->vdev);
         virtio_virtq_release(&vring->vq);
-        VHD_LOG_ERROR("Could not create vring event from kickfd: %d", res);
-        return res;
+        VHD_LOG_ERROR("Could not create vring event from kickfd");
+        return -EIO;
     }
 
     return 0;
@@ -1889,7 +1861,7 @@ static int vring_start(struct vhd_vring *vring)
 static void vring_stop_bh(void *opaque)
 {
     struct vhd_vring *vring = (struct vhd_vring *) opaque;
-    vhd_detach_event(vring->vdev->rq, vring->kickfd);
+    vhd_del_io_handler(vring->kick_handler);
     vring->is_started = false;
     /* pairs with ref in vring_started() */
     vhd_vring_unref(vring);

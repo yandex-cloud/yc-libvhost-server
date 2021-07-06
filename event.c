@@ -79,6 +79,8 @@ struct vhd_event_loop {
     vhd_bh_list bh_list;
 
     atomic_bool has_home_thread;
+
+    SLIST_HEAD(, vhd_io_handler) deleted_handlers;
 };
 
 static void evloop_notify(struct vhd_event_loop *evloop)
@@ -233,10 +235,21 @@ static void bh_cleanup(struct vhd_event_loop *ctx)
     }
 }
 
-static int handle_one_event(struct vhd_event_ctx *ev, int event_code)
+struct vhd_io_handler {
+    struct vhd_event_loop *evloop;
+    int fd;
+    int (*read)(void *opaque);
+    /* FIXME: must really include write handler as well */
+    void *opaque;
+
+    bool attached;
+    SLIST_ENTRY(vhd_io_handler) deleted_entry;
+};
+
+static int handle_one_event(struct vhd_io_handler *handler, int event_code)
 {
-    if ((event_code & (EPOLLIN | EPOLLERR | EPOLLRDHUP)) && ev->ops->read) {
-        return ev->ops->read(ev->priv);
+    if ((event_code & (EPOLLIN | EPOLLERR | EPOLLRDHUP)) && handler->read) {
+        return handler->read(handler->opaque);
     }
 
     return 0;
@@ -248,13 +261,29 @@ static int handle_events(struct vhd_event_loop *evloop, int nevents)
     struct epoll_event *events = evloop->events;
 
     for (int i = 0; i < nevents; i++) {
-        struct vhd_event_ctx *ev = events[i].data.ptr;
-        if (!ev) {
+        struct vhd_io_handler *handler = events[i].data.ptr;
+        /* event loop notifer doesn't use a handler */
+        if (!handler) {
             continue;
         }
-        if (handle_one_event(ev, events[i].events)) {
+        /* don't call into detached handler even if it's on the ready list */
+        if (!handler->attached) {
+            continue;
+        }
+        if (handle_one_event(handler, events[i].events)) {
             nerr++;
         }
+    }
+
+    /*
+     * The deleted handlers are detached and won't appear on the ready list any
+     * more, so it's now safe to actually delete them.
+     */
+    while (!SLIST_EMPTY(&evloop->deleted_handlers)) {
+        struct vhd_io_handler *handler =
+            SLIST_FIRST(&evloop->deleted_handlers);
+        SLIST_REMOVE_HEAD(&evloop->deleted_handlers, deleted_entry);
+        vhd_free(handler);
     }
 
     return nerr;
@@ -295,6 +324,7 @@ struct vhd_event_loop *vhd_create_event_loop(size_t max_events)
     SLIST_INIT(&evloop->bh_list);
     atomic_set(&evloop->num_events_attached, 0);
     atomic_set(&evloop->has_home_thread, false);
+    SLIST_INIT(&evloop->deleted_handlers);
 
     return evloop;
 
@@ -384,31 +414,99 @@ static void event_loop_dec_events(struct vhd_event_loop *evloop)
     VHD_VERIFY(prev > 0);
 }
 
-int vhd_add_event(struct vhd_event_loop *evloop, int fd,
-                  struct vhd_event_ctx *ctx)
+int vhd_attach_io_handler(struct vhd_io_handler *handler)
 {
-    VHD_VERIFY(ctx && ctx->ops);
+    struct vhd_event_loop *evloop = handler->evloop;
+    int fd = handler->fd;
 
-    struct epoll_event ev;
-    ev.events = EPOLLIN | EPOLLHUP | EPOLLRDHUP;
-    ev.data.ptr = ctx;
-    if (epoll_ctl(evloop->epollfd, EPOLL_CTL_ADD, fd, &ev) == -1) {
+    struct epoll_event ev = {
+        .events = EPOLLIN | EPOLLHUP | EPOLLRDHUP,
+        .data.ptr = handler
+    };
+
+    /* unlike detach, multiple attachment is a logic error */
+    VHD_ASSERT(!handler->attached);
+
+    if (epoll_ctl(evloop->epollfd, EPOLL_CTL_ADD, fd, &ev) < 0) {
         VHD_LOG_ERROR("Can't add event: %d", errno);
         return -errno;
     }
-    event_loop_inc_events(evloop);
+
+    handler->attached = true;
 
     return 0;
 }
 
-int vhd_del_event(struct vhd_event_loop *evloop, int fd)
+struct vhd_io_handler *vhd_add_io_handler(struct vhd_event_loop *evloop,
+                                          int fd, int (*read)(void *opaque),
+                                          void *opaque)
 {
-    if (epoll_ctl(evloop->epollfd, EPOLL_CTL_DEL, fd, NULL) == -1) {
+    struct vhd_io_handler *handler;
+
+    handler = vhd_alloc(sizeof(*handler));
+    *handler = (struct vhd_io_handler) {
+            .evloop = evloop,
+            .fd = fd,
+            .read = read,
+            .opaque = opaque
+    };
+
+    if (vhd_attach_io_handler(handler) < 0) {
+        goto fail;
+    }
+
+    event_loop_inc_events(evloop);
+    return handler;
+fail:
+    vhd_free(handler);
+    return NULL;
+}
+
+int vhd_detach_io_handler(struct vhd_io_handler *handler)
+{
+    struct vhd_event_loop *evloop = handler->evloop;
+
+    /* to maintain fields consistency only do this in the home event loop */
+    VHD_ASSERT(evloop == home_evloop);
+
+    if (!handler->attached) {
+        return 0;
+    }
+
+    if (epoll_ctl(evloop->epollfd, EPOLL_CTL_DEL, handler->fd, NULL) < 0) {
         VHD_LOG_ERROR("Can't delete event: %d", errno);
         return -errno;
     }
-    event_loop_dec_events(evloop);
 
+    /*
+     * The file descriptor being detached may still be sitting on the ready
+     * list returned by epoll_wait.
+     * Make sure the handler for it isn't called.
+     */
+    handler->attached = false;
+
+    return 0;
+}
+
+int vhd_del_io_handler(struct vhd_io_handler *handler)
+{
+    int ret;
+    struct vhd_event_loop *evloop = handler->evloop;
+
+    ret = vhd_detach_io_handler(handler);
+    if (ret < 0) {
+        return ret;
+    }
+
+    /*
+     * The file descriptor being deleted may still be sitting on the ready list
+     * returned by epoll_wait.
+     * Schedule it for deallocation at the end of the iteration after the ready
+     * event list processing is through.
+     */
+    SLIST_INSERT_HEAD(&evloop->deleted_handlers, handler, deleted_entry);
+
+    event_loop_dec_events(evloop);
     return 0;
 }
 
