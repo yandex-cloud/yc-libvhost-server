@@ -112,6 +112,19 @@ void vhd_bh_schedule(struct vhd_bh *bh);
 void vhd_bh_cancel(struct vhd_bh *bh);
 void vhd_bh_delete(struct vhd_bh *bh);
 
+/*
+ * Submit a work item onto @evloop and wait till it's finished.
+ * Must not be called in the target event loop.
+ */
+struct vhd_work;
+int vhd_submit_work_and_wait(struct vhd_event_loop *evloop,
+                             void (*func)(struct vhd_work *, void *),
+                             void *opaque);
+/*
+ * Signal work completion to the submitter
+ */
+void vhd_complete_work(struct vhd_work *work, int ret);
+
 #ifdef __cplusplus
 }
 #endif

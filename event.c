@@ -27,6 +27,7 @@
 #include <unistd.h>
 #include <sys/epoll.h>
 #include <sys/eventfd.h>
+#include <semaphore.h>
 
 #include "catomic.h"
 #include "queue.h"
@@ -424,4 +425,67 @@ void vhd_set_eventfd(int fd)
     while (eventfd_write(fd, 1) && errno == EINTR) {
         ;
     }
+}
+
+struct vhd_work {
+    void (*func)(struct vhd_work *, void *);
+    void *opaque;
+    int ret;
+    sem_t wait;
+};
+
+void vhd_complete_work(struct vhd_work *work, int ret)
+{
+    work->ret = ret;
+    /*
+     * sem_post is a full memory barrier so the vhd_submit_work_and_wait will
+     * see ->ret set above
+     */
+    if (sem_post(&work->wait) < 0) {
+        /* log an error and continue as there's no better strategy */
+        VHD_LOG_ERROR("sem_post: %s", strerror(errno));
+    }
+}
+
+static void work_bh(void *opaque)
+{
+    struct vhd_work *work = opaque;
+    work->func(work, work->opaque);
+}
+
+int vhd_submit_work_and_wait(struct vhd_event_loop *evloop,
+                             void (*func)(struct vhd_work *, void *),
+                             void *opaque)
+{
+    int ret;
+    struct vhd_work work = {
+        .func = func,
+        .opaque = opaque,
+    };
+
+    /* waiting for completion in the same event loop would deadlock */
+    VHD_ASSERT(evloop != home_evloop);
+
+    ret = sem_init(&work.wait, 0, 0);
+    if (ret < 0) {
+        VHD_LOG_ERROR("sem_init: %s", strerror(errno));
+        return ret;
+    }
+
+    vhd_bh_schedule_oneshot(evloop, work_bh, &work);
+
+    do {
+        ret = sem_wait(&work.wait);
+    } while (ret < 0 && errno == EINTR);
+
+    if (ret < 0) {
+        VHD_LOG_ERROR("sem_wait: %s", strerror(errno));
+        return ret;
+    }
+
+    /*
+     * sem_wait is a full memory barrier so this is the ->ret set in
+     * vhd_complete_work
+     */
+    return work.ret;
 }
