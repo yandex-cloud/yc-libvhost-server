@@ -52,6 +52,8 @@ struct vhd_vdev_type {
     void (*free)(struct vhd_vdev *vdev);
 };
 
+struct vhd_work;
+
 /**
  * Vhost generic device instance.
  *
@@ -134,6 +136,8 @@ struct vhd_vdev {
 
     /** Global vdev list */
     LIST_ENTRY(vhd_vdev) vdev_list;
+
+    struct vhd_work *work;
 };
 
 /**
@@ -175,8 +179,8 @@ int vhd_vdev_init_server(
 /**
  * Stop vhost device
  */
-void vhd_vdev_stop_server(struct vhd_vdev *vdev,
-                          void (*unregister_complete)(void *), void *arg);
+int vhd_vdev_stop_server(struct vhd_vdev *vdev,
+                         void (*unregister_complete)(void *), void *arg);
 
 static inline uint64_t vhd_vdev_get_features(struct vhd_vdev *vdev)
 {

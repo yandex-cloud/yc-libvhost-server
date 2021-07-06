@@ -1316,6 +1316,46 @@ static int vhost_handle_request(struct vhd_vdev *vdev,
 
 /*////////////////////////////////////////////////////////////////////////////*/
 
+struct vdev_work {
+    struct vhd_vdev *vdev;
+    void (*func)(struct vhd_vdev *, void *);
+    void *opaque;
+};
+
+static void vdev_complete_work(struct vhd_vdev *vdev, int ret)
+{
+    vhd_complete_work(vdev->work, ret);
+    vdev->work = NULL;
+}
+
+static void vdev_work_fn(struct vhd_work *work, void *opaque)
+{
+    struct vdev_work *vd_work = opaque;
+    struct vhd_vdev *vdev = vd_work->vdev;
+
+    /* allow no concurrent work */
+    if (vdev->work != NULL) {
+        vhd_complete_work(work, -EBUSY);
+        return;
+    }
+
+    vdev->work = work;
+    vd_work->func(vdev, vd_work->opaque);
+}
+
+static int vdev_submit_work_and_wait(struct vhd_vdev *vdev,
+                                     void (*func)(struct vhd_vdev *, void *),
+                                     void *opaque)
+{
+    struct vdev_work vd_work = {
+        .vdev = vdev,
+        .func = func,
+        .opaque = opaque,
+    };
+
+    return vhd_submit_ctl_work_and_wait(vdev_work_fn, &vd_work);
+}
+
 void vhd_vdev_stop(struct vhd_vdev *vdev)
 {
     for (uint32_t i = 0; i < vdev->max_queues; ++i) {
@@ -1728,21 +1768,39 @@ int vhd_vdev_init_server(
     return ret;
 }
 
-void vhd_vdev_stop_server(struct vhd_vdev *vdev,
-                          void (*unregister_complete)(void *), void *arg)
-{
-    if (!vdev) {
-        return;
-    }
+struct vdev_stop_work {
+    void (*cb)(void *);
+    void *opaque;
+};
 
-    if (unregister_complete) {
-        vdev->unregister_cb = unregister_complete;
-        vdev->unregister_arg = arg;
-    }
+static void vdev_stop(struct vhd_vdev *vdev, void *opaque)
+{
+    struct vdev_stop_work *work = opaque;
+
+    vdev->unregister_cb = work->cb;
+    vdev->unregister_arg = work->opaque;
 
     change_device_state(vdev, VDEV_TERMINATING);
     vhd_vdev_stop(vdev);
     vhd_run_in_rq(vdev->rq, vdev_unregister_bh, vdev);
+
+    vdev_complete_work(vdev, 0);
+}
+
+int vhd_vdev_stop_server(struct vhd_vdev *vdev,
+                         void (*unregister_complete)(void *), void *arg)
+{
+    int ret;
+    struct vdev_stop_work work = {
+        .cb = unregister_complete,
+        .opaque = arg
+    };
+
+    ret = vdev_submit_work_and_wait(vdev, vdev_stop, &work);
+    if (ret < 0) {
+        VHD_LOG_ERROR("%s", strerror(-ret));
+    }
+    return ret;
 }
 
 static void vhd_vdev_inflight_cleanup(struct vhd_vdev *vdev)
