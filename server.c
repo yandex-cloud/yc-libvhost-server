@@ -70,23 +70,11 @@ void vhd_stop_vhost_server(void)
     free_vhost_event_loop();
 }
 
-int vhd_add_vhost_event(int fd, void *priv, const struct vhd_event_ops *ops,
-                        struct vhd_event_ctx *ctx)
+struct vhd_io_handler *vhd_add_vhost_io_handler(int fd,
+                                                int (*read)(void *opaque),
+                                                void *opaque)
 {
-    if (!g_vhost_evloop) {
-        return -ENXIO;
-    }
-
-    return vhd_make_event(g_vhost_evloop, fd, priv, ops, ctx);
-}
-
-void vhd_del_vhost_event(int fd)
-{
-    if (!g_vhost_evloop) {
-        return;
-    }
-
-    vhd_del_event(g_vhost_evloop, fd);
+    return vhd_add_io_handler(g_vhost_evloop, fd, read, opaque);
 }
 
 void vhd_run_in_ctl(void (*cb)(void *), void *opaque)
@@ -184,23 +172,11 @@ void vhd_release_request_queue(struct vhd_request_queue *rq)
     vhd_free(rq);
 }
 
-int vhd_attach_event(struct vhd_request_queue *rq, int fd,
-                     struct vhd_event_ctx *ev)
+struct vhd_io_handler *vhd_add_rq_io_handler(struct vhd_request_queue *rq,
+                                             int fd, int (*read)(void *opaque),
+                                             void *opaque)
 {
-    if (!rq) {
-        return -EINVAL;
-    }
-
-    return vhd_add_event(rq->evloop, fd, ev);
-}
-
-void vhd_detach_event(struct vhd_request_queue *rq, int fd)
-{
-    if (!rq) {
-        return;
-    }
-
-    vhd_del_event(rq->evloop, fd);
+    return vhd_add_io_handler(rq->evloop, fd, read, opaque);
 }
 
 int vhd_run_queue(struct vhd_request_queue *rq)

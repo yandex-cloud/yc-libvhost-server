@@ -2,28 +2,16 @@
 
 #include "vhost/server.h"
 
-struct vhd_event_ops;
-struct vhd_event_ctx;
+struct vhd_io_handler;
+/* Add io handler to vhost control event loop */
+struct vhd_io_handler *vhd_add_vhost_io_handler(int fd, int (*read)(void *),
+                                                void *opaque);
 
-/**
- * Add event source to vhost server event loop
- *
- * Return 0 on success or negative error code.
- */
-int vhd_add_vhost_event(int fd, void *priv, const struct vhd_event_ops *ops,
-                        struct vhd_event_ctx *ctx);
-
-/**
- * Delete event source from vhost server event loop
- */
-void vhd_del_vhost_event(int fd);
-
-/**
- * Attach event to request queue event loop
- */
-int vhd_attach_event(struct vhd_request_queue *rq, int fd,
-                     struct vhd_event_ctx *ev);
-void vhd_detach_event(struct vhd_request_queue *rq, int fd);
+struct vhd_request_queue;
+/* Add io handler to request queue event loop */
+struct vhd_io_handler *vhd_add_rq_io_handler(struct vhd_request_queue *rq,
+                                             int fd, int (*read)(void *),
+                                             void *opaque);
 
 struct vhd_vdev;
 struct vhd_bio;
