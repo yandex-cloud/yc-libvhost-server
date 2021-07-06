@@ -89,6 +89,17 @@ void vhd_del_vhost_event(int fd)
     vhd_del_event(g_vhost_evloop, fd);
 }
 
+void vhd_run_in_ctl(void (*cb)(void *), void *opaque)
+{
+    vhd_bh_schedule_oneshot(g_vhost_evloop, cb, opaque);
+}
+
+int vhd_submit_ctl_work_and_wait(void (*func)(struct vhd_work *, void *),
+                                 void *opaque)
+{
+    return vhd_submit_work_and_wait(g_vhost_evloop, func, opaque);
+}
+
 /*////////////////////////////////////////////////////////////////////////////*/
 
 /*

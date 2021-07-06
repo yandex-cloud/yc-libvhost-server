@@ -39,3 +39,16 @@ int vhd_enqueue_block_request(struct vhd_request_queue *rq,
  */
 void vhd_run_in_rq(struct vhd_request_queue *rq, void (*cb)(void *),
                    void *opaque);
+
+/*
+ * Run callback in vhost control event loop
+ */
+void vhd_run_in_ctl(void (*cb)(void *), void *opaque);
+
+/*
+ * Submit a work item onto vhost control event loop and wait till it's
+ * finished.
+ */
+struct vhd_work;
+int vhd_submit_ctl_work_and_wait(void (*func)(struct vhd_work *, void *),
+                                 void *opaque);
