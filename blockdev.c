@@ -96,9 +96,6 @@ struct vhd_vdev *vhd_register_blockdev(struct vhd_bdev_info *bdev,
 {
     int res = 0;
 
-    VHD_VERIFY(bdev);
-    VHD_VERIFY(rq);
-
     if (bdev->total_blocks == 0) {
         return NULL;
     }

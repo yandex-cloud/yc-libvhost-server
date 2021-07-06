@@ -172,7 +172,6 @@ static void virtq_inflight_reconnect_update(struct virtio_virtq *vq)
 
 static void virtio_virtq_reset_stat(struct virtio_virtq *vq)
 {
-    VHD_VERIFY(vq);
     memset(&vq->stat, 0, sizeof(vq->stat));
 }
 
@@ -186,11 +185,6 @@ int virtio_virtq_attach(struct virtio_virtq *vq,
                         int avail_base,
                         void *inflight_addr)
 {
-    VHD_VERIFY(vq);
-    VHD_VERIFY(desc_addr);
-    VHD_VERIFY(used_addr);
-    VHD_VERIFY(avail_addr);
-
     /*
      * Client explicitly told us where to look for stuff, so no sanity checks.
      * Assume that vhost initiation already verified memory layout
@@ -287,7 +281,6 @@ static int virtq_inflight_resubmit(struct virtio_virtq *vq,
 
 bool virtq_is_broken(struct virtio_virtq *vq)
 {
-    VHD_VERIFY(vq);
     return vq->broken;
 }
 
@@ -576,8 +569,6 @@ static void vhd_log_modified(struct virtio_virtq *vq,
 
 void virtq_commit_buffers(struct virtio_virtq *vq, struct virtio_iov *iov)
 {
-    VHD_VERIFY(vq);
-
     /* Put buffer head index and len into used ring */
     struct virtq_iov_private *priv = containerof(iov, struct virtq_iov_private,
                                                  iov);
@@ -605,8 +596,6 @@ void virtq_commit_buffers(struct virtio_virtq *vq, struct virtio_iov *iov)
 
 void virtq_notify(struct virtio_virtq *vq)
 {
-    VHD_VERIFY(vq);
-
     /* TODO: check for notification mask! */
     if (vq->notify_fd != -1) {
         eventfd_write(vq->notify_fd, 1);
@@ -615,8 +604,6 @@ void virtq_notify(struct virtio_virtq *vq)
 
 void virtq_set_notify_fd(struct virtio_virtq *vq, int fd)
 {
-    VHD_VERIFY(vq);
-
     if (vq->notify_fd != -1 && vq->notify_fd != fd) {
         close(vq->notify_fd);
     }
@@ -636,9 +623,6 @@ void virtq_set_notify_fd(struct virtio_virtq *vq, int fd)
 void virtio_virtq_get_stat(struct virtio_virtq *vq,
                            struct vhd_vq_metrics *metrics)
 {
-    VHD_VERIFY(vq);
-    VHD_VERIFY(metrics);
-
     metrics->request_total = vq->stat.metrics.request_total;
     metrics->dispatch_total = vq->stat.metrics.dispatch_total;
     metrics->dispatch_empty = vq->stat.metrics.dispatch_empty;

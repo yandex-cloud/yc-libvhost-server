@@ -1148,11 +1148,8 @@ static int vhost_handle_request(struct vhd_vdev *vdev,
                                 struct vhost_user_msg *msg,
                                 int *fds, size_t num_fds)
 {
-    int ret;
+    int ret = 0;
 
-    VHD_ASSERT(msg);
-
-    ret = 0;
     VHD_LOG_DEBUG("Handle command %d, flags 0x%x, size %u",
                   msg->req, msg->flags, msg->size);
     switch (msg->req) {
@@ -1432,9 +1429,7 @@ static int server_read(void *data)
 {
     int flags;
     int connfd;
-
     struct vhd_vdev *vdev = (struct vhd_vdev *)data;
-    VHD_ASSERT(vdev);
 
     connfd = accept(vdev->listenfd, NULL, NULL);
     if (connfd == -1) {
@@ -1528,8 +1523,6 @@ int sock_create_server(const char *path)
     int flags;
     int ret;
     struct sockaddr_un sockaddr;
-
-    VHD_VERIFY(path);
 
     if (strlen(path) >= sizeof(sockaddr.sun_path)) {
         VHD_LOG_ERROR(
@@ -1682,11 +1675,6 @@ int vhd_vdev_init_server(
 {
     int ret;
     int listenfd;
-
-    VHD_VERIFY(socket_path);
-    VHD_VERIFY(type);
-    VHD_VERIFY(vdev);
-    VHD_VERIFY(max_queues > 0);
 
     memset(vdev, 0, sizeof(*vdev));
 
@@ -1862,8 +1850,6 @@ static void vring_stop(struct vhd_vring *vring)
 static void vhd_vring_init(struct vhd_vring *vring, int id,
                            struct vhd_vdev *vdev)
 {
-    VHD_ASSERT(vring);
-
     /*
      * According to vhost spec we should check that PROTOCOL_FEATURES
      * have been negotiated with the client here. However we explicitly
@@ -1937,8 +1923,6 @@ static void vring_inflight_addr_init(struct vhd_vring *vring)
 int vhd_vdev_get_queue_stat(struct vhd_vdev *vdev, uint32_t queue_num,
                             struct vhd_vq_metrics *metrics)
 {
-    VHD_VERIFY(vdev);
-
     if (queue_num >= vdev->num_queues) {
         return -EINVAL;
     }
