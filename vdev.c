@@ -563,7 +563,9 @@ static int vhost_get_features(struct vhd_vdev *vdev, struct vhost_user_msg *msg)
 {
     VHD_LOG_TRACE();
 
-    vdev->supported_features = g_default_features | vhd_vdev_get_features(vdev);
+    vdev->supported_features = g_default_features |
+                               vdev->type->get_features(vdev);
+
     return vhost_send_reply(vdev, msg, vdev->supported_features);
 }
 
@@ -710,10 +712,8 @@ static int vhost_get_config(struct vhd_vdev *vdev, struct vhost_user_msg *msg)
         config->size = msg->size - VHOST_CONFIG_HDR_SIZE;
     }
 
-    config->size = vhd_vdev_get_config(vdev,
-                                       config->payload,
-                                       config->size,
-                                       config->offset);
+    config->size = vdev->type->get_config(vdev, config->payload,
+                                          config->size, config->offset);
 
     /* zero-fill leftover space */
     memset(config->payload + config->size,
@@ -1775,6 +1775,7 @@ static void vhd_vdev_inflight_cleanup(struct vhd_vdev *vdev)
 static int vring_kick(void *opaque)
 {
     struct vhd_vring *vring = opaque;
+    struct vhd_vdev *vdev = vring->vdev;
 
     if (!vring->is_started) {
         return 0;
@@ -1786,7 +1787,7 @@ static int vring_kick(void *opaque)
      * signal eventfd again while we were processing
      */
     vhd_clear_eventfd(vring->kickfd);
-    return vhd_vdev_dispatch_requests(vring->vdev, vring);
+    return vdev->type->dispatch_requests(vdev, vring, vdev->rq);
 }
 
 static int vring_start(struct vhd_vring *vring)

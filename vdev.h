@@ -164,33 +164,6 @@ int vhd_vdev_init_server(
 int vhd_vdev_stop_server(struct vhd_vdev *vdev,
                          void (*unregister_complete)(void *), void *arg);
 
-static inline uint64_t vhd_vdev_get_features(struct vhd_vdev *vdev)
-{
-    VHD_ASSERT(vdev && vdev->type && vdev->type->get_features);
-    return vdev->type->get_features(vdev);
-}
-
-static inline int vhd_vdev_set_features(struct vhd_vdev *vdev,
-                                        uint64_t features)
-{
-    VHD_ASSERT(vdev && vdev->type && vdev->type->set_features);
-    return vdev->type->set_features(vdev, features);
-}
-
-static inline size_t vhd_vdev_get_config(struct vhd_vdev *vdev, void *cfgbuf,
-                                         size_t bufsize, size_t offset)
-{
-    VHD_ASSERT(vdev && vdev->type && vdev->type->get_config);
-    return vdev->type->get_config(vdev, cfgbuf, bufsize, offset);
-}
-
-static inline int vhd_vdev_dispatch_requests(struct vhd_vdev *vdev,
-                                             struct vhd_vring *vring)
-{
-    VHD_ASSERT(vdev && vdev->type && vdev->type->dispatch_requests);
-    return vdev->type->dispatch_requests(vdev, vring, vdev->rq);
-}
-
 static inline
 struct vhd_guest_memory_map *vhd_vdev_mm_ctx(struct vhd_vdev *vdev)
 {
