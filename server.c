@@ -181,14 +181,11 @@ struct vhd_io_handler *vhd_add_rq_io_handler(struct vhd_request_queue *rq,
 
 int vhd_run_queue(struct vhd_request_queue *rq)
 {
-    VHD_VERIFY(rq);
-
     return vhd_run_event_loop(rq->evloop, -1);
 }
 
 void vhd_stop_queue(struct vhd_request_queue *rq)
 {
-    VHD_VERIFY(rq);
     vhd_terminate_event_loop(rq->evloop);
 }
 

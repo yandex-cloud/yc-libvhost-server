@@ -281,9 +281,6 @@ int virtio_blk_dispatch_requests(struct virtio_blk_dev *dev,
                                  struct virtio_virtq *vq,
                                  struct vhd_guest_memory_map *mm)
 {
-    VHD_VERIFY(dev);
-    VHD_VERIFY(vq);
-
     return virtq_dequeue_many(vq, mm, handle_buffers, dev);
 }
 
@@ -292,9 +289,6 @@ int virtio_blk_init_dev(
     struct vhd_bdev_info *bdev,
     virtio_blk_io_dispatch *dispatch)
 {
-    VHD_VERIFY(dev);
-    VHD_VERIFY(bdev);
-
     /* block size should be a multiple of vblk sector size */
     if (!bdev->block_size ||
         (bdev->block_size & (VIRTIO_BLK_SECTOR_SIZE - 1))) {

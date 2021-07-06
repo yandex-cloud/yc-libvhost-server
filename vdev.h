@@ -167,7 +167,6 @@ int vhd_vdev_stop_server(struct vhd_vdev *vdev,
 static inline
 struct vhd_guest_memory_map *vhd_vdev_mm_ctx(struct vhd_vdev *vdev)
 {
-    VHD_ASSERT(vdev);
     return vdev->guest_memmap;
 }
 
