@@ -1313,6 +1313,8 @@ static int vdev_submit_work_and_wait(struct vhd_vdev *vdev,
     return vhd_submit_ctl_work_and_wait(vdev_work_fn, &vd_work);
 }
 
+static void vhd_vring_stop(struct vhd_vring *vring);
+
 void vhd_vdev_stop(struct vhd_vdev *vdev)
 {
     for (uint32_t i = 0; i < vdev->max_queues; ++i) {
@@ -1658,6 +1660,9 @@ void vhd_vring_unref(struct vhd_vring *vring)
     }
 }
 
+static void vhd_vring_init(struct vhd_vring *vring, int id,
+                           struct vhd_vdev *vdev);
+
 static void vdev_unregister_bh(void *opaque)
 {
     struct vhd_vdev *vdev = opaque;
@@ -1854,7 +1859,8 @@ static void vring_stop(struct vhd_vring *vring)
     vhd_run_in_rq(vring->vdev->rq, vring_stop_bh, vring);
 }
 
-void vhd_vring_init(struct vhd_vring *vring, int id, struct vhd_vdev *vdev)
+static void vhd_vring_init(struct vhd_vring *vring, int id,
+                           struct vhd_vdev *vdev)
 {
     VHD_ASSERT(vring);
 
@@ -1871,7 +1877,7 @@ void vhd_vring_init(struct vhd_vring *vring, int id, struct vhd_vdev *vdev)
     vring->vdev = vdev;
 }
 
-void vhd_vring_stop(struct vhd_vring *vring)
+static void vhd_vring_stop(struct vhd_vring *vring)
 {
     if (!vring || !vring->is_started) {
         return;
