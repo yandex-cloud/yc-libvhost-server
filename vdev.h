@@ -57,9 +57,6 @@ struct vhd_work;
 /**
  * Vhost generic device instance.
  *
- * Describes a single virtual device backend that we serve.
- * Each vdev can be either a vhost server or client (TODO).
- *
  * Devices are polymorphic through their respective types.
  */
 typedef uint64_t vhd_paddr_t;
@@ -180,7 +177,6 @@ bool vhd_logging_started(struct virtio_virtq *vq);
  * Device vring instance
  */
 struct vhd_vring {
-    /* owning vdev */
     struct vhd_vdev *vdev;
 
     /*
@@ -201,7 +197,6 @@ struct vhd_vring {
     /* vring id, acts as an index in its owning device */
     int id;
 
-    /* client-supplied eventfds */
     int kickfd;
     int callfd;
     int errfd;

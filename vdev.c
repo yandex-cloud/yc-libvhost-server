@@ -283,11 +283,6 @@ static int net_send_msg_fds(int fd, const struct vhost_user_msg *msg,
     return len;
 }
 
-/*////////////////////////////////////////////////////////////////////////////*/
-
-/**
- * TODO: need a separate unit for this
- */
 typedef uint64_t vhd_uaddr_t;
 
 struct vhd_guest_memory_region {
@@ -307,9 +302,6 @@ struct vhd_guest_memory_region {
     size_t size;
 };
 
-/**
- * TODO: need a separate unit for this
- */
 struct vhd_guest_memory_map {
     struct objref ref;
 
@@ -591,8 +583,6 @@ void *virtio_map_guest_phys_range(struct vhd_guest_memory_map *mm,
     return map_gpa_len(mm, gpa, len);
 }
 
-/*////////////////////////////////////////////////////////////////////////////*/
-
 /*
  * Vhost protocol handling
  */
@@ -871,7 +861,6 @@ static int vhost_set_config(struct vhd_vdev *vdev, struct vhost_user_msg *msg)
     VHD_UNUSED(msg);
     VHD_UNUSED(vdev);
 
-    /* TODO */
     return ENOTSUP;
 }
 
@@ -1049,7 +1038,6 @@ static int vhost_set_vring_addr(struct vhd_vdev *vdev,
         return EINVAL;
     }
 
-    /* TODO: we don't have to do full lookup 3 times, we can do it in 1 */
     void *desc_addr = map_uva(vdev->guest_memmap, vraddr->desc_addr);
     void *used_addr = map_uva(vdev->guest_memmap, vraddr->used_addr);
     void *avail_addr = map_uva(vdev->guest_memmap, vraddr->avail_addr);
@@ -1252,8 +1240,6 @@ static int vhost_set_inflight_fd(struct vhd_vdev *vdev,
     return ret;
 }
 
-/*////////////////////////////////////////////////////////////////////////////*/
-
 static int vhost_ack_request_if_needed(struct vhd_vdev *vdev,
                                        const struct vhost_user_msg *msg,
                                        int ret)
@@ -1336,11 +1322,6 @@ static int vhost_handle_request(struct vhd_vdev *vdev,
     case VHOST_USER_SET_LOG_BASE:
         ret = vhost_set_log_base(vdev, msg, fds, num_fds);
         break;
-
-    /*
-     * vrings
-     */
-
     case VHOST_USER_SET_VRING_CALL:
         ret = vhost_set_vring_call(vdev, msg, fds, num_fds);
         break;
@@ -1371,9 +1352,6 @@ static int vhost_handle_request(struct vhd_vdev *vdev,
          */
         VHD_LOG_ERROR("Got unexpected VHOST_USER_SET_VRING_ENABLE command");
         /* fall through to ENOTSUP */
-    /*
-     * TODO
-     */
 
     case VHOST_USER_SET_LOG_FD:
     case VHOST_USER_SEND_RARP:
@@ -1417,8 +1395,6 @@ static int vhost_handle_request(struct vhd_vdev *vdev,
 
     return ret;
 }
-
-/*////////////////////////////////////////////////////////////////////////////*/
 
 struct vdev_work {
     struct vhd_vdev *vdev;
