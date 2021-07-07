@@ -1312,14 +1312,14 @@ static int vdev_submit_work_and_wait(struct vhd_vdev *vdev,
 
 static void vhd_vring_stop(struct vhd_vring *vring);
 
-void vhd_vdev_stop(struct vhd_vdev *vdev)
+static void vhd_vdev_stop(struct vhd_vdev *vdev)
 {
     for (uint32_t i = 0; i < vdev->max_queues; ++i) {
         vhd_vring_stop(vdev->vrings + i);
     }
 }
 
-void vhd_vdev_release(struct vhd_vdev *vdev)
+static void vhd_vdev_release(struct vhd_vdev *vdev)
 {
     close(vdev->listenfd);
     close(vdev->connfd);
@@ -1517,7 +1517,7 @@ static int prepare_server_sock_path(const char *path)
 }
 
 /* TODO: properly destroy server on close */
-int sock_create_server(const char *path)
+static int sock_create_server(const char *path)
 {
     int fd;
     int flags;
