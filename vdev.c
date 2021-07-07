@@ -17,10 +17,152 @@
 
 static LIST_HEAD(, vhd_vdev) g_vdevs = LIST_HEAD_INITIALIZER(g_vdevs);
 
-static void vhd_vdev_inflight_cleanup(struct vhd_vdev *vdev);
-static uint64_t vring_inflight_buf_size(int num);
-static void vring_inflight_addr_init(struct vhd_vring *vring);
+/* Return size of per queue inflight buffer. */
+static uint64_t vring_inflight_buf_size(int num)
+{
+    uint64_t size;
 
+    size = sizeof(struct inflight_split_region) +
+        num * sizeof(struct inflight_split_desc);
+
+    return size;
+}
+
+static void vring_inflight_addr_init(struct vhd_vring *vring)
+{
+    struct inflight_split_region *mem;
+    uint64_t size;
+    uint64_t qsize;
+    uint8_t idx;
+
+    vring->client_info.inflight_addr = NULL;
+
+    mem = vring->vdev->inflight_mem;
+    if (!mem) {
+        return;
+    }
+    size = vring->vdev->inflight_size;
+    idx = vring->id;
+    qsize = vring_inflight_buf_size(vring->client_info.num);
+    if (qsize * (idx + 1) > size) {
+        VHD_LOG_WARN(
+            "inflight buffer for queue %d ends at %lu and doesn't fit in buffer of size %lu",
+            idx, qsize * (idx + 1), size);
+        return;
+    }
+
+    vring->client_info.inflight_addr = (void *)mem + qsize * idx;
+}
+
+static int vring_kick(void *opaque)
+{
+    struct vhd_vring *vring = opaque;
+    struct vhd_vdev *vdev = vring->vdev;
+
+    if (!vring->is_started) {
+        return 0;
+    }
+
+    /*
+     * Clear vring event now, before processing virtq.
+     * Otherwise we might lose events if guest has managed to
+     * signal eventfd again while we were processing
+     */
+    vhd_clear_eventfd(vring->kickfd);
+    return vdev->type->dispatch_requests(vdev, vring, vdev->rq);
+}
+
+static void vdev_ref(struct vhd_vdev *vdev);
+static void vdev_unref(struct vhd_vdev *vdev);
+
+static int vring_start(struct vhd_vring *vring)
+{
+    int res;
+
+    if (vring->is_started) {
+        VHD_LOG_ERROR("Try to start already started vring: vring %d",
+                      vring->id);
+        return 0;
+    }
+
+    vring_inflight_addr_init(vring);
+    res = virtio_virtq_attach(&vring->vq,
+              vring->client_info.flags,
+              vring->client_info.desc_addr,
+              vring->client_info.avail_addr,
+              vring->client_info.used_addr,
+              vring->client_info.used_gpa_base,
+              vring->client_info.num,
+              vring->client_info.base,
+              vring->client_info.inflight_addr);
+    if (res != 0) {
+        VHD_LOG_ERROR("virtq attach failed: %d", res);
+       return res;
+    }
+
+    virtq_set_notify_fd(&vring->vq, vring->callfd);
+
+    vring->is_started = true;
+    /* pairs with unref in vring_stop_bh() */
+    vhd_vring_ref(vring);
+    /* pairs with vdev_unref in vring_unref on vring disabling */
+    vdev_ref(vring->vdev);
+    vring->kick_handler = vhd_add_rq_io_handler(vring->vdev->rq, vring->kickfd,
+                                                vring_kick, vring);
+
+    if (!vring->kick_handler) {
+        vring->is_started = false;
+        vhd_vring_unref(vring);
+        vdev_unref(vring->vdev);
+        virtio_virtq_release(&vring->vq);
+        VHD_LOG_ERROR("Could not create vring event from kickfd");
+        return -EIO;
+    }
+
+    return 0;
+}
+
+static void vring_stop_bh(void *opaque)
+{
+    struct vhd_vring *vring = (struct vhd_vring *) opaque;
+    vhd_del_io_handler(vring->kick_handler);
+    vring->is_started = false;
+    /* pairs with ref in vring_started() */
+    vhd_vring_unref(vring);
+}
+
+static void vring_stop(struct vhd_vring *vring)
+{
+    /* there should be no cases when we stop already stopped vring */
+    VHD_ASSERT(vring->is_started);
+
+    vhd_run_in_rq(vring->vdev->rq, vring_stop_bh, vring);
+}
+
+static void vhd_vring_init(struct vhd_vring *vring, int id,
+                           struct vhd_vdev *vdev)
+{
+    /*
+     * According to vhost spec we should check that PROTOCOL_FEATURES
+     * have been negotiated with the client here. However we explicitly
+     * don't support clients that don't negotiate it, so it makes no difference.
+     */
+    vring->is_started = false;
+
+    vring->id = id;
+    vring->kickfd = -1;
+    vring->callfd = -1;
+    vring->vdev = vdev;
+}
+
+static void vhd_vring_stop(struct vhd_vring *vring)
+{
+    if (!vring || !vring->is_started) {
+        return;
+    }
+
+    vring_stop(vring);
+}
 /*
  * Receive and store the message from the socket. Fill in the file
  * descriptor array. Return number of bytes received or
@@ -465,9 +607,6 @@ static const uint64_t g_default_protocol_features =
     (1UL << VHOST_USER_PROTOCOL_F_REPLY_ACK) |
     (1UL << VHOST_USER_PROTOCOL_F_CONFIG) |
     (1UL << VHOST_USER_PROTOCOL_F_INFLIGHT_SHMFD);
-
-static int vring_start(struct vhd_vring *vring);
-static void vring_stop(struct vhd_vring *vring);
 
 static inline bool has_feature(uint64_t features_qword, size_t feature_bit)
 {
@@ -1012,6 +1151,17 @@ static int inflight_mmap_region(struct vhd_vdev *vdev, int fd, uint64_t size)
     return 0;
 }
 
+static void vhd_vdev_inflight_cleanup(struct vhd_vdev *vdev)
+{
+    if (!vdev->inflight_mem) {
+        /* Nothing to clean up. */
+        return;
+    }
+
+    munmap(vdev->inflight_mem, vdev->inflight_size);
+    vdev->inflight_mem = NULL;
+}
+
 static int vhost_get_inflight_fd(struct vhd_vdev *vdev,
                                  struct vhost_user_msg *msg)
 {
@@ -1309,8 +1459,6 @@ static int vdev_submit_work_and_wait(struct vhd_vdev *vdev,
 
     return vhd_submit_ctl_work_and_wait(vdev_work_fn, &vd_work);
 }
-
-static void vhd_vring_stop(struct vhd_vring *vring);
 
 static void vhd_vdev_stop(struct vhd_vdev *vdev)
 {
@@ -1653,9 +1801,6 @@ void vhd_vring_unref(struct vhd_vring *vring)
     }
 }
 
-static void vhd_vring_init(struct vhd_vring *vring, int id,
-                           struct vhd_vdev *vdev);
-
 static void vdev_unregister_bh(void *opaque)
 {
     struct vhd_vdev *vdev = opaque;
@@ -1752,168 +1897,9 @@ int vhd_vdev_stop_server(struct vhd_vdev *vdev,
     return ret;
 }
 
-static void vhd_vdev_inflight_cleanup(struct vhd_vdev *vdev)
-{
-    if (!vdev->inflight_mem) {
-        /* Nothing to clean up. */
-        return;
-    }
-
-    munmap(vdev->inflight_mem, vdev->inflight_size);
-    vdev->inflight_mem = NULL;
-}
-
-/*////////////////////////////////////////////////////////////////////////////*/
-
-static int vring_kick(void *opaque)
-{
-    struct vhd_vring *vring = opaque;
-    struct vhd_vdev *vdev = vring->vdev;
-
-    if (!vring->is_started) {
-        return 0;
-    }
-
-    /*
-     * Clear vring event now, before processing virtq.
-     * Otherwise we might lose events if guest has managed to
-     * signal eventfd again while we were processing
-     */
-    vhd_clear_eventfd(vring->kickfd);
-    return vdev->type->dispatch_requests(vdev, vring, vdev->rq);
-}
-
-static int vring_start(struct vhd_vring *vring)
-{
-    int res;
-
-    if (vring->is_started) {
-        VHD_LOG_ERROR("Try to start already started vring: vring %d",
-                      vring->id);
-        return 0;
-    }
-
-    vring_inflight_addr_init(vring);
-    res = virtio_virtq_attach(&vring->vq,
-              vring->client_info.flags,
-              vring->client_info.desc_addr,
-              vring->client_info.avail_addr,
-              vring->client_info.used_addr,
-              vring->client_info.used_gpa_base,
-              vring->client_info.num,
-              vring->client_info.base,
-              vring->client_info.inflight_addr);
-    if (res != 0) {
-        VHD_LOG_ERROR("virtq attach failed: %d", res);
-       return res;
-    }
-
-    virtq_set_notify_fd(&vring->vq, vring->callfd);
-
-    vring->is_started = true;
-    /* pairs with unref in vring_stop_bh() */
-    vhd_vring_ref(vring);
-    /* pairs with vdev_unref in vring_unref on vring disabling */
-    vdev_ref(vring->vdev);
-    vring->kick_handler = vhd_add_rq_io_handler(vring->vdev->rq, vring->kickfd,
-                                                vring_kick, vring);
-
-    if (!vring->kick_handler) {
-        vring->is_started = false;
-        vhd_vring_unref(vring);
-        vdev_unref(vring->vdev);
-        virtio_virtq_release(&vring->vq);
-        VHD_LOG_ERROR("Could not create vring event from kickfd");
-        return -EIO;
-    }
-
-    return 0;
-}
-
-static void vring_stop_bh(void *opaque)
-{
-    struct vhd_vring *vring = (struct vhd_vring *) opaque;
-    vhd_del_io_handler(vring->kick_handler);
-    vring->is_started = false;
-    /* pairs with ref in vring_started() */
-    vhd_vring_unref(vring);
-}
-
-static void vring_stop(struct vhd_vring *vring)
-{
-    /* there should be no cases when we stop already stopped vring */
-    VHD_ASSERT(vring->is_started);
-
-    vhd_run_in_rq(vring->vdev->rq, vring_stop_bh, vring);
-}
-
-static void vhd_vring_init(struct vhd_vring *vring, int id,
-                           struct vhd_vdev *vdev)
-{
-    /*
-     * According to vhost spec we should check that PROTOCOL_FEATURES
-     * have been negotiated with the client here. However we explicitly
-     * don't support clients that don't negotiate it, so it makes no difference.
-     */
-    vring->is_started = false;
-
-    vring->id = id;
-    vring->kickfd = -1;
-    vring->callfd = -1;
-    vring->vdev = vdev;
-}
-
-static void vhd_vring_stop(struct vhd_vring *vring)
-{
-    if (!vring || !vring->is_started) {
-        return;
-    }
-
-    vring_stop(vring);
-}
-
-/*////////////////////////////////////////////////////////////////////////////*/
-
 void *vhd_vdev_get_priv(struct vhd_vdev *vdev)
 {
     return vdev->priv;
-}
-
-/* Return size of per queue inflight buffer. */
-static uint64_t vring_inflight_buf_size(int num)
-{
-    uint64_t size;
-
-    size = sizeof(struct inflight_split_region) +
-        num * sizeof(struct inflight_split_desc);
-
-    return size;
-}
-
-static void vring_inflight_addr_init(struct vhd_vring *vring)
-{
-    struct inflight_split_region *mem;
-    uint64_t size;
-    uint64_t qsize;
-    uint8_t idx;
-
-    vring->client_info.inflight_addr = NULL;
-
-    mem = vring->vdev->inflight_mem;
-    if (!mem) {
-        return;
-    }
-    size = vring->vdev->inflight_size;
-    idx = vring->id;
-    qsize = vring_inflight_buf_size(vring->client_info.num);
-    if (qsize * (idx + 1) > size) {
-        VHD_LOG_WARN(
-            "inflight buffer for queue %d ends at %lu and doesn't fit in buffer of size %lu",
-            idx, qsize * (idx + 1), size);
-        return;
-    }
-
-    vring->client_info.inflight_addr = (void *)mem + qsize * idx;
 }
 
 /**
