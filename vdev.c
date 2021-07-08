@@ -739,14 +739,8 @@ static int vhost_set_features(struct vhd_vdev *vdev, struct vhost_user_msg *msg)
 static int vhost_set_owner(struct vhd_vdev *vdev, struct vhost_user_msg *msg)
 {
     VHD_LOG_TRACE();
+    VHD_UNUSED(vdev);
     VHD_UNUSED(msg);
-
-    /* We don't support changing session owner */
-    if (vdev->is_owned) {
-        VHD_LOG_WARN("Client attempts to set owner a second time, ignoring");
-    }
-
-    vdev->is_owned = true;
     return 0;
 }
 
@@ -1416,7 +1410,6 @@ static int change_device_state(struct vhd_vdev *vdev,
              * and going back to listen mode
              */
             vhd_del_io_handler(vdev->conn_handler);
-            vdev->is_owned = false;
 
             vhd_vdev_stop(vdev);
 

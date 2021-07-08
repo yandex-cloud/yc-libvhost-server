@@ -82,9 +82,6 @@ struct vhd_vdev {
     /* Current state */
     enum vhd_vdev_state state;
 
-    /* Device has a client owner */
-    bool is_owned;
-
     /*
      * Vhost protocol features which can be supported for this vdev and
      * those which have been actually enabled during negotiation.
