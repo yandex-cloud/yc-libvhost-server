@@ -1343,40 +1343,15 @@ static int vhost_handle_request(struct vhd_vdev *vdev,
     case VHOST_USER_SET_VRING_ADDR:
         ret = vhost_set_vring_addr(vdev, msg);
         break;
-    case VHOST_USER_SET_VRING_ENABLE:
-        /*
-         * qemu doesn't use VHOST_USER_SET_VRING_ENABLE because it doesn't
-         * negotiate VHOST_USER_F_PROTOCOL_FEATURES. It seems it is and will be
-         * so for a while. So we remove VHOST_USER_SET_VRING_ENABLE handler to
-         * get rid from the dead code.
-         */
-        VHD_LOG_ERROR("Got unexpected VHOST_USER_SET_VRING_ENABLE command");
-        /* fall through to ENOTSUP */
-
-    case VHOST_USER_SET_LOG_FD:
-    case VHOST_USER_SEND_RARP:
-    case VHOST_USER_NET_SET_MTU:
-    case VHOST_USER_SET_SLAVE_REQ_FD:
-    case VHOST_USER_IOTLB_MSG:
-    case VHOST_USER_SET_VRING_ENDIAN:
-    case VHOST_USER_CREATE_CRYPTO_SESSION:
-    case VHOST_USER_CLOSE_CRYPTO_SESSION:
-    case VHOST_USER_POSTCOPY_ADVISE:
-    case VHOST_USER_POSTCOPY_LISTEN:
-    case VHOST_USER_POSTCOPY_END:
-        VHD_LOG_WARN("Command = %d, not supported", msg->req);
-        ret = ENOTSUP;
-        break;
     case VHOST_USER_GET_INFLIGHT_FD:
         ret = vhost_get_inflight_fd(vdev, msg);
         break;
     case VHOST_USER_SET_INFLIGHT_FD:
         ret = vhost_set_inflight_fd(vdev, msg, fds, num_fds);
         break;
-    case VHOST_USER_NONE:
     default:
-        VHD_LOG_ERROR("Command = %d, not defined", msg->req);
-        ret = EINVAL;
+        VHD_LOG_WARN("Command = %d, not supported", msg->req);
+        ret = -ENOTSUP;
         break;
     }
 
