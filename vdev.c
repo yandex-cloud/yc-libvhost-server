@@ -750,19 +750,6 @@ static int vhost_set_owner(struct vhd_vdev *vdev, struct vhost_user_msg *msg)
     return 0;
 }
 
-static int vhost_reset_owner(struct vhd_vdev *vdev, struct vhost_user_msg *msg)
-{
-    VHD_LOG_TRACE();
-
-    VHD_UNUSED(vdev);
-    VHD_UNUSED(msg);
-
-    /*
-     * This is no longer used in vhost-spec spec so we don't support it either
-     */
-    return ENOTSUP;
-}
-
 static void vhost_reset_mem_table(struct vhd_vdev *vdev)
 {
     if (!vdev->guest_memmap) {
@@ -852,16 +839,6 @@ static int vhost_get_config(struct vhd_vdev *vdev, struct vhost_user_msg *msg)
     msg->flags = VHOST_USER_MSG_FLAGS_REPLY;
 
     return vhost_send(vdev, msg);
-}
-
-static int vhost_set_config(struct vhd_vdev *vdev, struct vhost_user_msg *msg)
-{
-    VHD_LOG_TRACE();
-
-    VHD_UNUSED(msg);
-    VHD_UNUSED(vdev);
-
-    return ENOTSUP;
 }
 
 static int vhost_get_queue_num(struct vhd_vdev *vdev,
@@ -1298,9 +1275,6 @@ static int vhost_handle_request(struct vhd_vdev *vdev,
     case VHOST_USER_SET_OWNER:
         ret = vhost_set_owner(vdev, msg);
         break;
-    case VHOST_USER_RESET_OWNER:
-        ret = vhost_reset_owner(vdev, msg);
-        break;
     case VHOST_USER_GET_PROTOCOL_FEATURES:
         ret = vhost_get_protocol_features(vdev, msg);
         break;
@@ -1309,9 +1283,6 @@ static int vhost_handle_request(struct vhd_vdev *vdev,
         break;
     case VHOST_USER_GET_CONFIG:
         ret = vhost_get_config(vdev, msg);
-        break;
-    case VHOST_USER_SET_CONFIG:
-        ret = vhost_set_config(vdev, msg);
         break;
     case VHOST_USER_SET_MEM_TABLE:
         ret = vhost_set_mem_table(vdev, msg, fds, num_fds);
