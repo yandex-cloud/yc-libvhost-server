@@ -55,6 +55,7 @@ struct vhd_io_handler;
 
 /*
  * Add io handler @read for @fd and attach it to @evloop.
+ * For safe data access must be called in @evloop only.
  */
 struct vhd_io_handler *vhd_add_io_handler(struct vhd_event_loop *evloop,
                                           int fd, int (*read)(void *),
@@ -63,6 +64,7 @@ struct vhd_io_handler *vhd_add_io_handler(struct vhd_event_loop *evloop,
 /*
  * Stop monitoring io handler @handler's file descriptor and calling its
  * handler functions.
+ * For safe data access must be called in @handler's event loop only.
  */
 
 int vhd_detach_io_handler(struct vhd_io_handler *handler);

@@ -426,6 +426,9 @@ int vhd_attach_io_handler(struct vhd_io_handler *handler)
         .data.ptr = handler
     };
 
+    /* to maintain fields consistency only do this in the home event loop */
+    VHD_ASSERT(evloop == home_evloop);
+
     /* unlike detach, multiple attachment is a logic error */
     VHD_ASSERT(!handler->attached);
 
