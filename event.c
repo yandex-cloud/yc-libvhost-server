@@ -73,8 +73,8 @@ struct vhd_event_loop {
     struct epoll_event *events;
     size_t max_events;
 
-    /* number of currently attached events */
-    atomic_int num_events_attached;
+    /* number of currently attached events (for consistency checks) */
+    unsigned num_events_attached;
 
     vhd_bh_list bh_list;
 
@@ -323,7 +323,7 @@ struct vhd_event_loop *vhd_create_event_loop(size_t max_events)
     evloop->max_events = max_events + 1; /* +1 for notify eventfd */
     evloop->events = vhd_calloc(sizeof(evloop->events[0]), evloop->max_events);
     SLIST_INIT(&evloop->bh_list);
-    atomic_set(&evloop->num_events_attached, 0);
+    evloop->num_events_attached = 0;
     atomic_set(&evloop->has_home_thread, false);
     SLIST_INIT(&evloop->deleted_handlers);
 
@@ -396,7 +396,7 @@ void vhd_terminate_event_loop(struct vhd_event_loop *evloop)
 void vhd_free_event_loop(struct vhd_event_loop *evloop)
 {
     VHD_ASSERT(evloop->is_terminated);
-    VHD_ASSERT(atomic_read(&evloop->num_events_attached) == 0);
+    VHD_ASSERT(evloop->num_events_attached == 0);
     bh_cleanup(evloop);
     close(evloop->epollfd);
     close(evloop->notifyfd);
@@ -406,14 +406,13 @@ void vhd_free_event_loop(struct vhd_event_loop *evloop)
 
 static void event_loop_inc_events(struct vhd_event_loop *evloop)
 {
-    int prev = atomic_fetch_inc(&evloop->num_events_attached);
-    VHD_VERIFY(prev >= 0);
+    evloop->num_events_attached++;
 }
 
 static void event_loop_dec_events(struct vhd_event_loop *evloop)
 {
-    int prev = atomic_fetch_dec(&evloop->num_events_attached);
-    VHD_VERIFY(prev > 0);
+    VHD_ASSERT(evloop->num_events_attached > 0);
+    evloop->num_events_attached--;
 }
 
 int vhd_attach_io_handler(struct vhd_io_handler *handler)
