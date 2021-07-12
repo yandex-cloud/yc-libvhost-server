@@ -1106,7 +1106,8 @@ static int vhost_get_inflight_fd(struct vhd_vdev *vdev,
     VHD_LOG_TRACE();
 
     struct vhost_user_inflight_desc *idesc = &msg->payload.inflight_desc;
-    uint64_t size;
+    size_t queue_region_size = vring_inflight_buf_size(idesc->queue_size);
+    size_t mmap_size = queue_region_size * idesc->num_queues;
     int fd;
     int ret;
     void *buf;
@@ -1118,38 +1119,33 @@ static int vhost_get_inflight_fd(struct vhd_vdev *vdev,
      */
     vhd_vdev_inflight_cleanup(vdev);
 
-    /* Calculate the size of the inflight buffer. */
-    size = vring_inflight_buf_size(idesc->queue_size);
-    size *= idesc->num_queues;
-
     fd = memfd_create("vhost_get_inflight_fd", MFD_CLOEXEC);
     if (fd == -1) {
         ret = -errno;
         VHD_LOG_ERROR("can't create memfd object");
         return ret;
     }
-    ret = ftruncate(fd, size);
+    ret = ftruncate(fd, mmap_size);
     if (ret == -1) {
         ret = -errno;
-        VHD_LOG_ERROR("can't truncate fd = %d, to size = %lu", fd, size);
+        VHD_LOG_ERROR("can't truncate fd = %d, to size = %lu", fd, mmap_size);
         goto out;
     }
-    ret = inflight_mmap_region(vdev, fd, size);
+    ret = inflight_mmap_region(vdev, fd, mmap_size);
     if (ret) {
         goto out;
     }
     memset(vdev->inflight_mem, 0, vdev->inflight_size);
 
     /* Prepare reply to the master side. */
-    idesc->mmap_size = size;
+    idesc->mmap_size = vdev->inflight_size;
     idesc->mmap_offset = 0;
 
     /* Initialize the inflight region for each virtqueue. */
     buf = vdev->inflight_mem;
-    size = vring_inflight_buf_size(idesc->queue_size);
     for (i = 0; i < idesc->num_queues; i++) {
         inflight_split_region_init(buf, idesc->queue_size);
-        buf = (void *)((uint64_t)buf + size);
+        buf += queue_region_size;
     }
 
     msg->flags = VHOST_USER_MSG_FLAGS_REPLY;
