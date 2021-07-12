@@ -1114,10 +1114,6 @@ static int vhost_get_inflight_fd(struct vhd_vdev *vdev,
     int fd;
     int ret;
 
-    /*
-     * TODO: should it be carefully cleanup? Could we get this command
-     * during vringq processing?
-     */
     vhd_vdev_inflight_cleanup(vdev);
 
     fd = memfd_create("vhost_get_inflight_fd", MFD_CLOEXEC);
@@ -1148,8 +1144,7 @@ static int vhost_get_inflight_fd(struct vhd_vdev *vdev,
     ret = vhost_send_fds(vdev, msg, &fd, 1);
     if (ret) {
         VHD_LOG_ERROR("can't send reply to get_inflight_fd command");
-        munmap(vdev->inflight_mem, vdev->inflight_size);
-        vdev->inflight_mem = NULL;
+        vhd_vdev_inflight_cleanup(vdev);
     }
 
 out:
