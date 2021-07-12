@@ -1074,12 +1074,14 @@ static void inflight_split_region_init(struct inflight_split_region *region,
 
 static int inflight_mmap_region(struct vhd_vdev *vdev, int fd, uint64_t size)
 {
+    int ret;
     void *buf;
 
     buf = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if (buf == MAP_FAILED) {
+        ret = -errno;
         VHD_LOG_ERROR("can't mmap fd = %d, size = %lu", fd, size);
-        return errno;
+        return ret;
     }
     vdev->inflight_mem = buf;
     vdev->inflight_size = size;
@@ -1124,14 +1126,14 @@ static int vhost_get_inflight_fd(struct vhd_vdev *vdev,
 
     fd = memfd_create("vhost_get_inflight_fd", MFD_CLOEXEC);
     if (fd == -1) {
+        ret = -errno;
         VHD_LOG_ERROR("can't create memfd object");
-        return -errno;
+        return ret;
     }
     ret = ftruncate(fd, size);
     if (ret == -1) {
-        VHD_LOG_ERROR("can't truncate fd = %d, to size = %lu",
-                fd, size);
         ret = -errno;
+        VHD_LOG_ERROR("can't truncate fd = %d, to size = %lu", fd, size);
         goto out;
     }
     ret = inflight_mmap_region(vdev, fd, size);
