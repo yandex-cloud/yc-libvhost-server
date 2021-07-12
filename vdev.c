@@ -17,6 +17,11 @@
 
 static LIST_HEAD(, vhd_vdev) g_vdevs = LIST_HEAD_INITIALIZER(g_vdevs);
 
+static uint16_t vring_idx(struct vhd_vring *vring)
+{
+    return vring->vdev->vrings - vring;
+}
+
 /* Return size of per queue inflight buffer. */
 static uint64_t vring_inflight_buf_size(int num)
 {
@@ -33,7 +38,7 @@ static void vring_inflight_addr_init(struct vhd_vring *vring)
     struct inflight_split_region *mem;
     uint64_t size;
     uint64_t qsize;
-    uint8_t idx;
+    uint16_t idx = vring_idx(vring);
 
     vring->client_info.inflight_addr = NULL;
 
@@ -42,7 +47,6 @@ static void vring_inflight_addr_init(struct vhd_vring *vring)
         return;
     }
     size = vring->vdev->inflight_size;
-    idx = vring->id;
     qsize = vring_inflight_buf_size(vring->client_info.num);
     if (qsize * (idx + 1) > size) {
         VHD_LOG_WARN(
@@ -81,7 +85,7 @@ static int vring_start(struct vhd_vring *vring)
 
     if (vring->is_started) {
         VHD_LOG_ERROR("Try to start already started vring: vring %d",
-                      vring->id);
+                      vring_idx(vring));
         return 0;
     }
 
@@ -139,7 +143,7 @@ static void vring_stop(struct vhd_vring *vring)
     vhd_run_in_rq(vring->vdev->rq, vring_stop_bh, vring);
 }
 
-static void vhd_vring_init(struct vhd_vring *vring, int id,
+static void vhd_vring_init(struct vhd_vring *vring,
                            struct vhd_vdev *vdev)
 {
     /*
@@ -149,7 +153,6 @@ static void vhd_vring_init(struct vhd_vring *vring, int id,
      */
     vring->is_started = false;
 
-    vring->id = id;
     vring->kickfd = -1;
     vring->callfd = -1;
     vring->vdev = vdev;
@@ -636,17 +639,17 @@ static int vhost_send_reply(struct vhd_vdev *vdev,
 static int vhost_send_vring_base(struct vhd_vring *vring)
 {
     int ret;
+    uint16_t idx = vring_idx(vring);
     struct vhost_user_msg reply;
     reply.req = VHOST_USER_GET_VRING_BASE;
     reply.size = sizeof(reply.payload.vring_state);
     reply.flags = VHOST_USER_MSG_FLAGS_REPLY;
-    reply.payload.vring_state.index = vring->id;
+    reply.payload.vring_state.index = idx;
     reply.payload.vring_state.num = vring->vq.last_avail;
 
     ret = vhost_send(vring->vdev, &reply);
     if (ret) {
-        VHD_LOG_ERROR("Can't send vring base to master. vring id: %d",
-                      vring->id);
+        VHD_LOG_ERROR("Can't send vring base to master. vring id: %d", idx);
     }
     return ret;
 }
@@ -1767,7 +1770,7 @@ int vhd_vdev_init_server(
     vdev->num_queues = max_queues;
     vdev->vrings = vhd_calloc(vdev->num_queues, sizeof(vdev->vrings[0]));
     for (i = 0; i < vdev->num_queues; i++) {
-        vhd_vring_init(vdev->vrings + i, i, vdev);
+        vhd_vring_init(vdev->vrings + i, vdev);
     }
 
     vdev->refcount = 1;

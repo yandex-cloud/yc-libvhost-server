@@ -188,9 +188,6 @@ struct vhd_vring {
         vhd_paddr_t used_gpa_base;
     } client_info;
 
-    /* vring id, acts as an index in its owning device */
-    int id;
-
     int kickfd;
     int callfd;
     int errfd;
