@@ -91,11 +91,8 @@ struct vhd_vdev {
     uint64_t supported_features;
     uint64_t negotiated_features;
 
-    /** Maximum amount of request queues this device can support */
-    /* Set by device backend as a limit of what we can support*/
-    uint32_t max_queues;
-    /* Set by client during negotiation, guaranteed to be <= max_queues */
-    uint32_t num_queues;
+    /* Maximum amount of request queues this device can support */
+    uint16_t num_queues;
     struct vhd_vring *vrings; /* Total num_queues elements */
 
     /**

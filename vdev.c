@@ -840,7 +840,7 @@ static int vhost_get_queue_num(struct vhd_vdev *vdev,
 {
     VHD_LOG_TRACE();
 
-    return vhost_send_reply(vdev, msg, vdev->max_queues);
+    return vhost_send_reply(vdev, msg, vdev->num_queues);
 }
 
 static struct vhd_vring *get_vring(struct vhd_vdev *vdev, uint32_t index)
@@ -1378,7 +1378,7 @@ static int vdev_submit_work_and_wait(struct vhd_vdev *vdev,
 
 static void vhd_vdev_stop(struct vhd_vdev *vdev)
 {
-    for (uint32_t i = 0; i < vdev->max_queues; ++i) {
+    for (uint32_t i = 0; i < vdev->num_queues; ++i) {
         vhd_vring_stop(vdev->vrings + i);
     }
 }
@@ -1735,6 +1735,18 @@ int vhd_vdev_init_server(
 {
     int ret;
     int listenfd;
+    uint16_t i;
+
+    /*
+     * The spec is unclear about the maximum number of queues allowed, using
+     * different types for the vring index in different messages.  The most
+     * limiting appear to VHOST_USER_SET_VRING_{CALL,ERR,KICK}, which allow
+     * only 8 bits for the vring index.
+     */
+    if (max_queues > VHOST_VRING_IDX_MASK + 1) {
+        VHD_LOG_ERROR("%d queues is too many", max_queues);
+        return -1;
+    }
 
     memset(vdev, 0, sizeof(*vdev));
 
@@ -1752,11 +1764,9 @@ int vhd_vdev_init_server(
     vdev->unmap_cb = unmap_cb;
 
     vdev->supported_protocol_features = g_default_protocol_features;
-    vdev->max_queues = max_queues;
-    /* May be overriden later by SET_CONFIG, but should be <= max_queues */
     vdev->num_queues = max_queues;
-    vdev->vrings = vhd_calloc(max_queues, sizeof(vdev->vrings[0]));
-    for (int i = 0; i < max_queues; ++i) {
+    vdev->vrings = vhd_calloc(vdev->num_queues, sizeof(vdev->vrings[0]));
+    for (i = 0; i < vdev->num_queues; i++) {
         vhd_vring_init(vdev->vrings + i, i, vdev);
     }
 
