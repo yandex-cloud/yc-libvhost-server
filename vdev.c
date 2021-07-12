@@ -40,14 +40,12 @@ static void vring_inflight_addr_init(struct vhd_vring *vring)
     uint64_t qsize;
     uint16_t idx = vring_idx(vring);
 
-    vring->client_info.inflight_addr = NULL;
-
     mem = vring->vdev->inflight_mem;
     if (!mem) {
         return;
     }
     size = vring->vdev->inflight_size;
-    qsize = vring_inflight_buf_size(vring->client_info.num);
+    qsize = vring_inflight_buf_size(vring->vq.qsz);
     if (qsize * (idx + 1) > size) {
         VHD_LOG_WARN(
             "inflight buffer for queue %d ends at %lu and doesn't fit in buffer of size %lu",
@@ -55,7 +53,7 @@ static void vring_inflight_addr_init(struct vhd_vring *vring)
         return;
     }
 
-    vring->client_info.inflight_addr = (void *)mem + qsize * idx;
+    vring->vq.inflight_region = (void *)mem + qsize * idx;
 }
 
 static int vring_kick(void *opaque)
@@ -90,17 +88,9 @@ static int vring_start(struct vhd_vring *vring)
     }
 
     vring_inflight_addr_init(vring);
-    res = virtio_virtq_attach(&vring->vq,
-              vring->client_info.flags,
-              vring->client_info.desc_addr,
-              vring->client_info.avail_addr,
-              vring->client_info.used_addr,
-              vring->client_info.used_gpa_base,
-              vring->client_info.num,
-              vring->client_info.base,
-              vring->client_info.inflight_addr);
+    res = virtio_virtq_init(&vring->vq);
     if (res != 0) {
-        VHD_LOG_ERROR("virtq attach failed: %d", res);
+        VHD_LOG_ERROR("virtq init failed: %d", res);
        return res;
     }
 
@@ -141,21 +131,6 @@ static void vring_stop(struct vhd_vring *vring)
     VHD_ASSERT(vring->is_started);
 
     vhd_run_in_rq(vring->vdev->rq, vring_stop_bh, vring);
-}
-
-static void vhd_vring_init(struct vhd_vring *vring,
-                           struct vhd_vdev *vdev)
-{
-    /*
-     * According to vhost spec we should check that PROTOCOL_FEATURES
-     * have been negotiated with the client here. However we explicitly
-     * don't support clients that don't negotiate it, so it makes no difference.
-     */
-    vring->is_started = false;
-
-    vring->kickfd = -1;
-    vring->callfd = -1;
-    vring->vdev = vdev;
 }
 
 static void vhd_vring_stop(struct vhd_vring *vring)
@@ -946,7 +921,7 @@ static int vhost_set_vring_num(struct vhd_vdev *vdev,
         return EINVAL;
     }
 
-    vring->client_info.num = vrstate->num;
+    vring->vq.qsz = vrstate->num;
     return 0;
 }
 
@@ -962,7 +937,7 @@ static int vhost_set_vring_base(struct vhd_vdev *vdev,
         return EINVAL;
     }
 
-    vring->client_info.base = vrstate->num;
+    vring->vq.last_avail = vrstate->num;
     return 0;
 }
 
@@ -1023,21 +998,20 @@ static int vhost_set_vring_addr(struct vhd_vdev *vdev,
             return EINVAL;
         }
 
-        vring->client_info.flags = vraddr->flags;
-        vring->client_info.desc_addr = desc_addr;
-        vring->client_info.used_addr = used_addr;
-        vring->client_info.avail_addr = avail_addr;
-        vring->client_info.used_gpa_base = vraddr->used_gpa_base;
+        vring->vq.flags = vraddr->flags;
+        vring->vq.desc = desc_addr;
+        vring->vq.used = used_addr;
+        vring->vq.avail = avail_addr;
+        vring->vq.used_gpa_base = vraddr->used_gpa_base;
     } else {
-        if (vring->client_info.desc_addr != desc_addr ||
-            vring->client_info.used_addr != used_addr ||
-            vring->client_info.avail_addr != avail_addr ||
-            vring->client_info.used_gpa_base != vraddr->used_gpa_base)
+        if (vring->vq.desc != desc_addr ||
+            vring->vq.used != used_addr ||
+            vring->vq.avail != avail_addr ||
+            vring->vq.used_gpa_base != vraddr->used_gpa_base)
         {
             VHD_LOG_ERROR("Enabled vring parameters mismatch");
             return EINVAL;
         }
-        vring->client_info.flags = vraddr->flags;
         vring->vq.flags = vraddr->flags;
     }
 
@@ -1770,7 +1744,7 @@ int vhd_vdev_init_server(
     vdev->num_queues = max_queues;
     vdev->vrings = vhd_calloc(vdev->num_queues, sizeof(vdev->vrings[0]));
     for (i = 0; i < vdev->num_queues; i++) {
-        vhd_vring_init(vdev->vrings + i, vdev);
+        vdev->vrings[i].vdev = vdev;
     }
 
     vdev->refcount = 1;
