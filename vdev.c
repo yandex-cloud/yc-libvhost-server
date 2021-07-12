@@ -23,14 +23,10 @@ static uint16_t vring_idx(struct vhd_vring *vring)
 }
 
 /* Return size of per queue inflight buffer. */
-static uint64_t vring_inflight_buf_size(int num)
+static size_t vring_inflight_buf_size(uint16_t num)
 {
-    uint64_t size;
-
-    size = sizeof(struct inflight_split_region) +
+    return sizeof(struct inflight_split_region) +
         num * sizeof(struct inflight_split_desc);
-
-    return size;
 }
 
 static void vring_inflight_addr_init(struct vhd_vring *vring)
