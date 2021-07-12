@@ -178,7 +178,8 @@ static void virtio_virtq_reset_stat(struct virtio_virtq *vq)
 int virtio_virtq_init(struct virtio_virtq *vq)
 {
     if (!vq->desc || !vq->used || !vq->avail || !vq->qsz ||
-        !vq->used_gpa_base || !vq->inflight_region) {
+        !vq->used_gpa_base || !vq->inflight_region ||
+        vq->qsz > vq->inflight_region->desc_num) {
         return -EINVAL;
     }
 
