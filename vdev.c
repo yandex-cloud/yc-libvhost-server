@@ -1062,14 +1062,17 @@ static int vhost_set_log_base(struct vhd_vdev *vdev,
     return vhost_send_reply(vdev, msg, 0);
 }
 
-static void inflight_split_region_init(struct inflight_split_region *region,
-        uint16_t qsize)
+static void inflight_mem_init(void *buf, size_t queue_region_size,
+                              uint16_t num_queues, uint16_t queue_size)
 {
-    region->features = 0;
-    region->version = 1;
-    region->desc_num = qsize;
-    region->last_batch_head = 0;
-    region->used_idx = 0;
+    uint16_t i;
+
+    memset(buf, 0,  num_queues * queue_region_size);
+    for (i = 0; i < num_queues; i++) {
+        struct inflight_split_region *region = buf + i * queue_region_size;
+        region->version = 1;
+        region->desc_num = queue_size;
+    }
 }
 
 static int inflight_mmap_region(struct vhd_vdev *vdev, int fd, uint64_t size)
@@ -1110,8 +1113,6 @@ static int vhost_get_inflight_fd(struct vhd_vdev *vdev,
     size_t mmap_size = queue_region_size * idesc->num_queues;
     int fd;
     int ret;
-    void *buf;
-    int i;
 
     /*
      * TODO: should it be carefully cleanup? Could we get this command
@@ -1135,18 +1136,13 @@ static int vhost_get_inflight_fd(struct vhd_vdev *vdev,
     if (ret) {
         goto out;
     }
-    memset(vdev->inflight_mem, 0, vdev->inflight_size);
+
+    inflight_mem_init(vdev->inflight_mem, queue_region_size, idesc->num_queues,
+                      idesc->queue_size);
 
     /* Prepare reply to the master side. */
     idesc->mmap_size = vdev->inflight_size;
     idesc->mmap_offset = 0;
-
-    /* Initialize the inflight region for each virtqueue. */
-    buf = vdev->inflight_mem;
-    for (i = 0; i < idesc->num_queues; i++) {
-        inflight_split_region_init(buf, idesc->queue_size);
-        buf += queue_region_size;
-    }
 
     msg->flags = VHOST_USER_MSG_FLAGS_REPLY;
     ret = vhost_send_fds(vdev, msg, &fd, 1);
