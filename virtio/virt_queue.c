@@ -175,33 +175,15 @@ static void virtio_virtq_reset_stat(struct virtio_virtq *vq)
     memset(&vq->stat, 0, sizeof(vq->stat));
 }
 
-int virtio_virtq_attach(struct virtio_virtq *vq,
-                        uint32_t flags,
-                        void *desc_addr,
-                        void *avail_addr,
-                        void *used_addr,
-                        uint64_t used_gpa_base,
-                        int qsz,
-                        int avail_base,
-                        void *inflight_addr)
+int virtio_virtq_init(struct virtio_virtq *vq)
 {
-    /*
-     * Client explicitly told us where to look for stuff, so no sanity checks.
-     * Assume that vhost initiation already verified memory layout
-     */
-    vq->flags = flags;
-    vq->desc = desc_addr;
-    vq->used = used_addr;
-    vq->avail = avail_addr;
-    vq->qsz = qsz;
-    vq->last_avail = avail_base;
-    vq->broken = false;
-    vq->buffers = vhd_calloc(qsz, sizeof(vq->buffers[0]));
-    vq->next_buffer = 0;
-    vq->used_gpa_base = used_gpa_base;
+    if (!vq->desc || !vq->used || !vq->avail || !vq->qsz ||
+        !vq->used_gpa_base || !vq->inflight_region) {
+        return -EINVAL;
+    }
 
-    /* Inflight initialization. */
-    vq->inflight_region = inflight_addr;
+    vq->buffers = vhd_calloc(vq->qsz, sizeof(vq->buffers[0]));
+
     /* Make check on the first virtq dequeue. */
     vq->inflight_check = true;
     virtq_inflight_reconnect_update(vq);
@@ -217,6 +199,7 @@ int virtio_virtq_attach(struct virtio_virtq *vq,
 void virtio_virtq_release(struct virtio_virtq *vq)
 {
     vhd_free(vq->buffers);
+    *vq = (struct virtio_virtq) {};
 }
 
 struct inflight_resubmit {

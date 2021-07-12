@@ -46,7 +46,7 @@ struct virtio_virtq {
     uint64_t used_gpa_base;
 
     /* Size of queue in number of descriptors it can hold */
-    int qsz;
+    uint16_t qsz;
 
     /* Shadow avail ring index */
     uint16_t  last_avail;
@@ -89,15 +89,7 @@ struct virtio_virtq {
     } stat;
 };
 
-int virtio_virtq_attach(struct virtio_virtq *vq,
-                        uint32_t flags,
-                        void *desc_addr,
-                        void *avail_addr,
-                        void *used_addr,
-                        uint64_t used_gpa_base,
-                        int qsz,
-                        int avail_base,
-                        void *inflight_addr);
+int virtio_virtq_init(struct virtio_virtq *vq);
 
 void virtio_virtq_release(struct virtio_virtq *vq);
 

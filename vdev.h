@@ -173,21 +173,6 @@ bool vhd_logging_started(struct virtio_virtq *vq);
 struct vhd_vring {
     struct vhd_vdev *vdev;
 
-    /*
-     * This structure is used to collect info about client vring during
-     * several vhost packets until we have enought to initialize it
-     */
-    struct vring_client_info {
-        uint32_t flags;
-        void *desc_addr;
-        void *avail_addr;
-        void *used_addr;
-        int num;
-        int base;
-        void *inflight_addr;
-        vhd_paddr_t used_gpa_base;
-    } client_info;
-
     int kickfd;
     int callfd;
     int errfd;
