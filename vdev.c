@@ -1105,7 +1105,7 @@ static int vhost_get_inflight_fd(struct vhd_vdev *vdev,
 {
     VHD_LOG_TRACE();
 
-    struct vhost_user_inflight_desc *idesc;
+    struct vhost_user_inflight_desc *idesc = &msg->payload.inflight_desc;
     uint64_t size;
     int fd;
     int ret;
@@ -1117,8 +1117,6 @@ static int vhost_get_inflight_fd(struct vhd_vdev *vdev,
      * during vringq processing?
      */
     vhd_vdev_inflight_cleanup(vdev);
-
-    idesc = &msg->payload.inflight_desc;
 
     /* Calculate the size of the inflight buffer. */
     size = vring_inflight_buf_size(idesc->queue_size);
@@ -1173,7 +1171,7 @@ static int vhost_set_inflight_fd(struct vhd_vdev *vdev,
 {
     VHD_LOG_TRACE();
 
-    struct vhost_user_inflight_desc *idesc;
+    struct vhost_user_inflight_desc *idesc = &msg->payload.inflight_desc;
     int ret;
 
     if (num_fds != 1) {
@@ -1182,8 +1180,6 @@ static int vhost_set_inflight_fd(struct vhd_vdev *vdev,
     }
 
     vhd_vdev_inflight_cleanup(vdev);
-
-    idesc = &msg->payload.inflight_desc;
     ret = inflight_mmap_region(vdev, fds[0], idesc->mmap_size);
     close(fds[0]);
 
