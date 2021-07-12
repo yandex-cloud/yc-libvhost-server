@@ -602,11 +602,12 @@ static int vhost_send(struct vhd_vdev *vdev, const struct vhost_user_msg *msg)
 static int vhost_send_reply(struct vhd_vdev *vdev,
                             const struct vhost_user_msg *msgin, uint64_t u64)
 {
-    struct vhost_user_msg reply;
-    reply.req = msgin->req;
-    reply.size = sizeof(u64);
-    reply.flags = VHOST_USER_MSG_FLAGS_REPLY;
-    reply.payload.u64 = u64;
+    struct vhost_user_msg reply = {
+        .req = msgin->req,
+        .size = sizeof(u64),
+        .flags = VHOST_USER_MSG_FLAGS_REPLY,
+        .payload.u64 = u64,
+    };
 
     return vhost_send(vdev, &reply);
 }
@@ -615,12 +616,15 @@ static int vhost_send_vring_base(struct vhd_vring *vring)
 {
     int ret;
     uint16_t idx = vring_idx(vring);
-    struct vhost_user_msg reply;
-    reply.req = VHOST_USER_GET_VRING_BASE;
-    reply.size = sizeof(reply.payload.vring_state);
-    reply.flags = VHOST_USER_MSG_FLAGS_REPLY;
-    reply.payload.vring_state.index = idx;
-    reply.payload.vring_state.num = vring->vq.last_avail;
+    struct vhost_user_msg reply = {
+        .req = VHOST_USER_GET_VRING_BASE,
+        .size = sizeof(reply.payload.vring_state),
+        .flags = VHOST_USER_MSG_FLAGS_REPLY,
+        .payload.vring_state = {
+            .index = idx,
+            .num = vring->vq.last_avail,
+        },
+    };
 
     ret = vhost_send(vring->vdev, &reply);
     if (ret) {
@@ -1725,36 +1729,31 @@ int vhd_vdev_init_server(
         return -1;
     }
 
-    memset(vdev, 0, sizeof(*vdev));
-
     listenfd = sock_create_server(socket_path);
     if (listenfd < 0) {
         return -1;
     }
 
-    vdev->priv = priv;
-    vdev->type = type;
-    vdev->listenfd = listenfd;
-    vdev->connfd = -1;
-    vdev->rq = rq;
-    vdev->map_cb = map_cb;
-    vdev->unmap_cb = unmap_cb;
+    *vdev = (struct vhd_vdev) {
+        .priv = priv,
+        .type = type,
+        .listenfd = listenfd,
+        .connfd = -1,
+        .rq = rq,
+        .map_cb = map_cb,
+        .unmap_cb = unmap_cb,
+        .supported_protocol_features = g_default_protocol_features,
+        .num_queues = max_queues,
+        .refcount = 1,
+        .state = VDEV_INITIALIZED,
+    };
 
-    vdev->supported_protocol_features = g_default_protocol_features;
-    vdev->num_queues = max_queues;
     vdev->vrings = vhd_calloc(vdev->num_queues, sizeof(vdev->vrings[0]));
     for (i = 0; i < vdev->num_queues; i++) {
         vdev->vrings[i].vdev = vdev;
     }
 
-    vdev->refcount = 1;
-
-    vdev->inflight_mem = NULL;
-    vdev->inflight_size = 0;
-
     LIST_INSERT_HEAD(&g_vdevs, vdev, vdev_list);
-
-    vdev->state = VDEV_INITIALIZED; /* Initial state */
 
     ret = change_device_state(vdev, VDEV_LISTENING);
     if (ret != 0) {
