@@ -605,6 +605,43 @@ static int vhost_send_vring_base(struct vhd_vring *vring)
     return ret;
 }
 
+static int vhost_ack_request_if_needed(struct vhd_vdev *vdev,
+                                       const struct vhost_user_msg *msg,
+                                       int ret)
+{
+    /*
+     * If REPLY_ACK protocol feature was not negotiated
+     * then we have nothing to do
+     */
+    if (!has_feature(vdev->negotiated_protocol_features,
+                     VHOST_USER_PROTOCOL_F_REPLY_ACK)) {
+        return 0;
+    }
+
+    /* We negotiated REPLY_ACK but client does not need it for this message */
+    if (!(msg->flags & VHOST_USER_MSG_FLAGS_REPLY_ACK)) {
+        return 0;
+    }
+
+    /*
+     * We negotiated REPLY_ACK but message already has an explicit reply
+     * which was successfully sent
+     */
+    if (ret == 0) {
+        switch (msg->req) {
+        case VHOST_USER_GET_FEATURES:
+        case VHOST_USER_GET_PROTOCOL_FEATURES:
+        case VHOST_USER_GET_CONFIG:
+        case VHOST_USER_GET_QUEUE_NUM:
+        case VHOST_USER_GET_VRING_BASE:
+            return 0;
+        };
+    }
+
+    /* Ok, send the reply */
+    return vhost_send_reply(vdev, msg, ret);
+}
+
 static int vhost_get_protocol_features(struct vhd_vdev *vdev,
                                        struct vhost_user_msg *msg)
 {
@@ -1177,43 +1214,6 @@ static int vhost_set_inflight_fd(struct vhd_vdev *vdev,
     close(fds[0]);
 
     return ret;
-}
-
-static int vhost_ack_request_if_needed(struct vhd_vdev *vdev,
-                                       const struct vhost_user_msg *msg,
-                                       int ret)
-{
-    /*
-     * If REPLY_ACK protocol feature was not negotiated
-     * then we have nothing to do
-     */
-    if (!has_feature(vdev->negotiated_protocol_features,
-                     VHOST_USER_PROTOCOL_F_REPLY_ACK)) {
-        return 0;
-    }
-
-    /* We negotiated REPLY_ACK but client does not need it for this message */
-    if (!(msg->flags & VHOST_USER_MSG_FLAGS_REPLY_ACK)) {
-        return 0;
-    }
-
-    /*
-     * We negotiated REPLY_ACK but message already has an explicit reply
-     * which was successfully sent
-     */
-    if (ret == 0) {
-        switch (msg->req) {
-        case VHOST_USER_GET_FEATURES:
-        case VHOST_USER_GET_PROTOCOL_FEATURES:
-        case VHOST_USER_GET_CONFIG:
-        case VHOST_USER_GET_QUEUE_NUM:
-        case VHOST_USER_GET_VRING_BASE:
-            return 0;
-        };
-    }
-
-    /* Ok, send the reply */
-    return vhost_send_reply(vdev, msg, ret);
 }
 
 /*
