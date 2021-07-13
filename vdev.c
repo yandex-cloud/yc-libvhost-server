@@ -29,29 +29,6 @@ static size_t vring_inflight_buf_size(uint16_t num)
         num * sizeof(struct inflight_split_desc);
 }
 
-static void vring_inflight_addr_init(struct vhd_vring *vring)
-{
-    struct inflight_split_region *mem;
-    uint64_t size;
-    uint64_t qsize;
-    uint16_t idx = vring_idx(vring);
-
-    mem = vring->vdev->inflight_mem;
-    if (!mem) {
-        return;
-    }
-    size = vring->vdev->inflight_size;
-    qsize = vring_inflight_buf_size(vring->vq.qsz);
-    if (qsize * (idx + 1) > size) {
-        VHD_LOG_WARN(
-            "inflight buffer for queue %d ends at %lu and doesn't fit in buffer of size %lu",
-            idx, qsize * (idx + 1), size);
-        return;
-    }
-
-    vring->vq.inflight_region = (void *)mem + qsize * idx;
-}
-
 static int vring_kick(void *opaque)
 {
     struct vhd_vring *vring = opaque;
@@ -83,7 +60,6 @@ static int vring_start(struct vhd_vring *vring)
         return 0;
     }
 
-    vring_inflight_addr_init(vring);
     res = virtio_virtq_init(&vring->vq);
     if (res != 0) {
         VHD_LOG_ERROR("virtq init failed: %d", res);
@@ -1081,6 +1057,7 @@ static int inflight_mmap_region(struct vhd_vdev *vdev, int fd,
     size_t mmap_size = queue_region_size * num_queues;
     int ret;
     void *buf;
+    uint16_t i;
 
     buf = mmap(NULL, mmap_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if (buf == MAP_FAILED) {
@@ -1088,6 +1065,15 @@ static int inflight_mmap_region(struct vhd_vdev *vdev, int fd,
         VHD_LOG_ERROR("can't mmap fd = %d, size = %lu", fd, mmap_size);
         return ret;
     }
+
+    if (vdev->num_queues < num_queues) {
+        num_queues = vdev->num_queues;
+    }
+
+    for (i = 0; i < num_queues; i++) {
+        vdev->vrings[i].vq.inflight_region = buf + i * queue_region_size;
+    }
+
     vdev->inflight_mem = buf;
     vdev->inflight_size = mmap_size;
 
@@ -1096,6 +1082,8 @@ static int inflight_mmap_region(struct vhd_vdev *vdev, int fd,
 
 static void vhd_vdev_inflight_cleanup(struct vhd_vdev *vdev)
 {
+    uint16_t i;
+
     if (!vdev->inflight_mem) {
         /* Nothing to clean up. */
         return;
@@ -1103,6 +1091,10 @@ static void vhd_vdev_inflight_cleanup(struct vhd_vdev *vdev)
 
     munmap(vdev->inflight_mem, vdev->inflight_size);
     vdev->inflight_mem = NULL;
+
+    for (i = 0; i < vdev->num_queues; i++) {
+        vdev->vrings[i].vq.inflight_region = NULL;
+    }
 }
 
 static int vhost_get_inflight_fd(struct vhd_vdev *vdev,
