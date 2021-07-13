@@ -776,28 +776,44 @@ static void vhost_reset_mem_table(struct vhd_vdev *vdev)
     vdev->guest_memmap = NULL;
 }
 
-static int vhost_set_mem_table(struct vhd_vdev *vdev,
-                               struct vhost_user_msg *msg,
-                               int *fds, size_t num_fds)
+struct set_mem_table_data {
+    struct vhd_vdev *vdev;
+    struct vhost_user_msg *msg;
+    int *fds;
+    size_t num_fds;
+};
+
+static void set_mem_table_bh(void *opaque)
 {
     VHD_LOG_TRACE();
+
+    struct set_mem_table_data *data = opaque;
+
+    struct vhd_vdev *vdev = data->vdev;
+    struct vhost_user_msg *msg = data->msg;
+    int *fds = data->fds;
+    size_t num_fds = data->num_fds;
 
     int ret = 0;
     struct vhost_user_mem_desc *desc;
     struct vhd_guest_memory_map *mm;
     uint32_t i;
 
+    vhd_free(data);
+
     vhost_reset_mem_table(vdev);
 
     desc = &msg->payload.mem_desc;
     if (desc->nregions > VHOST_USER_MEM_REGIONS_MAX) {
         VHD_LOG_ERROR("Invalid number of memory regions %d", desc->nregions);
-        return -EINVAL;
+        ret = -EINVAL;
+        goto reply;
     }
     if (desc->nregions != num_fds) {
         VHD_LOG_ERROR("#memory regions != #fds: %u != %zu", desc->nregions,
                       num_fds);
-        return -EINVAL;
+        ret = -EINVAL;
+        goto reply;
     }
 
     mm = vhd_zalloc(sizeof(*mm) + desc->nregions * sizeof(mm->regions[0]));
@@ -826,8 +842,24 @@ out:
     for (i = 0; i < num_fds; i++) {
         close(fds[i]);
     }
-    return ret;
+reply:
+    vhost_ack_request_if_needed(vdev, msg, ret);
 }
+
+static void vhost_set_mem_table(struct vhd_vdev *vdev,
+                               struct vhost_user_msg *msg,
+                               int *fds, size_t num_fds)
+{
+    struct set_mem_table_data *data =
+                               vhd_alloc(sizeof(struct set_mem_table_data));
+    data->vdev = vdev;
+    data->msg = msg;
+    data->fds = fds;
+    data->num_fds = num_fds;
+
+    vhd_run_in_rq(vdev->rq, set_mem_table_bh, data);
+}
+
 
 static int vhost_get_config(struct vhd_vdev *vdev, struct vhost_user_msg *msg)
 {
@@ -1270,8 +1302,8 @@ static int vhost_handle_request(struct vhd_vdev *vdev,
         ret = vhost_get_config(vdev, msg);
         break;
     case VHOST_USER_SET_MEM_TABLE:
-        ret = vhost_set_mem_table(vdev, msg, fds, num_fds);
-        break;
+        vhost_set_mem_table(vdev, msg, fds, num_fds);
+        return 0;
     case VHOST_USER_GET_QUEUE_NUM:
         ret = vhost_get_queue_num(vdev, msg);
         break;
