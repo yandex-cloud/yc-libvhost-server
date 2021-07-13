@@ -1075,19 +1075,21 @@ static void inflight_mem_init(void *buf, size_t queue_region_size,
     }
 }
 
-static int inflight_mmap_region(struct vhd_vdev *vdev, int fd, uint64_t size)
+static int inflight_mmap_region(struct vhd_vdev *vdev, int fd,
+                                size_t queue_region_size, uint16_t num_queues)
 {
+    size_t mmap_size = queue_region_size * num_queues;
     int ret;
     void *buf;
 
-    buf = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    buf = mmap(NULL, mmap_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if (buf == MAP_FAILED) {
         ret = -errno;
-        VHD_LOG_ERROR("can't mmap fd = %d, size = %lu", fd, size);
+        VHD_LOG_ERROR("can't mmap fd = %d, size = %lu", fd, mmap_size);
         return ret;
     }
     vdev->inflight_mem = buf;
-    vdev->inflight_size = size;
+    vdev->inflight_size = mmap_size;
 
     return 0;
 }
@@ -1128,7 +1130,7 @@ static int vhost_get_inflight_fd(struct vhd_vdev *vdev,
         VHD_LOG_ERROR("can't truncate fd = %d, to size = %lu", fd, mmap_size);
         goto out;
     }
-    ret = inflight_mmap_region(vdev, fd, mmap_size);
+    ret = inflight_mmap_region(vdev, fd, queue_region_size, idesc->num_queues);
     if (ret) {
         goto out;
     }
@@ -1159,6 +1161,7 @@ static int vhost_set_inflight_fd(struct vhd_vdev *vdev,
     VHD_LOG_TRACE();
 
     struct vhost_user_inflight_desc *idesc = &msg->payload.inflight_desc;
+    size_t queue_region_size = vring_inflight_buf_size(idesc->queue_size);
     int ret;
 
     if (num_fds != 1) {
@@ -1167,7 +1170,7 @@ static int vhost_set_inflight_fd(struct vhd_vdev *vdev,
     }
 
     vhd_vdev_inflight_cleanup(vdev);
-    ret = inflight_mmap_region(vdev, fds[0], idesc->mmap_size);
+    ret = inflight_mmap_region(vdev, fds[0], queue_region_size, idesc->num_queues);
     close(fds[0]);
 
     return ret;
