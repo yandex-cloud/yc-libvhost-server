@@ -1169,6 +1169,17 @@ static int vhost_set_inflight_fd(struct vhd_vdev *vdev,
         return -EINVAL;
     }
 
+    if (idesc->mmap_offset) {
+        VHD_LOG_ERROR("non-zero mmap offset: %lx", idesc->mmap_offset);
+        return -EINVAL;
+    }
+
+    if (idesc->mmap_size != queue_region_size * idesc->num_queues) {
+        VHD_LOG_ERROR("invalid inflight region dimensions: %zu != %zu * %u",
+                      idesc->mmap_size, queue_region_size, idesc->num_queues);
+        return -EINVAL;
+    }
+
     vhd_vdev_inflight_cleanup(vdev);
     ret = inflight_mmap_region(vdev, fds[0], queue_region_size, idesc->num_queues);
     close(fds[0]);
