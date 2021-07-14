@@ -79,6 +79,24 @@ static int vring_kick(void *opaque)
     return vdev->type->dispatch_requests(vdev, vring, vdev->rq);
 }
 
+/*
+ * Returns actual pointer where uva points to
+ * or NULL in case of mapping absence
+ */
+static void *uva_to_ptr(struct vhd_guest_memory_map *map, vhd_uaddr_t uva)
+{
+    uint32_t i;
+
+    for (i = 0; i < map->num; i++) {
+        struct vhd_guest_memory_region *reg = &map->regions[i];
+        if (uva >= reg->uva && uva - reg->uva < reg->size) {
+            return reg->hva + (uva - reg->uva);
+        }
+    }
+
+    return NULL;
+}
+
 static void vdev_ref(struct vhd_vdev *vdev);
 static void vdev_unref(struct vhd_vdev *vdev);
 
@@ -404,24 +422,6 @@ void vhd_memmap_unref(struct vhd_guest_memory_map *mm) __attribute__ ((weak));
 void vhd_memmap_unref(struct vhd_guest_memory_map *mm)
 {
     objref_put(&mm->ref);
-}
-
-/*
- * Convert host emulator address to the current mmap address.
- * Return mmap address in case of success or NULL.
- */
-static void *map_uva(struct vhd_guest_memory_map *map, vhd_uaddr_t uva)
-{
-    uint32_t i;
-
-    for (i = 0; i < map->num; i++) {
-        struct vhd_guest_memory_region *reg = &map->regions[i];
-        if (uva >= reg->uva && uva - reg->uva < reg->size) {
-            return reg->hva + (uva - reg->uva);
-        }
-    }
-
-    return NULL;
 }
 
 #define TRANSLATION_FAILED ((vhd_paddr_t)-1)
@@ -963,9 +963,9 @@ static int vhost_set_vring_addr(struct vhd_vdev *vdev,
         return EINVAL;
     }
 
-    void *desc_addr = map_uva(vdev->guest_memmap, vraddr->desc_addr);
-    void *used_addr = map_uva(vdev->guest_memmap, vraddr->used_addr);
-    void *avail_addr = map_uva(vdev->guest_memmap, vraddr->avail_addr);
+    void *desc_addr = uva_to_ptr(vdev->guest_memmap, vraddr->desc_addr);
+    void *used_addr = uva_to_ptr(vdev->guest_memmap, vraddr->used_addr);
+    void *avail_addr = uva_to_ptr(vdev->guest_memmap, vraddr->avail_addr);
 
     if (!vring->is_started) {
         if (!desc_addr || !used_addr || !avail_addr) {
