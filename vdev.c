@@ -131,6 +131,16 @@ static int vring_start(struct vhd_vring *vring)
         return 0;
     }
 
+    /*
+     * Update vq addresses from cache right before vq init.
+     * This guarantees that vq rings addresses are set with
+     * actual guest memory mapping.
+     */
+    res = vring_update_vq_addrs(vring);
+    if (res) {
+        return res;
+    }
+
     res = virtio_virtq_init(&vring->vq);
     if (res != 0) {
         VHD_LOG_ERROR("virtq init failed: %d", res);
@@ -1022,16 +1032,9 @@ static int vhost_set_vring_addr(struct vhd_vdev *vdev,
     }
 
     if (!vring->is_started) {
-        int ret;
         vring->addr_cache.desc =  vraddr->desc_addr;
         vring->addr_cache.used = vraddr->used_addr;
         vring->addr_cache.avail = vraddr->avail_addr;
-
-        ret = vring_update_vq_addrs(vring);
-        if (ret) {
-            return ret;
-        }
-
         vring->vq.flags = vraddr->flags;
         vring->vq.used_gpa_base = vraddr->used_gpa_base;
     } else {
