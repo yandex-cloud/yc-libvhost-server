@@ -97,6 +97,27 @@ static void *uva_to_ptr(struct vhd_guest_memory_map *map, vhd_uaddr_t uva)
     return NULL;
 }
 
+static int vring_update_vq_addrs(struct vhd_vring *vring)
+{
+    struct vhd_vdev *vdev = vring->vdev;
+
+    void *desc = uva_to_ptr(vdev->guest_memmap, vring->addr_cache.desc);
+    void *used = uva_to_ptr(vdev->guest_memmap, vring->addr_cache.used);
+    void *avail = uva_to_ptr(vdev->guest_memmap, vring->addr_cache.avail);
+
+    if (!desc || !used || !avail) {
+        VHD_LOG_ERROR("invalid vring component address (%p, %p, %p)",
+                       desc, used, avail);
+        return -EINVAL;
+    }
+
+    vring->vq.desc = desc;
+    vring->vq.used = used;
+    vring->vq.avail = avail;
+
+    return 0;
+}
+
 static void vdev_ref(struct vhd_vdev *vdev);
 static void vdev_unref(struct vhd_vdev *vdev);
 
@@ -1000,34 +1021,33 @@ static int vhost_set_vring_addr(struct vhd_vdev *vdev,
         return EINVAL;
     }
 
-    void *desc_addr = uva_to_ptr(vdev->guest_memmap, vraddr->desc_addr);
-    void *used_addr = uva_to_ptr(vdev->guest_memmap, vraddr->used_addr);
-    void *avail_addr = uva_to_ptr(vdev->guest_memmap, vraddr->avail_addr);
-
     if (!vring->is_started) {
-        if (!desc_addr || !used_addr || !avail_addr) {
-            VHD_LOG_ERROR("invalid vring %d component address (%p, %p, %p)",
-                vraddr->index, desc_addr, used_addr, avail_addr);
-            return EINVAL;
+        int ret;
+        vring->addr_cache.desc =  vraddr->desc_addr;
+        vring->addr_cache.used = vraddr->used_addr;
+        vring->addr_cache.avail = vraddr->avail_addr;
+
+        ret = vring_update_vq_addrs(vring);
+        if (ret) {
+            return ret;
         }
 
         vring->vq.flags = vraddr->flags;
-        vring->vq.desc = desc_addr;
-        vring->vq.used = used_addr;
-        vring->vq.avail = avail_addr;
         vring->vq.used_gpa_base = vraddr->used_gpa_base;
     } else {
-        if (vring->vq.desc != desc_addr ||
-            vring->vq.used != used_addr ||
-            vring->vq.avail != avail_addr ||
+        if (vring->addr_cache.desc != vraddr->desc_addr ||
+            vring->addr_cache.used != vraddr->used_addr ||
+            vring->addr_cache.avail != vraddr->avail_addr ||
             vring->vq.used_gpa_base != vraddr->used_gpa_base)
         {
-            VHD_LOG_ERROR("Enabled vring parameters mismatch");
-            return EINVAL;
+            VHD_LOG_ERROR("Enabled vring %d parameters mismatch "
+                          "(0x%ld, 0x%ld, 0x%ld)",
+                          vraddr->index, vraddr->desc_addr, vraddr->desc_addr,
+                          vraddr->desc_addr);
+            return -EINVAL;
         }
         vring->vq.flags = vraddr->flags;
     }
-
 
     return 0;
 }
