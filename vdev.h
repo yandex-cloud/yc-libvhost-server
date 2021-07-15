@@ -196,6 +196,16 @@ struct vhd_vring {
     * not atomic - is supposed to be accessed from vdev's request queue (bh)
     */
     uint64_t refcount;
+
+   /*
+    * ring addresses cache
+    * used to update actual ring addresses when mapping is changed
+    */
+    struct {
+        uint64_t avail;
+        uint64_t desc;
+        uint64_t used;
+    } addr_cache;
 };
 
 void vhd_vring_ref(struct vhd_vring *vring);
