@@ -17,6 +17,38 @@
 
 static LIST_HEAD(, vhd_vdev) g_vdevs = LIST_HEAD_INITIALIZER(g_vdevs);
 
+typedef uint64_t vhd_uaddr_t;
+
+struct vhd_guest_memory_region {
+    /* Guest physical address */
+    vhd_paddr_t gpa;
+
+    /*
+     * Userspace virtual address, where this region is mapped
+     * in virtio backend on client
+     */
+    vhd_uaddr_t uva;
+
+    /* Host virtual address, our local mapping */
+    void *hva;
+
+    /* Used region size */
+    size_t size;
+};
+
+struct vhd_guest_memory_map {
+    struct objref ref;
+
+    atomic_long *log_addr;
+    uint64_t log_size;
+
+    void *priv;
+    int (*unmap_cb)(void *addr, size_t len, void *priv);
+
+    uint32_t num;
+    struct vhd_guest_memory_region regions[];
+};
+
 static uint16_t vring_idx(struct vhd_vring *vring)
 {
     return vring->vdev->vrings - vring;
@@ -232,38 +264,6 @@ static int net_send_msg_fds(int fd, const struct vhost_user_msg *msg,
 
     return len;
 }
-
-typedef uint64_t vhd_uaddr_t;
-
-struct vhd_guest_memory_region {
-    /* Guest physical address */
-    vhd_paddr_t gpa;
-
-    /*
-     * Userspace virtual address, where this region is mapped
-     * in virtio backend on client
-     */
-    vhd_uaddr_t uva;
-
-    /* Host virtual address, our local mapping */
-    void *hva;
-
-    /* Used region size */
-    size_t size;
-};
-
-struct vhd_guest_memory_map {
-    struct objref ref;
-
-    atomic_long *log_addr;
-    uint64_t log_size;
-
-    void *priv;
-    int (*unmap_cb)(void *addr, size_t len, void *priv);
-
-    uint32_t num;
-    struct vhd_guest_memory_region regions[];
-};
 
 static void *map_memory(void *addr, size_t len, int fd, off_t offset)
 {
