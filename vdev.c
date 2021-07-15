@@ -838,6 +838,22 @@ static void set_mem_table_bh(void *opaque)
     }
 
     vdev->guest_memmap = mm;
+
+    /*
+     * update started rings vq-s addresses with new mapping
+     */
+    for (i = 0; i < vdev->num_queues; i++) {
+        struct vhd_vring *vring = vdev->vrings + i;
+
+        if (!vring->is_started) {
+            continue;
+        }
+
+        ret = vring_update_vq_addrs(vring);
+        if (ret) {
+            break;
+        }
+    }
 out:
     for (i = 0; i < num_fds; i++) {
         close(fds[i]);
