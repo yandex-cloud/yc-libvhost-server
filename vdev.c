@@ -1756,8 +1756,8 @@ void vhd_vring_unref(struct vhd_vring *vring)
         if (vring->on_drain_cb) {
             vring->on_drain_cb(vring);
             vring_clear_on_drain_cb(vring);
-            virtio_virtq_release(&vring->vq);
         }
+        virtio_virtq_release(&vring->vq);
         /*
          * unref vdev on vring disabling
          * this pairs with dev_ref in vring_start
