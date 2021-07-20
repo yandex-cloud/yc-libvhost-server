@@ -4,6 +4,7 @@
 #include <fcntl.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/syscall.h>
 #include <sys/stat.h>
 #include <sys/un.h>
 #include <sys/mman.h>
@@ -1204,6 +1205,16 @@ static void vhd_vdev_inflight_cleanup(struct vhd_vdev *vdev)
         vdev->vrings[i].vq.inflight_region = NULL;
     }
 }
+
+/* memfd_create is only present since glibc-2.27 */
+#ifndef MFD_CLOEXEC
+#define MFD_CLOEXEC                0x0001U
+
+static int memfd_create(const char *name, unsigned int flags)
+{
+    return syscall(__NR_memfd_create, name, flags);
+}
+#endif
 
 static int vhost_get_inflight_fd(struct vhd_vdev *vdev,
                                  struct vhost_user_msg *msg)
