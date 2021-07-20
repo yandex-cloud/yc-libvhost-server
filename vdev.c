@@ -1438,6 +1438,7 @@ static void vhd_vdev_release(struct vhd_vdev *vdev)
     close(vdev->listenfd);
     close(vdev->connfd);
 
+    vhost_reset_mem_table(vdev);
     vhd_vdev_inflight_cleanup(vdev);
 
     LIST_REMOVE(vdev, vdev_list);
