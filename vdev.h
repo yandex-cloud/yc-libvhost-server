@@ -61,8 +61,6 @@ struct vhd_work;
  *
  * Devices are polymorphic through their respective types.
  */
-typedef uint64_t vhd_paddr_t;
-
 struct vhd_vdev {
     /* Accosiated client private data */
     void *priv;
@@ -157,8 +155,8 @@ int vhd_vdev_init_server(
 int vhd_vdev_stop_server(struct vhd_vdev *vdev,
                          void (*unregister_complete)(void *), void *arg);
 
-void vhd_gpa_range_mark_dirty(struct vhd_memory_log *log, vhd_paddr_t gpa,
-                              size_t len);
+void vhd_gpa_range_mark_dirty(struct vhd_memory_log *log,
+                              uint64_t gpa, size_t len);
 void vhd_hva_range_mark_dirty(struct vhd_memory_log *log,
                               struct vhd_memory_map *mm,
                               void *hva, size_t len);
