@@ -19,11 +19,8 @@ struct virtio_iov {
     struct vhd_buffer buffers[/*nvecs*/];
 };
 
-/*
- * Memory mapping context
- * Implemented by client to validate and map guest memory addresses
- */
 struct vhd_memory_map;
+struct vhd_memory_log;
 
 /**
  * Given a guest physical memory region produce its VA mapping on the host.
@@ -79,10 +76,11 @@ struct virtio_virtq {
     bool inflight_check;
 
     /*
-     * this object is per-device but storing a link on virtqueue facilitates
+     * these objects are per-device but storing a link on virtqueue facilitates
      * bookkeeping
      */
     struct vhd_memory_map *mm;
+    struct vhd_memory_log *log;
 
     /* Usage statistics */
     struct vq_stat {
