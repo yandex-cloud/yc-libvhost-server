@@ -52,6 +52,7 @@ struct vhd_vdev_type {
     void (*free)(struct vhd_vdev *vdev);
 };
 
+struct vhd_memory_map;
 struct vhd_work;
 
 /**
@@ -97,10 +98,8 @@ struct vhd_vdev {
 
     /**
      * Memory mappings that relate to this device
-     * TODO: it is wrong to have separate mappings per device, they should
-     * really be per-guest
      */
-    struct vhd_guest_memory_map *guest_memmap;
+    struct vhd_memory_map *memmap;
 
     /* Gets called after mapping guest memory region */
     int (*map_cb)(void *addr, size_t len, void *priv);
@@ -156,14 +155,14 @@ int vhd_vdev_stop_server(struct vhd_vdev *vdev,
                          void (*unregister_complete)(void *), void *arg);
 
 static inline
-struct vhd_guest_memory_map *vhd_vdev_mm_ctx(struct vhd_vdev *vdev)
+struct vhd_memory_map *vhd_vdev_mm_ctx(struct vhd_vdev *vdev)
 {
-    return vdev->guest_memmap;
+    return vdev->memmap;
 }
 
-void vhd_gpa_range_mark_dirty(struct vhd_guest_memory_map *mm, vhd_paddr_t gpa,
+void vhd_gpa_range_mark_dirty(struct vhd_memory_map *mm, vhd_paddr_t gpa,
                               size_t len);
-void vhd_hva_range_mark_dirty(struct vhd_guest_memory_map *mm, void *hva,
+void vhd_hva_range_mark_dirty(struct vhd_memory_map *mm, void *hva,
                               size_t len);
 bool vhd_logging_started(struct virtio_virtq *vq);
 
@@ -211,8 +210,8 @@ struct vhd_vring {
 void vhd_vring_ref(struct vhd_vring *vring);
 void vhd_vring_unref(struct vhd_vring *vring);
 
-void vhd_memmap_ref(struct vhd_guest_memory_map *mm);
-void vhd_memmap_unref(struct vhd_guest_memory_map *mm);
+void vhd_memmap_ref(struct vhd_memory_map *mm);
+void vhd_memmap_unref(struct vhd_memory_map *mm);
 
 #ifdef __cplusplus
 }
