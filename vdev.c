@@ -18,17 +18,15 @@
 
 static LIST_HEAD(, vhd_vdev) g_vdevs = LIST_HEAD_INITIALIZER(g_vdevs);
 
-typedef uint64_t vhd_uaddr_t;
-
 struct vhd_memory_region {
     /* Guest physical address */
-    vhd_paddr_t gpa;
+    uint64_t gpa;
 
     /*
      * Userspace virtual address, where this region is mapped
      * in virtio backend on client
      */
-    vhd_uaddr_t uva;
+    uint64_t uva;
 
     /* Host virtual address, our local mapping */
     void *hva;
@@ -81,7 +79,7 @@ static int vring_kick(void *opaque)
  * Returns actual pointer where uva points to
  * or NULL in case of mapping absence
  */
-static void *uva_to_ptr(struct vhd_memory_map *map, vhd_uaddr_t uva)
+static void *uva_to_ptr(struct vhd_memory_map *map, uint64_t uva)
 {
     uint32_t i;
 
@@ -377,7 +375,7 @@ static int unmap_memory(void *addr, size_t len)
  * Map guest memory region to the vhost server.
  */
 static int map_region(struct vhd_memory_region *region,
-                      vhd_paddr_t guest_addr, vhd_uaddr_t user_addr,
+                      uint64_t guest_addr, uint64_t user_addr,
                       uint64_t size, uint64_t offset, int fd,
                       int (*map_cb)(void *addr, size_t len, void *priv),
                       void *priv)
@@ -487,9 +485,9 @@ void vhd_memlog_free(struct vhd_memory_log *log)
     vhd_free(log);
 }
 
-#define TRANSLATION_FAILED ((vhd_paddr_t)-1)
+#define TRANSLATION_FAILED ((uint64_t)-1)
 
-static vhd_paddr_t hva2gpa(struct vhd_memory_map *mm, void *hva)
+static uint64_t hva2gpa(struct vhd_memory_map *mm, void *hva)
 {
     uint32_t i;
     for (i = 0; i < mm->num; ++i) {
@@ -506,7 +504,7 @@ static vhd_paddr_t hva2gpa(struct vhd_memory_map *mm, void *hva)
 #define VHOST_LOG_PAGE 0x1000
 
 void vhd_gpa_range_mark_dirty(struct vhd_memory_log *log,
-                              vhd_paddr_t gpa, size_t len)
+                              uint64_t gpa, size_t len)
 {
     atomic_ulong *log_addr = log->base;
     if (!log_addr) {
@@ -550,14 +548,14 @@ void vhd_hva_range_mark_dirty(struct vhd_memory_log *log,
                               struct vhd_memory_map *mm,
                               void *hva, size_t len)
 {
-    vhd_paddr_t gpa = hva2gpa(mm, hva);
+    uint64_t gpa = hva2gpa(mm, hva);
     if (gpa != TRANSLATION_FAILED) {
         vhd_gpa_range_mark_dirty(log, gpa, len);
     }
 }
 
 static void *map_gpa_len(struct vhd_memory_map *map,
-                         vhd_paddr_t gpa, uint32_t len)
+                         uint64_t gpa, uint32_t len)
 {
     uint32_t i;
 
@@ -566,7 +564,7 @@ static void *map_gpa_len(struct vhd_memory_map *map,
     }
 
     /* TODO: sanitize for overflow */
-    vhd_paddr_t last_gpa = gpa + len - 1;
+    uint64_t last_gpa = gpa + len - 1;
 
     for (i = 0; i < map->num; i++) {
         struct vhd_memory_region *reg = &map->regions[i];
