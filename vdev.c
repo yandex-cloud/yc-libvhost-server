@@ -503,7 +503,7 @@ static uint64_t hva2gpa(struct vhd_memory_map *mm, void *hva)
 
 #define VHOST_LOG_PAGE 0x1000
 
-void vhd_gpa_range_mark_dirty(struct vhd_memory_log *log,
+void vhd_mark_gpa_range_dirty(struct vhd_memory_log *log,
                               uint64_t gpa, size_t len)
 {
     atomic_ulong *log_addr = log->base;
@@ -544,13 +544,13 @@ void vhd_gpa_range_mark_dirty(struct vhd_memory_log *log,
     } while (page <= last_page);
 }
 
-void vhd_hva_range_mark_dirty(struct vhd_memory_log *log,
-                              struct vhd_memory_map *mm,
-                              void *hva, size_t len)
+void vhd_mark_range_dirty(struct vhd_memory_log *log,
+                          struct vhd_memory_map *mm,
+                          void *hva, size_t len)
 {
     uint64_t gpa = hva2gpa(mm, hva);
     if (gpa != TRANSLATION_FAILED) {
-        vhd_gpa_range_mark_dirty(log, gpa, len);
+        vhd_mark_gpa_range_dirty(log, gpa, len);
     }
 }
 
