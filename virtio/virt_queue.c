@@ -78,7 +78,7 @@ static int add_buffer(struct virtio_virtq *vq, void *addr, size_t len,
 static int map_buffer(struct virtio_virtq *vq, uint64_t gpa, size_t len,
                       bool write_only)
 {
-    void *addr = virtio_map_guest_phys_range(vq->mm, gpa, len);
+    void *addr = gpa_range_to_ptr(vq->mm, gpa, len);
     if (!addr) {
         VHD_LOG_ERROR("Failed to map GPA 0x%lx, vring is broken", gpa);
         return -EINVAL;
@@ -287,9 +287,8 @@ static int walk_indirect_table(struct virtio_virtq *vq,
         return -EINVAL;
     }
 
-    void *mapped_table = virtio_map_guest_phys_range(vq->mm,
-                                                     table_desc->addr,
-                                                     table_desc->len);
+    void *mapped_table = gpa_range_to_ptr(vq->mm, table_desc->addr,
+                                          table_desc->len);
     if (!mapped_table) {
         VHD_LOG_ERROR("Bad guest address range on indirect descriptor table");
         return -EINVAL;

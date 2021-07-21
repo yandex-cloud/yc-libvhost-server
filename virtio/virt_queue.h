@@ -22,19 +22,6 @@ struct virtio_iov {
 struct vhd_memory_map;
 struct vhd_memory_log;
 
-/**
- * Given a guest physical memory region produce its VA mapping on the host.
- * This function is a linker dependancy for virtio code
- *
- * @mm      Client memory management context
- * @gpa     Guest physical address
- * @len     Total bytes in physical range
- *
- * @return  mapped host VA or NULL in case of error
- */
-void *virtio_map_guest_phys_range(struct vhd_memory_map *mm,
-                                  uint64_t gpa, uint32_t len);
-
 struct virtio_virtq {
     uint32_t flags;
     struct virtq_desc *desc;

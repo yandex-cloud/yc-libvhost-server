@@ -554,8 +554,9 @@ void vhd_hva_range_mark_dirty(struct vhd_memory_log *log,
     }
 }
 
-static void *map_gpa_len(struct vhd_memory_map *map,
-                         uint64_t gpa, uint32_t len)
+void *gpa_range_to_ptr(struct vhd_memory_map *map, uint64_t gpa,
+                       size_t len) __attribute__ ((weak));
+void *gpa_range_to_ptr(struct vhd_memory_map *map, uint64_t gpa, size_t len)
 {
     uint32_t i;
 
@@ -584,15 +585,6 @@ static void *map_gpa_len(struct vhd_memory_map *map,
     }
 
     return NULL;
-}
-
-void *virtio_map_guest_phys_range(struct vhd_memory_map *mm,
-                                  uint64_t gpa, uint32_t len)
-                                 __attribute__ ((weak));
-void *virtio_map_guest_phys_range(struct vhd_memory_map *mm,
-                                  uint64_t gpa, uint32_t len)
-{
-    return map_gpa_len(mm, gpa, len);
 }
 
 /*
