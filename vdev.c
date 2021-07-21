@@ -40,9 +40,6 @@ struct vhd_memory_region {
 struct vhd_memory_map {
     struct objref ref;
 
-    atomic_long *log_addr;
-    uint64_t log_size;
-
     void *priv;
     int (*unmap_cb)(void *addr, size_t len, void *priv);
 
@@ -444,13 +441,6 @@ static void memmap_release(struct objref *objref)
         unmap_region(&mm->regions[i], mm->unmap_cb, mm->priv);
     }
 
-    if (mm->log_addr) {
-        int ret = munmap(mm->log_addr, mm->log_size);
-        if (ret != 0) {
-            VHD_LOG_ERROR("failed to unmap log region at %p", mm->log_addr);
-        }
-    }
-
     vhd_free(mm);
 }
 
@@ -464,6 +454,37 @@ void vhd_memmap_unref(struct vhd_memory_map *mm) __attribute__ ((weak));
 void vhd_memmap_unref(struct vhd_memory_map *mm)
 {
     objref_put(&mm->ref);
+}
+
+struct vhd_memory_log {
+    atomic_ulong *base;
+    size_t size;
+};
+
+struct vhd_memory_log *vhd_memlog_new(size_t size, int fd, off_t offset)
+{
+    struct vhd_memory_log *log;
+    void *base;
+
+    base = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, offset);
+    if (base == MAP_FAILED) {
+        VHD_LOG_ERROR("mmap(%zu, %d, %zu): %s", size, fd, offset,
+                      strerror(errno));
+        return NULL;
+    }
+
+    log = vhd_alloc(sizeof(*log));
+    *log = (struct vhd_memory_log) {
+        .base = base,
+        .size = size,
+    };
+    return log;
+}
+
+void vhd_memlog_free(struct vhd_memory_log *log)
+{
+    munmap(log->base, log->size);
+    vhd_free(log);
 }
 
 #define TRANSLATION_FAILED ((vhd_paddr_t)-1)
@@ -484,16 +505,16 @@ static vhd_paddr_t hva2gpa(struct vhd_memory_map *mm, void *hva)
 
 #define VHOST_LOG_PAGE 0x1000
 
-void vhd_gpa_range_mark_dirty(struct vhd_memory_map *mm,
+void vhd_gpa_range_mark_dirty(struct vhd_memory_log *log,
                               vhd_paddr_t gpa, size_t len)
 {
-    atomic_long *log_addr = mm->log_addr;
+    atomic_ulong *log_addr = log->base;
     if (!log_addr) {
         VHD_LOG_WARN("No logging addr set");
         return;
     }
 
-    uint64_t log_size = mm->log_size;
+    uint64_t log_size = log->size;
 
     uint64_t page = gpa / VHOST_LOG_PAGE;
     uint64_t last_page = (gpa + len - 1) / VHOST_LOG_PAGE;
@@ -525,12 +546,13 @@ void vhd_gpa_range_mark_dirty(struct vhd_memory_map *mm,
     } while (page <= last_page);
 }
 
-void vhd_hva_range_mark_dirty(struct vhd_memory_map *mm,
+void vhd_hva_range_mark_dirty(struct vhd_memory_log *log,
+                              struct vhd_memory_map *mm,
                               void *hva, size_t len)
 {
     vhd_paddr_t gpa = hva2gpa(mm, hva);
     if (gpa != TRANSLATION_FAILED) {
-        vhd_gpa_range_mark_dirty(mm, gpa, len);
+        vhd_gpa_range_mark_dirty(log, gpa, len);
     }
 }
 
@@ -731,6 +753,18 @@ static int vhost_get_features(struct vhd_vdev *vdev, struct vhost_user_msg *msg)
     return vhost_send_reply(vdev, msg, vdev->supported_features);
 }
 
+static void vdev_update_memlog(struct vhd_vdev *vdev)
+{
+    uint16_t i;
+    struct vhd_memory_log *log =
+        has_feature(vdev->negotiated_features, VHOST_F_LOG_ALL) ?
+        vdev->memlog : NULL;
+
+    for (i = 0; i < vdev->num_queues; i++) {
+        vdev->vrings[i].vq.log = log;
+    }
+}
+
 static int vhost_set_features(struct vhd_vdev *vdev, struct vhost_user_msg *msg)
 {
     VHD_LOG_TRACE();
@@ -765,6 +799,8 @@ static int vhost_set_features(struct vhd_vdev *vdev, struct vhost_user_msg *msg)
                      requested_features,
                      vdev->negotiated_features);
     }
+
+    vdev_update_memlog(vdev);
 
     return 0;
 }
@@ -1114,45 +1150,34 @@ static int vhost_set_vring_addr(struct vhd_vdev *vdev,
     return 0;
 }
 
-bool vhd_logging_started(struct virtio_virtq *vq)
-                                 __attribute__ ((weak));
-bool vhd_logging_started(struct virtio_virtq *vq)
-{
-    struct vhd_vring *vring = containerof(vq, struct vhd_vring, vq);
-    return has_feature(vring->vdev->negotiated_features, VHOST_F_LOG_ALL);
-}
-
 static int vhost_set_log_base(struct vhd_vdev *vdev,
                               struct vhost_user_msg *msg,
                               int *fds,
                               size_t num_fds)
 {
+    struct vhd_memory_log *memlog, *old_memlog = vdev->memlog;
+
     VHD_LOG_TRACE();
 
     if (num_fds != 1) {
         VHD_LOG_ERROR("unexpected #fds: %zu", num_fds);
-        return EINVAL;
-    }
-
-    if (vdev->memmap->log_addr) {
-        VHD_LOG_ERROR("updating log region is not supported");
-        close(fds[0]);
-        return ENOTSUP;
+        return -EINVAL;
     }
 
     struct vhost_user_log *log = &msg->payload.log;
 
-    void *log_addr = mmap(NULL, log->size, PROT_READ | PROT_WRITE, MAP_SHARED,
-                          fds[0], log->offset);
+    memlog = vhd_memlog_new(log->size, fds[0], log->offset);
     close(fds[0]);
-
-    if (log_addr == MAP_FAILED) {
-        VHD_LOG_ERROR("can't mmap fd = %d, size = %lu", fds[0], log->size);
-        return errno;
+    if (!memlog) {
+        return -EFAULT;
     }
 
-    vdev->memmap->log_addr = log_addr;
-    vdev->memmap->log_size = log->size;
+    vdev->memlog = memlog;
+    vdev_update_memlog(vdev);
+
+    if (old_memlog) {
+        vhd_memlog_free(old_memlog);
+    }
 
     return vhost_send_reply(vdev, msg, 0);
 }
@@ -1475,6 +1500,9 @@ static int change_device_state(struct vhd_vdev *vdev,
             vhd_vdev_stop(vdev);
 
             vhost_reset_mem_table(vdev);
+            if (vdev->memlog) {
+                vhd_memlog_free(vdev->memlog);
+            }
 
             close(vdev->connfd);
             vdev->connfd = -1; /* Not nessesary, just defensive */

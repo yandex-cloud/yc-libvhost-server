@@ -53,6 +53,7 @@ struct vhd_vdev_type {
 };
 
 struct vhd_memory_map;
+struct vhd_memory_log;
 struct vhd_work;
 
 /**
@@ -107,6 +108,8 @@ struct vhd_vdev {
     /* Gets called before unmapping guest memory region */
     int (*unmap_cb)(void *addr, size_t len, void *priv);
 
+    struct vhd_memory_log *memlog;
+
     /**
      * Shared memory to store information about inflight requests and restore
      * virtqueue state after reconnect.
@@ -154,11 +157,11 @@ int vhd_vdev_init_server(
 int vhd_vdev_stop_server(struct vhd_vdev *vdev,
                          void (*unregister_complete)(void *), void *arg);
 
-void vhd_gpa_range_mark_dirty(struct vhd_memory_map *mm, vhd_paddr_t gpa,
+void vhd_gpa_range_mark_dirty(struct vhd_memory_log *log, vhd_paddr_t gpa,
                               size_t len);
-void vhd_hva_range_mark_dirty(struct vhd_memory_map *mm, void *hva,
-                              size_t len);
-bool vhd_logging_started(struct virtio_virtq *vq);
+void vhd_hva_range_mark_dirty(struct vhd_memory_log *log,
+                              struct vhd_memory_map *mm,
+                              void *hva, size_t len);
 
 /**
  * Device vring instance
