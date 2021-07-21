@@ -78,6 +78,12 @@ struct virtio_virtq {
     struct inflight_split_region *inflight_region;
     bool inflight_check;
 
+    /*
+     * this object is per-device but storing a link on virtqueue facilitates
+     * bookkeeping
+     */
+    struct vhd_memory_map *mm;
+
     /* Usage statistics */
     struct vq_stat {
         /* Metrics provided to users */
@@ -99,7 +105,6 @@ typedef void(*virtq_handle_buffers_cb)(void *arg,
                                        struct virtio_virtq *vq,
                                        struct virtio_iov *iov);
 int virtq_dequeue_many(struct virtio_virtq *vq,
-                       struct vhd_memory_map *mm,
                        virtq_handle_buffers_cb handle_buffers_cb,
                        void *arg);
 

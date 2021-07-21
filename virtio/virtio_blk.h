@@ -22,7 +22,6 @@ extern "C" {
 struct vhd_bdev_info;
 struct vhd_bio;
 
-struct vhd_memory_map;
 struct virtio_virtq;
 struct virtio_blk_dev;
 
@@ -60,8 +59,7 @@ int virtio_blk_init_dev(
  * Dispatch requests from device virtq
  */
 int virtio_blk_dispatch_requests(struct virtio_blk_dev *dev,
-                                 struct virtio_virtq *vq,
-                                 struct vhd_memory_map *mm);
+                                 struct virtio_virtq *vq);
 
 #ifdef __cplusplus
 }

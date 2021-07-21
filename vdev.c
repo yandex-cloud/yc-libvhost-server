@@ -102,6 +102,8 @@ static int vring_update_vq_addrs(struct vhd_vring *vring)
 {
     struct vhd_vdev *vdev = vring->vdev;
 
+    vhd_memmap_ref(vdev->memmap);
+
     void *desc = uva_to_ptr(vdev->memmap, vring->addr_cache.desc);
     void *used = uva_to_ptr(vdev->memmap, vring->addr_cache.used);
     void *avail = uva_to_ptr(vdev->memmap, vring->addr_cache.avail);
@@ -109,12 +111,17 @@ static int vring_update_vq_addrs(struct vhd_vring *vring)
     if (!desc || !used || !avail) {
         VHD_LOG_ERROR("invalid vring component address (%p, %p, %p)",
                        desc, used, avail);
+        vhd_memmap_unref(vdev->memmap);
         return -EINVAL;
     }
 
     vring->vq.desc = desc;
     vring->vq.used = used;
     vring->vq.avail = avail;
+    if (vring->vq.mm) {
+        vhd_memmap_unref(vring->vq.mm);
+    }
+    vring->vq.mm = vdev->memmap;
 
     return 0;
 }
@@ -175,6 +182,9 @@ static void vring_stop_bh(void *opaque)
     struct vhd_vring *vring = (struct vhd_vring *) opaque;
     vhd_del_io_handler(vring->kick_handler);
     vring->is_started = false;
+    if (vring->vq.mm) {
+        vhd_memmap_unref(vring->vq.mm);
+    }
     /* pairs with ref in vring_started() */
     vhd_vring_unref(vring);
 }
