@@ -204,10 +204,6 @@ struct vhd_vring {
 void vhd_vring_ref(struct vhd_vring *vring);
 void vhd_vring_unref(struct vhd_vring *vring);
 
-void *gpa_range_to_ptr(struct vhd_memory_map *mm, uint64_t gpa, size_t len);
-void vhd_memmap_ref(struct vhd_memory_map *mm);
-void vhd_memmap_unref(struct vhd_memory_map *mm);
-
 #ifdef __cplusplus
 }
 #endif
