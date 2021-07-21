@@ -9,8 +9,7 @@
 #include "virt_queue.h"
 #include "logging.h"
 #include "vdev.h"
-
-/*////////////////////////////////////////////////////////////////////////////*/
+#include "memmap.h"
 
 /**
  * Holds private virtq data together with iovs we show users

@@ -14,36 +14,9 @@
 #include "vdev.h"
 #include "server_internal.h"
 #include "logging.h"
-#include "objref.h"
+#include "memmap.h"
 
 static LIST_HEAD(, vhd_vdev) g_vdevs = LIST_HEAD_INITIALIZER(g_vdevs);
-
-struct vhd_memory_region {
-    /* Guest physical address */
-    uint64_t gpa;
-
-    /*
-     * Userspace virtual address, where this region is mapped
-     * in virtio backend on client
-     */
-    uint64_t uva;
-
-    /* Host virtual address, our local mapping */
-    void *hva;
-
-    /* Used region size */
-    size_t size;
-};
-
-struct vhd_memory_map {
-    struct objref ref;
-
-    void *priv;
-    int (*unmap_cb)(void *addr, size_t len, void *priv);
-
-    uint32_t num;
-    struct vhd_memory_region regions[];
-};
 
 static uint16_t vring_idx(struct vhd_vring *vring)
 {
@@ -73,24 +46,6 @@ static int vring_kick(void *opaque)
      */
     vhd_clear_eventfd(vring->kickfd);
     return vdev->type->dispatch_requests(vdev, vring, vdev->rq);
-}
-
-/*
- * Returns actual pointer where uva points to
- * or NULL in case of mapping absence
- */
-static void *uva_to_ptr(struct vhd_memory_map *map, uint64_t uva)
-{
-    uint32_t i;
-
-    for (i = 0; i < map->num; i++) {
-        struct vhd_memory_region *reg = &map->regions[i];
-        if (uva >= reg->uva && uva - reg->uva < reg->size) {
-            return reg->hva + (uva - reg->uva);
-        }
-    }
-
-    return NULL;
 }
 
 static int vring_update_vq_addrs(struct vhd_vring *vring)
@@ -320,140 +275,6 @@ static int net_send_msg_fds(int fd, const struct vhost_user_msg *msg,
     return len;
 }
 
-static void *map_memory(void *addr, size_t len, int fd, off_t offset)
-{
-    size_t aligned_len = VHD_ALIGN_PTR_UP(len, HUGE_PAGE_SIZE);
-    size_t map_len = aligned_len + HUGE_PAGE_SIZE + PAGE_SIZE;
-
-    char *map = mmap(addr, map_len, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1,
-                     0);
-    if (map == MAP_FAILED) {
-        VHD_LOG_ERROR("unable to map memory: %s", strerror(errno));
-        return MAP_FAILED;
-    }
-
-    char *aligned_addr = VHD_ALIGN_PTR_UP(map + PAGE_SIZE, HUGE_PAGE_SIZE);
-    addr = mmap(aligned_addr, len, PROT_READ | PROT_WRITE,
-                MAP_SHARED | MAP_FIXED, fd, offset);
-    if (addr == MAP_FAILED) {
-        VHD_LOG_ERROR("unable to remap memory region %p-%p: %s", aligned_addr,
-                      aligned_addr + len, strerror(errno));
-        munmap(map, map_len);
-        return MAP_FAILED;
-    }
-    aligned_addr = addr;
-
-    size_t tail_len = aligned_len - len;
-    if (tail_len) {
-        char *tail = aligned_addr + len;
-        addr = mmap(tail, tail_len, PROT_READ | PROT_WRITE,
-                    MAP_SHARED | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
-        if (addr == MAP_FAILED) {
-            VHD_LOG_ERROR("unable to remap memory region %p-%p: %s", tail,
-                          tail + tail_len, strerror(errno));
-            munmap(map, map_len);
-            return MAP_FAILED;
-        }
-    }
-
-    char *start = aligned_addr - PAGE_SIZE;
-    char *end = aligned_addr + aligned_len + PAGE_SIZE;
-    munmap(map, start - map);
-    munmap(end, map + map_len - end);
-
-    return aligned_addr;
-}
-
-static int unmap_memory(void *addr, size_t len)
-{
-    size_t map_len = VHD_ALIGN_PTR_UP(len, HUGE_PAGE_SIZE) + PAGE_SIZE * 2;
-    char *map = addr - PAGE_SIZE;
-    return munmap(map, map_len);
-}
-
-/*
- * Map guest memory region to the vhost server.
- */
-static int map_region(struct vhd_memory_region *region,
-                      uint64_t guest_addr, uint64_t user_addr,
-                      uint64_t size, uint64_t offset, int fd,
-                      int (*map_cb)(void *addr, size_t len, void *priv),
-                      void *priv)
-{
-    void *vaddr;
-
-    vaddr = map_memory(NULL, size, fd, offset);
-    if (vaddr == MAP_FAILED) {
-        VHD_LOG_ERROR("Can't mmap guest memory: %s", strerror(errno));
-        return -errno;
-    }
-
-    if (map_cb) {
-        size_t len = VHD_ALIGN_PTR_UP(size, HUGE_PAGE_SIZE);
-        int ret = map_cb(vaddr, len, priv);
-        if (ret) {
-            VHD_LOG_ERROR("map callback failed for region %p-%p: %s",
-                          vaddr, vaddr + len, strerror(-ret));
-            munmap(vaddr, size);
-            return ret;
-        }
-    }
-
-    /* Mark memory as defined explicitly */
-    VHD_MEMCHECK_DEFINED(vaddr, size);
-
-    region->hva = vaddr;
-    region->gpa = guest_addr;
-    region->uva = user_addr;
-    region->size = size;
-    return 0;
-}
-
-static void unmap_region(struct vhd_memory_region *reg,
-    int (*unmap_cb)(void *addr, size_t len, void *priv), void *priv)
-{
-    int ret;
-
-    if (unmap_cb) {
-        size_t len = VHD_ALIGN_PTR_UP(reg->size, HUGE_PAGE_SIZE);
-        ret = unmap_cb(reg->hva, len, priv);
-        if (ret) {
-            VHD_LOG_ERROR("unmap callback failed for region %p-%p: %s",
-                          reg->hva, reg->hva + reg->size, strerror(-ret));
-        }
-    }
-
-    ret = unmap_memory(reg->hva, reg->size);
-    if (ret != 0) {
-        VHD_LOG_ERROR("failed to unmap guest region at %p", reg->hva);
-    }
-}
-
-static void memmap_release(struct objref *objref)
-{
-    struct vhd_memory_map *mm =
-        containerof(objref, struct vhd_memory_map, ref);
-    uint32_t i;
-
-    for (i = 0; i < mm->num; i++) {
-        unmap_region(&mm->regions[i], mm->unmap_cb, mm->priv);
-    }
-
-    vhd_free(mm);
-}
-
-void vhd_memmap_ref(struct vhd_memory_map *mm) __attribute__ ((weak));
-void vhd_memmap_ref(struct vhd_memory_map *mm)
-{
-    objref_get(&mm->ref);
-}
-
-void vhd_memmap_unref(struct vhd_memory_map *mm) __attribute__ ((weak));
-void vhd_memmap_unref(struct vhd_memory_map *mm)
-{
-    objref_put(&mm->ref);
-}
-
 struct vhd_memory_log {
     atomic_ulong *base;
     size_t size;
@@ -483,22 +304,6 @@ void vhd_memlog_free(struct vhd_memory_log *log)
 {
     munmap(log->base, log->size);
     vhd_free(log);
-}
-
-#define TRANSLATION_FAILED ((uint64_t)-1)
-
-static uint64_t hva2gpa(struct vhd_memory_map *mm, void *hva)
-{
-    uint32_t i;
-    for (i = 0; i < mm->num; ++i) {
-        struct vhd_memory_region *reg = &mm->regions[i];
-        if (hva >= reg->hva && hva < reg->hva + reg->size) {
-            return (hva - reg->hva) + reg->gpa;
-        }
-    }
-
-    VHD_LOG_WARN("Failed to translate hva %p to gpa", hva);
-    return TRANSLATION_FAILED;
 }
 
 #define VHOST_LOG_PAGE 0x1000
@@ -548,43 +353,10 @@ void vhd_mark_range_dirty(struct vhd_memory_log *log,
                           struct vhd_memory_map *mm,
                           void *hva, size_t len)
 {
-    uint64_t gpa = hva2gpa(mm, hva);
+    uint64_t gpa = ptr_to_gpa(mm, hva);
     if (gpa != TRANSLATION_FAILED) {
         vhd_mark_gpa_range_dirty(log, gpa, len);
     }
-}
-
-void *gpa_range_to_ptr(struct vhd_memory_map *map, uint64_t gpa,
-                       size_t len) __attribute__ ((weak));
-void *gpa_range_to_ptr(struct vhd_memory_map *map, uint64_t gpa, size_t len)
-{
-    uint32_t i;
-
-    if (len == 0) {
-        return NULL;
-    }
-
-    /* TODO: sanitize for overflow */
-    uint64_t last_gpa = gpa + len - 1;
-
-    for (i = 0; i < map->num; i++) {
-        struct vhd_memory_region *reg = &map->regions[i];
-        if (gpa >= reg->gpa && gpa - reg->gpa < reg->size) {
-            /*
-             * Check that length fits in a single region.
-             *
-             * TODO: should we handle gpa areas that cross region boundaries
-             *       but are otherwise valid?
-             */
-            if (last_gpa - reg->gpa >= reg->size) {
-                return NULL;
-            }
-
-            return reg->hva + (gpa - reg->gpa);
-        }
-    }
-
-    return NULL;
 }
 
 /*
@@ -853,23 +625,14 @@ static void set_mem_table_bh(void *opaque)
         goto reply;
     }
 
-    mm = vhd_zalloc(sizeof(*mm) + desc->nregions * sizeof(mm->regions[0]));
-    objref_init(&mm->ref, memmap_release);
-    mm->num = desc->nregions;
-    mm->unmap_cb = vdev->unmap_cb;
-    mm->priv = vdev->priv;
+    mm = vhd_memmap_new(vdev->map_cb, vdev->unmap_cb, vdev->priv);
 
     for (i = 0; i < desc->nregions; i++) {
         struct vhost_user_mem_region *region = &desc->regions[i];
-        ret = map_region(&mm->regions[i], region->guest_addr,
-                         region->user_addr, region->size,
-                         region->mmap_offset, fds[i], vdev->map_cb,
-                         vdev->priv);
+        ret = vhd_memmap_add_slot(mm, region->guest_addr, region->user_addr,
+                                  region->size, fds[i], region->mmap_offset);
         if (ret < 0) {
-            while (i--) {
-                unmap_region(&mm->regions[i], vdev->unmap_cb, vdev->priv);
-            }
-            vhd_free(mm);
+            vhd_memmap_unref(mm);
             goto out;
         }
     }
