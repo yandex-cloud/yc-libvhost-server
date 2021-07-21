@@ -8,8 +8,8 @@
 #include "catomic.h"
 #include "virt_queue.h"
 #include "logging.h"
-#include "vdev.h"
 #include "memmap.h"
+#include "memlog.h"
 
 /**
  * Holds private virtq data together with iovs we show users
