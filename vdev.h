@@ -154,12 +154,6 @@ int vhd_vdev_init_server(
 int vhd_vdev_stop_server(struct vhd_vdev *vdev,
                          void (*unregister_complete)(void *), void *arg);
 
-static inline
-struct vhd_memory_map *vhd_vdev_mm_ctx(struct vhd_vdev *vdev)
-{
-    return vdev->memmap;
-}
-
 void vhd_gpa_range_mark_dirty(struct vhd_memory_map *mm, vhd_paddr_t gpa,
                               size_t len);
 void vhd_hva_range_mark_dirty(struct vhd_memory_map *mm, void *hva,

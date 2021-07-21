@@ -64,8 +64,7 @@ static int vblk_dispatch(struct vhd_vdev *vdev, struct vhd_vring *vring,
     VHD_UNUSED(rq);
 
     struct vhd_bdev *dev = VHD_BLOCKDEV_FROM_VDEV(vdev);
-    return virtio_blk_dispatch_requests(&dev->vblk, &vring->vq,
-                                        vhd_vdev_mm_ctx(vdev));
+    return virtio_blk_dispatch_requests(&dev->vblk, &vring->vq);
 }
 
 static void vblk_free(struct vhd_vdev *vdev)

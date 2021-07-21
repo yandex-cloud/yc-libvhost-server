@@ -278,10 +278,9 @@ static void handle_buffers(void *arg, struct virtio_virtq *vq,
 /*////////////////////////////////////////////////////////////////////////////*/
 
 int virtio_blk_dispatch_requests(struct virtio_blk_dev *dev,
-                                 struct virtio_virtq *vq,
-                                 struct vhd_memory_map *mm)
+                                 struct virtio_virtq *vq)
 {
-    return virtq_dequeue_many(vq, mm, handle_buffers, dev);
+    return virtq_dequeue_many(vq, handle_buffers, dev);
 }
 
 int virtio_blk_init_dev(

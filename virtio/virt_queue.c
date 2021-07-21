@@ -25,11 +25,9 @@ struct virtq_iov_private {
     struct virtio_iov iov;
 };
 
-static int virtq_dequeue_one(struct virtio_virtq *vq,
-                             struct vhd_memory_map *mm, uint16_t head,
+static int virtq_dequeue_one(struct virtio_virtq *vq, uint16_t head,
                              virtq_handle_buffers_cb handle_buffers_cb,
-                             void *arg,
-                             bool resubmit);
+                             void *arg, bool resubmit);
 
 static struct virtq_iov_private *alloc_iov(uint16_t nvecs)
 {
@@ -77,10 +75,10 @@ static int add_buffer(struct virtio_virtq *vq, void *addr, size_t len,
     return 0;
 }
 
-static int map_buffer(struct virtio_virtq *vq, struct vhd_memory_map *mm,
-                      uint64_t gpa, size_t len, bool write_only)
+static int map_buffer(struct virtio_virtq *vq, uint64_t gpa, size_t len,
+                      bool write_only)
 {
-    void *addr = virtio_map_guest_phys_range(mm, gpa, len);
+    void *addr = virtio_map_guest_phys_range(vq->mm, gpa, len);
     if (!addr) {
         VHD_LOG_ERROR("Failed to map GPA 0x%lx, vring is broken", gpa);
         return -EINVAL;
@@ -223,7 +221,6 @@ static int inflight_resubmit_compare(const void *first, const void *second)
 
 /* Resubmit inflight requests on the virtqueue start. */
 static int virtq_inflight_resubmit(struct virtio_virtq *vq,
-                                   struct vhd_memory_map *mm,
                                    virtq_handle_buffers_cb handle_buffers_cb,
                                    void *arg)
 {
@@ -253,8 +250,8 @@ static int virtq_inflight_resubmit(struct virtio_virtq *vq,
     res = 0;
     VHD_LOG_DEBUG("cnt = %d inflight requests should be resubmitted", cnt);
     for (i = 0; i < cnt; i++) {
-        res = virtq_dequeue_one(vq, mm, resubmit_array[i].head,
-                handle_buffers_cb, arg, true);
+        res = virtq_dequeue_one(vq, resubmit_array[i].head,
+                                handle_buffers_cb, arg, true);
         if (res) {
             break;
         }
@@ -274,7 +271,6 @@ static void mark_broken(struct virtio_virtq *vq)
 }
 
 static int walk_indirect_table(struct virtio_virtq *vq,
-                               struct vhd_memory_map *mm,
                                const struct virtq_desc *table_desc)
 {
     int res;
@@ -291,7 +287,7 @@ static int walk_indirect_table(struct virtio_virtq *vq,
         return -EINVAL;
     }
 
-    void *mapped_table = virtio_map_guest_phys_range(mm,
+    void *mapped_table = virtio_map_guest_phys_range(vq->mm,
                                                      table_desc->addr,
                                                      table_desc->len);
     if (!mapped_table) {
@@ -330,7 +326,7 @@ static int walk_indirect_table(struct virtio_virtq *vq,
          * Indirect descriptors are part of the chain and should abide by this
          * requirement
          */
-        res = map_buffer(vq, mm, desc.addr, desc.len,
+        res = map_buffer(vq, desc.addr, desc.len,
                          desc.flags & VIRTQ_DESC_F_WRITE);
         if (res != 0) {
             VHD_LOG_ERROR("Descriptor loop found, vring is broken");
@@ -356,7 +352,6 @@ static int walk_indirect_table(struct virtio_virtq *vq,
 }
 
 int virtq_dequeue_many(struct virtio_virtq *vq,
-                       struct vhd_memory_map *mm,
                        virtq_handle_buffers_cb handle_buffers_cb,
                        void *arg)
 {
@@ -374,7 +369,7 @@ int virtq_dequeue_many(struct virtio_virtq *vq,
     if (vq->inflight_check) {
         /* Check for the inflight requests once at the start. */
         VHD_LOG_DEBUG("resubmit inflight requests, if any");
-        res = virtq_inflight_resubmit(vq, mm, handle_buffers_cb, arg);
+        res = virtq_inflight_resubmit(vq, handle_buffers_cb, arg);
         if (res) {
             goto queue_broken;
         }
@@ -413,7 +408,7 @@ int virtq_dequeue_many(struct virtio_virtq *vq,
     for (i = 0; i < num_avail; ++i) {
         /* Grab next descriptor head */
         head = vq->avail->ring[vq->last_avail % vq->qsz];
-        res = virtq_dequeue_one(vq, mm, head, handle_buffers_cb, arg, false);
+        res = virtq_dequeue_one(vq, head, handle_buffers_cb, arg, false);
         if (res) {
             goto queue_broken;
         }
@@ -429,11 +424,9 @@ queue_broken:
     return res;
 }
 
-static int virtq_dequeue_one(struct virtio_virtq *vq,
-                             struct vhd_memory_map *mm, uint16_t head,
+static int virtq_dequeue_one(struct virtio_virtq *vq, uint16_t head,
                              virtq_handle_buffers_cb handle_buffers_cb,
-                             void *arg,
-                             bool resubmit)
+                             void *arg, bool resubmit)
 {
     uint16_t descnum;
     uint16_t chain_len = 0;
@@ -471,7 +464,7 @@ static int virtq_dequeue_one(struct virtio_virtq *vq,
                 return -EINVAL;
             }
 
-            res = walk_indirect_table(vq, mm, &desc);
+            res = walk_indirect_table(vq, &desc);
             if (res != 0) {
                 return res;
             }
@@ -485,7 +478,7 @@ static int virtq_dequeue_one(struct virtio_virtq *vq,
             VHD_ASSERT((desc.flags & VIRTQ_DESC_F_NEXT) == 0);
 
         } else {
-            res = map_buffer(vq, mm, desc.addr, desc.len,
+            res = map_buffer(vq, desc.addr, desc.len,
                              desc.flags & VIRTQ_DESC_F_WRITE);
             if (res != 0) {
                 return res;
@@ -503,9 +496,9 @@ static int virtq_dequeue_one(struct virtio_virtq *vq,
            priv->iov.nvecs * sizeof(vq->buffers[0]));
     priv->used_head = head;
     priv->used_len = chain_len;
-    priv->mm = mm;
+    priv->mm = vq->mm;
     /* matched with unref in virtq_commit_buffers */
-    vhd_memmap_ref(mm);
+    vhd_memmap_ref(priv->mm);
 
     if (!resubmit) {
         virtq_inflight_avail_update(vq, head);
@@ -532,6 +525,10 @@ static void vhd_log_buffers(struct vhd_memory_map *mm,
     }
 }
 
+/*
+ * NOTE: this @mm is the one the request was started with, not the current one
+ * on @vq
+ */
 static void vhd_log_modified(struct virtio_virtq *vq,
                              struct vhd_memory_map *mm,
                              struct virtio_iov *iov,
@@ -569,6 +566,7 @@ void virtq_commit_buffers(struct virtio_virtq *vq, struct virtio_iov *iov)
     virtq_inflight_used_commit(vq, used->id);
     VHD_LOG_DEBUG("head = %d", priv->used_head);
 
+    /* use memmap the request was started with rather than the current one */
     if (vhd_logging_started(vq)) {
         vhd_log_modified(vq, priv->mm, &priv->iov, used_idx);
     }
