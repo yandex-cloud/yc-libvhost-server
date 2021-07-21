@@ -519,8 +519,8 @@ static void vhd_log_buffers(struct vhd_memory_log *log,
     int i;
     for (i = 0; i < nvecs; ++i) {
         if (iov->buffers[i].write_only) {
-            vhd_hva_range_mark_dirty(log, mm, iov->buffers[i].base,
-                                     iov->buffers[i].len);
+            vhd_mark_range_dirty(log, mm, iov->buffers[i].base,
+                                 iov->buffers[i].len);
         }
     }
 }
@@ -538,12 +538,12 @@ static void vhd_log_modified(struct virtio_virtq *vq,
     vhd_log_buffers(vq->log, mm, iov);
     if (vq->flags & VHOST_VRING_F_LOG) {
         /* log modification of used->idx */
-        vhd_gpa_range_mark_dirty(vq->log,
+        vhd_mark_gpa_range_dirty(vq->log,
                                  vq->used_gpa_base +
                                  offsetof(struct virtq_used, idx),
                                  sizeof(vq->used->idx));
         /* log modification of used->ring[idx] */
-        vhd_gpa_range_mark_dirty(vq->log,
+        vhd_mark_gpa_range_dirty(vq->log,
                                  vq->used_gpa_base +
                                  offsetof(struct virtq_used, ring[used_idx]),
                                  sizeof(vq->used->ring[0]));
