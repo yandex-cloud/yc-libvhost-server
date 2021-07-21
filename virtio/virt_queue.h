@@ -23,7 +23,7 @@ struct virtio_iov {
  * Memory mapping context
  * Implemented by client to validate and map guest memory addresses
  */
-struct vhd_guest_memory_map;
+struct vhd_memory_map;
 
 /**
  * Given a guest physical memory region produce its VA mapping on the host.
@@ -35,7 +35,7 @@ struct vhd_guest_memory_map;
  *
  * @return  mapped host VA or NULL in case of error
  */
-void *virtio_map_guest_phys_range(struct vhd_guest_memory_map *mm,
+void *virtio_map_guest_phys_range(struct vhd_memory_map *mm,
                                   uint64_t gpa, uint32_t len);
 
 struct virtio_virtq {
@@ -99,7 +99,7 @@ typedef void(*virtq_handle_buffers_cb)(void *arg,
                                        struct virtio_virtq *vq,
                                        struct virtio_iov *iov);
 int virtq_dequeue_many(struct virtio_virtq *vq,
-                       struct vhd_guest_memory_map *mm,
+                       struct vhd_memory_map *mm,
                        virtq_handle_buffers_cb handle_buffers_cb,
                        void *arg);
 

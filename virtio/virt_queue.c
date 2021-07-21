@@ -19,14 +19,14 @@ struct virtq_iov_private {
     /* Private virtq fields */
     uint16_t used_head;
     uint16_t used_len;
-    struct vhd_guest_memory_map *mm;
+    struct vhd_memory_map *mm;
 
     /* Iov we show to caller */
     struct virtio_iov iov;
 };
 
 static int virtq_dequeue_one(struct virtio_virtq *vq,
-                             struct vhd_guest_memory_map *mm, uint16_t head,
+                             struct vhd_memory_map *mm, uint16_t head,
                              virtq_handle_buffers_cb handle_buffers_cb,
                              void *arg,
                              bool resubmit);
@@ -77,7 +77,7 @@ static int add_buffer(struct virtio_virtq *vq, void *addr, size_t len,
     return 0;
 }
 
-static int map_buffer(struct virtio_virtq *vq, struct vhd_guest_memory_map *mm,
+static int map_buffer(struct virtio_virtq *vq, struct vhd_memory_map *mm,
                       uint64_t gpa, size_t len, bool write_only)
 {
     void *addr = virtio_map_guest_phys_range(mm, gpa, len);
@@ -223,7 +223,7 @@ static int inflight_resubmit_compare(const void *first, const void *second)
 
 /* Resubmit inflight requests on the virtqueue start. */
 static int virtq_inflight_resubmit(struct virtio_virtq *vq,
-                                   struct vhd_guest_memory_map *mm,
+                                   struct vhd_memory_map *mm,
                                    virtq_handle_buffers_cb handle_buffers_cb,
                                    void *arg)
 {
@@ -274,7 +274,7 @@ static void mark_broken(struct virtio_virtq *vq)
 }
 
 static int walk_indirect_table(struct virtio_virtq *vq,
-                               struct vhd_guest_memory_map *mm,
+                               struct vhd_memory_map *mm,
                                const struct virtq_desc *table_desc)
 {
     int res;
@@ -356,7 +356,7 @@ static int walk_indirect_table(struct virtio_virtq *vq,
 }
 
 int virtq_dequeue_many(struct virtio_virtq *vq,
-                       struct vhd_guest_memory_map *mm,
+                       struct vhd_memory_map *mm,
                        virtq_handle_buffers_cb handle_buffers_cb,
                        void *arg)
 {
@@ -430,7 +430,7 @@ queue_broken:
 }
 
 static int virtq_dequeue_one(struct virtio_virtq *vq,
-                             struct vhd_guest_memory_map *mm, uint16_t head,
+                             struct vhd_memory_map *mm, uint16_t head,
                              virtq_handle_buffers_cb handle_buffers_cb,
                              void *arg,
                              bool resubmit)
@@ -519,7 +519,7 @@ static int virtq_dequeue_one(struct virtio_virtq *vq,
     return 0;
 }
 
-static void vhd_log_buffers(struct vhd_guest_memory_map *mm,
+static void vhd_log_buffers(struct vhd_memory_map *mm,
                             struct virtio_iov *iov)
 {
     int nvecs = iov->nvecs;
@@ -533,7 +533,7 @@ static void vhd_log_buffers(struct vhd_guest_memory_map *mm,
 }
 
 static void vhd_log_modified(struct virtio_virtq *vq,
-                             struct vhd_guest_memory_map *mm,
+                             struct vhd_memory_map *mm,
                              struct virtio_iov *iov,
                              uint16_t used_idx)
 {

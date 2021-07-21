@@ -20,7 +20,7 @@ static LIST_HEAD(, vhd_vdev) g_vdevs = LIST_HEAD_INITIALIZER(g_vdevs);
 
 typedef uint64_t vhd_uaddr_t;
 
-struct vhd_guest_memory_region {
+struct vhd_memory_region {
     /* Guest physical address */
     vhd_paddr_t gpa;
 
@@ -37,7 +37,7 @@ struct vhd_guest_memory_region {
     size_t size;
 };
 
-struct vhd_guest_memory_map {
+struct vhd_memory_map {
     struct objref ref;
 
     atomic_long *log_addr;
@@ -47,7 +47,7 @@ struct vhd_guest_memory_map {
     int (*unmap_cb)(void *addr, size_t len, void *priv);
 
     uint32_t num;
-    struct vhd_guest_memory_region regions[];
+    struct vhd_memory_region regions[];
 };
 
 static uint16_t vring_idx(struct vhd_vring *vring)
@@ -84,12 +84,12 @@ static int vring_kick(void *opaque)
  * Returns actual pointer where uva points to
  * or NULL in case of mapping absence
  */
-static void *uva_to_ptr(struct vhd_guest_memory_map *map, vhd_uaddr_t uva)
+static void *uva_to_ptr(struct vhd_memory_map *map, vhd_uaddr_t uva)
 {
     uint32_t i;
 
     for (i = 0; i < map->num; i++) {
-        struct vhd_guest_memory_region *reg = &map->regions[i];
+        struct vhd_memory_region *reg = &map->regions[i];
         if (uva >= reg->uva && uva - reg->uva < reg->size) {
             return reg->hva + (uva - reg->uva);
         }
@@ -102,9 +102,9 @@ static int vring_update_vq_addrs(struct vhd_vring *vring)
 {
     struct vhd_vdev *vdev = vring->vdev;
 
-    void *desc = uva_to_ptr(vdev->guest_memmap, vring->addr_cache.desc);
-    void *used = uva_to_ptr(vdev->guest_memmap, vring->addr_cache.used);
-    void *avail = uva_to_ptr(vdev->guest_memmap, vring->addr_cache.avail);
+    void *desc = uva_to_ptr(vdev->memmap, vring->addr_cache.desc);
+    void *used = uva_to_ptr(vdev->memmap, vring->addr_cache.used);
+    void *avail = uva_to_ptr(vdev->memmap, vring->addr_cache.avail);
 
     if (!desc || !used || !avail) {
         VHD_LOG_ERROR("invalid vring component address (%p, %p, %p)",
@@ -369,11 +369,11 @@ static int unmap_memory(void *addr, size_t len)
 /*
  * Map guest memory region to the vhost server.
  */
-static int map_guest_region(struct vhd_guest_memory_region *region,
-                            vhd_paddr_t guest_addr, vhd_uaddr_t user_addr,
-                            uint64_t size, uint64_t offset, int fd,
-                            int (*map_cb)(void *addr, size_t len, void *priv),
-                            void *priv)
+static int map_region(struct vhd_memory_region *region,
+                      vhd_paddr_t guest_addr, vhd_uaddr_t user_addr,
+                      uint64_t size, uint64_t offset, int fd,
+                      int (*map_cb)(void *addr, size_t len, void *priv),
+                      void *priv)
 {
     void *vaddr;
 
@@ -404,7 +404,7 @@ static int map_guest_region(struct vhd_guest_memory_region *region,
     return 0;
 }
 
-static void unmap_guest_region(struct vhd_guest_memory_region *reg,
+static void unmap_region(struct vhd_memory_region *reg,
     int (*unmap_cb)(void *addr, size_t len, void *priv), void *priv)
 {
     int ret;
@@ -426,12 +426,12 @@ static void unmap_guest_region(struct vhd_guest_memory_region *reg,
 
 static void memmap_release(struct objref *objref)
 {
-    struct vhd_guest_memory_map *mm =
-        containerof(objref, struct vhd_guest_memory_map, ref);
+    struct vhd_memory_map *mm =
+        containerof(objref, struct vhd_memory_map, ref);
     uint32_t i;
 
     for (i = 0; i < mm->num; i++) {
-        unmap_guest_region(&mm->regions[i], mm->unmap_cb, mm->priv);
+        unmap_region(&mm->regions[i], mm->unmap_cb, mm->priv);
     }
 
     if (mm->log_addr) {
@@ -444,25 +444,25 @@ static void memmap_release(struct objref *objref)
     vhd_free(mm);
 }
 
-void vhd_memmap_ref(struct vhd_guest_memory_map *mm) __attribute__ ((weak));
-void vhd_memmap_ref(struct vhd_guest_memory_map *mm)
+void vhd_memmap_ref(struct vhd_memory_map *mm) __attribute__ ((weak));
+void vhd_memmap_ref(struct vhd_memory_map *mm)
 {
     objref_get(&mm->ref);
 }
 
-void vhd_memmap_unref(struct vhd_guest_memory_map *mm) __attribute__ ((weak));
-void vhd_memmap_unref(struct vhd_guest_memory_map *mm)
+void vhd_memmap_unref(struct vhd_memory_map *mm) __attribute__ ((weak));
+void vhd_memmap_unref(struct vhd_memory_map *mm)
 {
     objref_put(&mm->ref);
 }
 
 #define TRANSLATION_FAILED ((vhd_paddr_t)-1)
 
-static vhd_paddr_t hva2gpa(struct vhd_guest_memory_map *mm, void *hva)
+static vhd_paddr_t hva2gpa(struct vhd_memory_map *mm, void *hva)
 {
     uint32_t i;
     for (i = 0; i < mm->num; ++i) {
-        struct vhd_guest_memory_region *reg = &mm->regions[i];
+        struct vhd_memory_region *reg = &mm->regions[i];
         if (hva >= reg->hva && hva < reg->hva + reg->size) {
             return (hva - reg->hva) + reg->gpa;
         }
@@ -474,7 +474,7 @@ static vhd_paddr_t hva2gpa(struct vhd_guest_memory_map *mm, void *hva)
 
 #define VHOST_LOG_PAGE 0x1000
 
-void vhd_gpa_range_mark_dirty(struct vhd_guest_memory_map *mm,
+void vhd_gpa_range_mark_dirty(struct vhd_memory_map *mm,
                               vhd_paddr_t gpa, size_t len)
 {
     atomic_long *log_addr = mm->log_addr;
@@ -515,7 +515,7 @@ void vhd_gpa_range_mark_dirty(struct vhd_guest_memory_map *mm,
     } while (page <= last_page);
 }
 
-void vhd_hva_range_mark_dirty(struct vhd_guest_memory_map *mm,
+void vhd_hva_range_mark_dirty(struct vhd_memory_map *mm,
                               void *hva, size_t len)
 {
     vhd_paddr_t gpa = hva2gpa(mm, hva);
@@ -524,7 +524,7 @@ void vhd_hva_range_mark_dirty(struct vhd_guest_memory_map *mm,
     }
 }
 
-static void *map_gpa_len(struct vhd_guest_memory_map *map,
+static void *map_gpa_len(struct vhd_memory_map *map,
                          vhd_paddr_t gpa, uint32_t len)
 {
     uint32_t i;
@@ -537,7 +537,7 @@ static void *map_gpa_len(struct vhd_guest_memory_map *map,
     vhd_paddr_t last_gpa = gpa + len - 1;
 
     for (i = 0; i < map->num; i++) {
-        struct vhd_guest_memory_region *reg = &map->regions[i];
+        struct vhd_memory_region *reg = &map->regions[i];
         if (gpa >= reg->gpa && gpa - reg->gpa < reg->size) {
             /*
              * Check that length fits in a single region.
@@ -556,10 +556,10 @@ static void *map_gpa_len(struct vhd_guest_memory_map *map,
     return NULL;
 }
 
-void *virtio_map_guest_phys_range(struct vhd_guest_memory_map *mm,
+void *virtio_map_guest_phys_range(struct vhd_memory_map *mm,
                                   uint64_t gpa, uint32_t len)
                                  __attribute__ ((weak));
-void *virtio_map_guest_phys_range(struct vhd_guest_memory_map *mm,
+void *virtio_map_guest_phys_range(struct vhd_memory_map *mm,
                                   uint64_t gpa, uint32_t len)
 {
     return map_gpa_len(mm, gpa, len);
@@ -769,12 +769,12 @@ static int vhost_set_owner(struct vhd_vdev *vdev, struct vhost_user_msg *msg)
 
 static void vhost_reset_mem_table(struct vhd_vdev *vdev)
 {
-    if (!vdev->guest_memmap) {
+    if (!vdev->memmap) {
         return;
     }
 
-    vhd_memmap_unref(vdev->guest_memmap);
-    vdev->guest_memmap = NULL;
+    vhd_memmap_unref(vdev->memmap);
+    vdev->memmap = NULL;
 }
 
 struct set_mem_table_data {
@@ -797,7 +797,7 @@ static void set_mem_table_bh(void *opaque)
 
     int ret = 0;
     struct vhost_user_mem_desc *desc;
-    struct vhd_guest_memory_map *mm;
+    struct vhd_memory_map *mm;
     uint32_t i;
 
     vhd_free(data);
@@ -825,20 +825,20 @@ static void set_mem_table_bh(void *opaque)
 
     for (i = 0; i < desc->nregions; i++) {
         struct vhost_user_mem_region *region = &desc->regions[i];
-        ret = map_guest_region(&mm->regions[i], region->guest_addr,
-                               region->user_addr, region->size,
-                               region->mmap_offset, fds[i], vdev->map_cb,
-                               vdev->priv);
+        ret = map_region(&mm->regions[i], region->guest_addr,
+                         region->user_addr, region->size,
+                         region->mmap_offset, fds[i], vdev->map_cb,
+                         vdev->priv);
         if (ret < 0) {
             while (i--) {
-                unmap_guest_region(&mm->regions[i], vdev->unmap_cb, vdev->priv);
+                unmap_region(&mm->regions[i], vdev->unmap_cb, vdev->priv);
             }
             vhd_free(mm);
             goto out;
         }
     }
 
-    vdev->guest_memmap = mm;
+    vdev->memmap = mm;
 
     /*
      * update started rings vq-s addresses with new mapping
@@ -1124,7 +1124,7 @@ static int vhost_set_log_base(struct vhd_vdev *vdev,
         return EINVAL;
     }
 
-    if (vdev->guest_memmap->log_addr) {
+    if (vdev->memmap->log_addr) {
         VHD_LOG_ERROR("updating log region is not supported");
         close(fds[0]);
         return ENOTSUP;
@@ -1141,8 +1141,8 @@ static int vhost_set_log_base(struct vhd_vdev *vdev,
         return errno;
     }
 
-    vdev->guest_memmap->log_addr = log_addr;
-    vdev->guest_memmap->log_size = log->size;
+    vdev->memmap->log_addr = log_addr;
+    vdev->memmap->log_size = log->size;
 
     return vhost_send_reply(vdev, msg, 0);
 }
