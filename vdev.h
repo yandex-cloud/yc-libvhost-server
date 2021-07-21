@@ -155,11 +155,6 @@ int vhd_vdev_init_server(
 int vhd_vdev_stop_server(struct vhd_vdev *vdev,
                          void (*unregister_complete)(void *), void *arg);
 
-void vhd_mark_gpa_range_dirty(struct vhd_memory_log *log, uint64_t gpa,
-                              size_t len);
-void vhd_mark_range_dirty(struct vhd_memory_log *log,
-                          struct vhd_memory_map *mm,
-                          void *ptr, size_t len);
 /**
  * Device vring instance
  */
