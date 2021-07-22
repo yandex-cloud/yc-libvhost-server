@@ -1,5 +1,6 @@
 #include <stdatomic.h>
 #include <string.h>
+#include <endian.h>
 
 #include "catomic.h"
 #include "logging.h"
@@ -37,47 +38,65 @@ void vhd_memlog_free(struct vhd_memory_log *log)
     vhd_free(log);
 }
 
+static void atomic_or_le_ulong(atomic_ulong *ptr, unsigned long mask)
+{
+    VHD_STATIC_ASSERT(sizeof(*ptr) == sizeof(uint64_t));
+    atomic_or(ptr, htole64(mask));
+}
+
+static void bitmap_set_atomic(atomic_ulong *map, size_t start, size_t end)
+{
+    static const unsigned bits_per_word = sizeof(*map) * 8;
+    size_t start_idx = start / bits_per_word;
+    size_t end_idx = end / bits_per_word;
+    size_t i;
+    unsigned start_in_word = start % bits_per_word;
+    unsigned end_in_word = end % bits_per_word;
+
+    /* first partial word */
+    if (start_in_word && start_idx < end_idx) {
+        atomic_or_le_ulong(&map[start_idx], ~0UL << start_in_word);
+        start_in_word = 0;
+        start_idx++;
+    }
+
+    /* full words: no RMW so relaxed atomic; no endianness */
+    for (i = start_idx; i < end_idx; i++) {
+        atomic_set(&map[i], ~0UL);
+    }
+
+    /* last partial word */
+    if (end_in_word) {
+        unsigned nr_clear_bits = bits_per_word - (end_in_word - start_in_word);
+        atomic_or_le_ulong(&map[end_idx],
+                           (~0UL >> nr_clear_bits) << start_in_word);
+    } else if (start_idx < end_idx) {
+        /*
+         * if there were any relaxed atomic_set's not followed by an implicit
+         * full memory barrier in atomic_or, do an explicit one
+         */
+        smp_mb();
+    }
+}
+
 #define VHOST_LOG_PAGE 0x1000
 
 void vhd_mark_gpa_range_dirty(struct vhd_memory_log *log, uint64_t gpa,
                               size_t len)
 {
-    atomic_ulong *log_addr = log->base;
-    if (!log_addr) {
-        VHD_LOG_WARN("No logging addr set");
-        return;
+    size_t start = gpa / VHOST_LOG_PAGE;
+    size_t end = (gpa + len - 1) / VHOST_LOG_PAGE + 1;
+
+    /* this is internal function, overflown ranges shouldn't reach here */
+    VHD_ASSERT(gpa + len > gpa);
+
+    if (end > log->size * 8) {
+        VHD_LOG_ERROR("range 0x%zx-0x%zx beyond log size %zx", gpa,
+                      gpa + len - 1, log->size);
+        end = log->size * 8;
     }
 
-    uint64_t log_size = log->size;
-
-    uint64_t page = gpa / VHOST_LOG_PAGE;
-    uint64_t last_page = (gpa + len - 1) / VHOST_LOG_PAGE;
-
-    if (last_page >= log_size * 8) {
-        VHD_LOG_ERROR(
-            "Write beyond log buffer: gpa = 0x%lx, len = 0x%lx, log_size %zu",
-            gpa, len, log_size);
-        if (page >= log_size * 8) {
-            return;
-        }
-        last_page = log_size * 8 - 1;
-    }
-
-    /*
-     * log is always page aligned so we can be sure that its start is aligned
-     * to sizeof(long) and also that atomic operations never cross cacheline
-     */
-    do {
-        uint64_t mask = 0UL;
-        uint64_t chunk = page / 64;
-        for (; page <= last_page && page / 64 == chunk; ++page) {
-            mask |= 1LU << (page % 64);
-        }
-#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
-        mask = __builtin_bswap64(mask);
-#endif
-        atomic_or(&log_addr[chunk], mask);
-    } while (page <= last_page);
+    bitmap_set_atomic(log->base, start, end);
 }
 
 void vhd_mark_range_dirty(struct vhd_memory_log *log,
