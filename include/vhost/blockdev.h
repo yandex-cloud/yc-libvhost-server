@@ -11,27 +11,8 @@ extern "C" {
 struct vhd_request_queue;
 struct vhd_vdev;
 
-/**
- * Block io request type
- */
-enum vhd_bdev_io_type {
-    VHD_BDEV_READ,
-    VHD_BDEV_WRITE
-};
-
 #define VHD_SECTOR_SHIFT    (9)
 #define VHD_SECTOR_SIZE     (1ull << VHD_SECTOR_SHIFT)
-
-/**
- * In-flight blockdev io request
- */
-struct vhd_bdev_io {
-    enum vhd_bdev_io_type type;
-
-    uint64_t first_sector;
-    uint64_t total_sectors;
-    struct vhd_sglist sglist;
-};
 
 /**
  * Client-supplied block device backend definition
