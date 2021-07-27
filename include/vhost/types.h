@@ -26,6 +26,27 @@ struct vhd_sglist {
 };
 
 /**
+ * Block io request type
+ */
+enum vhd_bdev_io_type {
+    VHD_BDEV_READ,
+    VHD_BDEV_WRITE
+};
+
+/**
+ * In-flight blockdev io request
+ *
+ * TODO: virtio-fs uses this struct too, that's why we need it in common types
+ */
+struct vhd_bdev_io {
+    enum vhd_bdev_io_type type;
+
+    uint64_t first_sector;
+    uint64_t total_sectors;
+    struct vhd_sglist sglist;
+};
+
+/**
  * virtqueue usage statistics
  */
 struct vhd_vq_metrics {
