@@ -1847,9 +1847,9 @@ static void vdev_stop(struct vhd_vdev *vdev, void *opaque)
 
     change_device_state(vdev, VDEV_TERMINATING);
     vhd_vdev_stop(vdev);
-    vhd_run_in_rq(vdev->rq, vdev_unregister_bh, vdev);
 
     vdev_complete_work(vdev, 0);
+    vhd_run_in_rq(vdev->rq, vdev_unregister_bh, vdev);
 }
 
 int vhd_vdev_stop_server(struct vhd_vdev *vdev,
