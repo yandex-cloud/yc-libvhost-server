@@ -340,7 +340,7 @@ int vhd_run_event_loop(struct vhd_event_loop *evloop, int timeout_ms)
 {
     if (!home_evloop) {
         bool had_home_thread = atomic_xchg(&evloop->has_home_thread, true);
-        VHD_ASSERT(!had_home_thread);
+        VHD_VERIFY(!had_home_thread);
         home_evloop = evloop;
     }
     VHD_ASSERT(evloop == home_evloop);
