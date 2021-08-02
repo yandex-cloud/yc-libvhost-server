@@ -167,36 +167,40 @@ struct vhost_user_log {
     uint64_t offset;
 } __attribute__((packed));
 
-struct vhost_user_msg {
+struct vhost_user_msg_hdr {
     uint32_t req;
     uint32_t flags;
     uint32_t size;
-    union {
-        /*
-         * VHOST_USER_GET_QUEUE_NUM, VHOST_USER_GET_PROTOCOL_FEATURES,
-         * VHOST_USER_GET_FEATURES,
-         * VHOST_USER_SET_VRING_KICK, VHOST_USER_SET_VRING_CALL
-         */
-        uint64_t u64;
-        /* VHOST_USER_GET_CONFIG, VHOST_USER_SET_CONFIG */
-        struct vhost_user_config_space config;
-        /* VHOST_USER_SET_MEM_TABLE */
-        struct vhost_user_mem_desc mem_desc;
-        /*
-         * VHOST_USER_GET_VRING_BASE, VHOST_USER_SET_VRING_BASE,
-         * VHOST_USER_SET_VRING_NUM
-         */
-        struct vhost_user_vring_state vring_state;
-        /* VHOST_USER_SET_VRING_ADDR */
-        struct vhost_user_vring_addr vring_addr;
-        /* VHOST_USER_GET_INFLIGHT_FD, VHOST_USER_SET_INFLIGHT_FD */
-        struct vhost_user_inflight_desc inflight_desc;
-        /* VHOST_USER_SET_LOG_BASE */
-        struct vhost_user_log log;
-    } payload;
 } __attribute__((packed));
 
-#define VHOST_MSG_HDR_SIZE (offsetof(struct vhost_user_msg, payload))
+union vhost_user_msg_payload {
+    /*
+     * VHOST_USER_GET_QUEUE_NUM, VHOST_USER_GET_PROTOCOL_FEATURES,
+     * VHOST_USER_GET_FEATURES,
+     * VHOST_USER_SET_VRING_KICK, VHOST_USER_SET_VRING_CALL
+     */
+    uint64_t u64;
+    /* VHOST_USER_GET_CONFIG, VHOST_USER_SET_CONFIG */
+    struct vhost_user_config_space config;
+    /* VHOST_USER_SET_MEM_TABLE */
+    struct vhost_user_mem_desc mem_desc;
+    /*
+     * VHOST_USER_GET_VRING_BASE, VHOST_USER_SET_VRING_BASE,
+     * VHOST_USER_SET_VRING_NUM
+     */
+    struct vhost_user_vring_state vring_state;
+    /* VHOST_USER_SET_VRING_ADDR */
+    struct vhost_user_vring_addr vring_addr;
+    /* VHOST_USER_GET_INFLIGHT_FD, VHOST_USER_SET_INFLIGHT_FD */
+    struct vhost_user_inflight_desc inflight_desc;
+    /* VHOST_USER_SET_LOG_BASE */
+    struct vhost_user_log log;
+};
+
+struct vhost_user_msg {
+    struct vhost_user_msg_hdr hdr;
+    union vhost_user_msg_payload payload;
+} __attribute__((packed));
 
 #ifdef __cplusplus
 }
