@@ -173,7 +173,7 @@ static int net_recv_msg(int fd, struct vhost_user_msg *msg,
 
     /* Receive header for new request. */
     iov.iov_base = msg;
-    iov.iov_len = VHOST_MSG_HDR_SIZE;
+    iov.iov_len = sizeof(msg->hdr);
 
     memset(&msgh, 0, sizeof(msgh));
     msgh.msg_name = NULL;
@@ -189,16 +189,16 @@ static int net_recv_msg(int fd, struct vhost_user_msg *msg,
         VHD_LOG_ERROR("recvmsg() failed. Error code = %d, %s",
                 errno, strerror(errno));
         return -errno;
-    } else if (len != VHOST_MSG_HDR_SIZE) {
+    } else if (len != sizeof(msg->hdr)) {
         VHD_LOG_ERROR("recvmsg() gets less bytes = %d, than required = %lu",
-                len, VHOST_MSG_HDR_SIZE);
+                len, sizeof(msg->hdr));
         return -EIO;
     } else if (msgh.msg_flags & MSG_CTRUNC) {
         VHD_LOG_ERROR("recvmsg(): file descriptor array truncated");
         return -ENOBUFS;
-    } else if (msg->size > sizeof(msg->payload)) {
+    } else if (msg->hdr.size > sizeof(msg->payload)) {
         VHD_LOG_ERROR("Payload size = %d exceeds buffer size = %lu",
-                msg->size, sizeof(msg->payload));
+                msg->hdr.size, sizeof(msg->payload));
         return -EMSGSIZE;
     }
 
@@ -216,14 +216,14 @@ static int net_recv_msg(int fd, struct vhost_user_msg *msg,
     }
 
     /* Request payload data for the request. */
-    payload_len = read(fd, &msg->payload, msg->size);
+    payload_len = read(fd, &msg->payload, msg->hdr.size);
     if (payload_len < 0) {
         VHD_LOG_ERROR("Payload read failed. Error code = %d, %s",
                 errno, strerror(errno));
         return -errno;
-    } else if ((size_t)payload_len != msg->size) {
+    } else if ((size_t)payload_len != msg->hdr.size) {
         VHD_LOG_ERROR("Read only part of the payload = %d, required = %d",
-                payload_len, msg->size);
+                payload_len, msg->hdr.size);
         return -EIO;
     }
     len += payload_len;
@@ -246,7 +246,7 @@ static int net_send_msg_fds(int fd, const struct vhost_user_msg *msg,
     int fdsize;
 
     iov.iov_base = (void *)msg;
-    iov.iov_len = VHOST_MSG_HDR_SIZE + msg->size;
+    iov.iov_len = sizeof(msg->hdr) + msg->hdr.size;
 
     memset(&msgh, 0, sizeof(msgh));
     msgh.msg_iov = &iov;
@@ -267,9 +267,9 @@ static int net_send_msg_fds(int fd, const struct vhost_user_msg *msg,
     if (len < 0) {
         VHD_LOG_ERROR("sendmsg() failed: %d", errno);
         return -errno;
-    } else if ((unsigned)len != (VHOST_MSG_HDR_SIZE + msg->size)) {
+    } else if ((unsigned)len != (sizeof(msg->hdr) + msg->hdr.size)) {
         VHD_LOG_ERROR("sendmsg() puts less bytes = %d, than required = %lu",
-                len, VHOST_MSG_HDR_SIZE + msg->size);
+                len, sizeof(msg->hdr) + msg->hdr.size);
         return -EIO;
     }
 
@@ -318,9 +318,11 @@ static int vhost_send_reply(struct vhd_vdev *vdev,
                             const struct vhost_user_msg *msgin, uint64_t u64)
 {
     struct vhost_user_msg reply = {
-        .req = msgin->req,
-        .size = sizeof(u64),
-        .flags = VHOST_USER_MSG_FLAGS_REPLY,
+        .hdr = {
+            .req = msgin->hdr.req,
+            .size = sizeof(u64),
+            .flags = VHOST_USER_MSG_FLAGS_REPLY,
+        },
         .payload.u64 = u64,
     };
 
@@ -332,9 +334,11 @@ static int vhost_send_vring_base(struct vhd_vring *vring)
     int ret;
     uint16_t idx = vring_idx(vring);
     struct vhost_user_msg reply = {
-        .req = VHOST_USER_GET_VRING_BASE,
-        .size = sizeof(reply.payload.vring_state),
-        .flags = VHOST_USER_MSG_FLAGS_REPLY,
+        .hdr = {
+            .req = VHOST_USER_GET_VRING_BASE,
+            .size = sizeof(reply.payload.vring_state),
+            .flags = VHOST_USER_MSG_FLAGS_REPLY,
+        },
         .payload.vring_state = {
             .index = idx,
             .num = vring->vq.last_avail,
@@ -362,7 +366,7 @@ static int vhost_ack_request_if_needed(struct vhd_vdev *vdev,
     }
 
     /* We negotiated REPLY_ACK but client does not need it for this message */
-    if (!(msg->flags & VHOST_USER_MSG_FLAGS_REPLY_ACK)) {
+    if (!(msg->hdr.flags & VHOST_USER_MSG_FLAGS_REPLY_ACK)) {
         return 0;
     }
 
@@ -371,7 +375,7 @@ static int vhost_ack_request_if_needed(struct vhd_vdev *vdev,
      * which was successfully sent
      */
     if (ret == 0) {
-        switch (msg->req) {
+        switch (msg->hdr.req) {
         case VHOST_USER_GET_FEATURES:
         case VHOST_USER_GET_PROTOCOL_FEATURES:
         case VHOST_USER_GET_CONFIG:
@@ -598,13 +602,13 @@ static int vhost_get_config(struct vhd_vdev *vdev, struct vhost_user_msg *msg)
     struct vhost_user_config_space *config = &msg->payload.config;
 
     VHD_LOG_DEBUG("msg->size %d, config->size %d",
-                  msg->size,
+                  msg->hdr.size,
                   config->size);
 
     /* check that msg has enough space for requested buffer */
-    if (msg->size < VHOST_CONFIG_HDR_SIZE + config->size) {
+    if (msg->hdr.size < VHOST_CONFIG_HDR_SIZE + config->size) {
         VHD_LOG_WARN("Message size is not enough for requested data");
-        config->size = msg->size - VHOST_CONFIG_HDR_SIZE;
+        config->size = msg->hdr.size - VHOST_CONFIG_HDR_SIZE;
     }
 
     config->size = vdev->type->get_config(vdev, config->payload,
@@ -613,9 +617,9 @@ static int vhost_get_config(struct vhd_vdev *vdev, struct vhost_user_msg *msg)
     /* zero-fill leftover space */
     memset(config->payload + config->size,
            0,
-           msg->size - VHOST_CONFIG_HDR_SIZE - config->size);
+           msg->hdr.size - VHOST_CONFIG_HDR_SIZE - config->size);
 
-    msg->flags = VHOST_USER_MSG_FLAGS_REPLY;
+    msg->hdr.flags = VHOST_USER_MSG_FLAGS_REPLY;
 
     return vhost_send(vdev, msg);
 }
@@ -956,7 +960,7 @@ static int vhost_get_inflight_fd(struct vhd_vdev *vdev,
     idesc->mmap_size = vdev->inflight_size;
     idesc->mmap_offset = 0;
 
-    msg->flags = VHOST_USER_MSG_FLAGS_REPLY;
+    msg->hdr.flags = VHOST_USER_MSG_FLAGS_REPLY;
     ret = vhost_send_fds(vdev, msg, &fd, 1);
     if (ret) {
         VHD_LOG_ERROR("can't send reply to get_inflight_fd command");
@@ -1011,8 +1015,8 @@ static int vhost_handle_request(struct vhd_vdev *vdev,
     int ret = 0;
 
     VHD_LOG_DEBUG("Handle command %d, flags 0x%x, size %u",
-                  msg->req, msg->flags, msg->size);
-    switch (msg->req) {
+                  msg->hdr.req, msg->hdr.flags, msg->hdr.size);
+    switch (msg->hdr.req) {
     case VHOST_USER_GET_FEATURES:
         ret = vhost_get_features(vdev, msg);
         break;
@@ -1068,13 +1072,13 @@ static int vhost_handle_request(struct vhd_vdev *vdev,
         ret = vhost_set_inflight_fd(vdev, msg, fds, num_fds);
         break;
     default:
-        VHD_LOG_WARN("Command = %d, not supported", msg->req);
+        VHD_LOG_WARN("Command = %d, not supported", msg->hdr.req);
         ret = -ENOTSUP;
         break;
     }
 
     if (ret != 0) {
-        VHD_LOG_ERROR("Request %d failed with %d", msg->req, ret);
+        VHD_LOG_ERROR("Request %d failed with %d", msg->hdr.req, ret);
     }
 
     int reply_ret = vhost_ack_request_if_needed(vdev, msg, ret);
