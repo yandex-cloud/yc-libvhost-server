@@ -296,13 +296,13 @@ struct vhd_event_loop *vhd_create_event_loop(size_t max_events)
 
     epollfd = epoll_create1(0);
     if (epollfd < 0) {
-        VHD_LOG_ERROR("Can't create epoll fd: %d", errno);
+        VHD_LOG_ERROR("Can't create epoll fd: %s", strerror(errno));
         goto error_out;
     }
 
     notifyfd = eventfd(0, EFD_NONBLOCK);
     if (notifyfd < 0) {
-        VHD_LOG_ERROR("eventfd() failed: %d", errno);
+        VHD_LOG_ERROR("eventfd() failed: %s", strerror(errno));
         goto error_out;
     }
 
@@ -311,7 +311,7 @@ struct vhd_event_loop *vhd_create_event_loop(size_t max_events)
         .events = EPOLLIN,
     };
     if (epoll_ctl(epollfd, EPOLL_CTL_ADD, notifyfd, &ev) == -1) {
-        VHD_LOG_ERROR("Can't add event: %d", errno);
+        VHD_LOG_ERROR("Can't add event: %s", strerror(errno));
         goto error_out;
     }
 
@@ -355,12 +355,13 @@ int vhd_run_event_loop(struct vhd_event_loop *evloop, int timeout_ms)
     if (!nev) {
         return -EAGAIN;
     } else if (nev < 0) {
-        if (errno == EINTR) {
+        int ret = -errno;
+        if (ret == -EINTR) {
             return -EAGAIN;
         }
 
-        VHD_LOG_ERROR("epoll_wait internal error: %d", errno);
-        return -errno;
+        VHD_LOG_ERROR("epoll_wait internal error: %s", strerror(-ret));
+        return ret;
     }
 
     notify_accept(evloop);
@@ -429,8 +430,9 @@ int vhd_attach_io_handler(struct vhd_io_handler *handler)
     VHD_ASSERT(!handler->attached);
 
     if (epoll_ctl(evloop->epollfd, EPOLL_CTL_ADD, fd, &ev) < 0) {
-        VHD_LOG_ERROR("Can't add event: %d", errno);
-        return -errno;
+        int ret = -errno;
+        VHD_LOG_ERROR("Can't add event: %s", strerror(-ret));
+        return ret;
     }
 
     handler->attached = true;
@@ -475,8 +477,9 @@ int vhd_detach_io_handler(struct vhd_io_handler *handler)
     }
 
     if (epoll_ctl(evloop->epollfd, EPOLL_CTL_DEL, handler->fd, NULL) < 0) {
-        VHD_LOG_ERROR("Can't delete event: %d", errno);
-        return -errno;
+        int ret = -errno;
+        VHD_LOG_ERROR("Can't delete event: %s", strerror(-ret));
+        return ret;
     }
 
     /*
@@ -567,7 +570,8 @@ int vhd_submit_work_and_wait(struct vhd_event_loop *evloop,
 
     ret = sem_init(&work.wait, 0, 0);
     if (ret < 0) {
-        VHD_LOG_ERROR("sem_init: %s", strerror(errno));
+        ret = -errno;
+        VHD_LOG_ERROR("sem_init: %s", strerror(-ret));
         return ret;
     }
 
@@ -578,7 +582,8 @@ int vhd_submit_work_and_wait(struct vhd_event_loop *evloop,
     } while (ret < 0 && errno == EINTR);
 
     if (ret < 0) {
-        VHD_LOG_ERROR("sem_wait: %s", strerror(errno));
+        ret = -errno;
+        VHD_LOG_ERROR("sem_wait: %s", strerror(-ret));
         return ret;
     }
 
