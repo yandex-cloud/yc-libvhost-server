@@ -168,7 +168,10 @@ static int net_recv_msg(int fd, struct vhost_user_msg *msg,
     int len;
     int payload_len;
     struct cmsghdr *cmsg;
-    char control[CMSG_SPACE(sizeof(int) * VHOST_USER_MAX_FDS)];
+    union {
+        char buf[CMSG_SPACE(sizeof(int) * VHOST_USER_MAX_FDS)];
+        struct cmsghdr cmsg_align;
+    } control;
 
     /* Receive header for new request. */
     iov.iov_base = msg;
@@ -179,7 +182,7 @@ static int net_recv_msg(int fd, struct vhost_user_msg *msg,
     msgh.msg_namelen = 0;
     msgh.msg_iov = &iov;
     msgh.msg_iovlen = 1;
-    msgh.msg_control = control;
+    msgh.msg_control = &control;
     msgh.msg_controllen = sizeof(control);
     len = recvmsg(fd, &msgh, 0);
     if (len == 0) {
