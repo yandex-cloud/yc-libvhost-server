@@ -160,19 +160,20 @@ static void vhd_vring_stop(struct vhd_vring *vring)
  * descriptor array. Return number of bytes received or
  * negative error code in case of error.
  */
-static int net_recv_msg(int fd, struct vhost_user_msg *msg,
-                        int *fds, size_t *num_fds)
+static ssize_t net_recv_msg(int fd, struct vhost_user_msg_hdr *hdr,
+                            void *payload, size_t len,
+                            int *fds, size_t *num_fds)
 {
-    int len;
-    int payload_len;
+    ssize_t ret;
+    ssize_t rlen;
     struct cmsghdr *cmsg;
     union {
         char buf[CMSG_SPACE(sizeof(int) * VHOST_USER_MAX_FDS)];
         struct cmsghdr cmsg_align;
     } control;
     struct iovec iov = {
-        .iov_base = msg,
-        .iov_len = sizeof(msg->hdr),
+        .iov_base = hdr,
+        .iov_len = sizeof(*hdr),
     };
     struct msghdr msgh = {
         .msg_iov = &iov,
@@ -181,23 +182,23 @@ static int net_recv_msg(int fd, struct vhost_user_msg *msg,
         .msg_controllen = sizeof(control),
     };
 
-    len = recvmsg(fd, &msgh, 0);
-    if (len == 0) {
+    ret = recvmsg(fd, &msgh, 0);
+    if (ret == 0) {
         return 0;
-    } else if (len < 0) {
+    } else if (ret < 0) {
         VHD_LOG_ERROR("recvmsg() failed. Error code = %d, %s",
                 errno, strerror(errno));
         return -errno;
-    } else if (len != sizeof(msg->hdr)) {
-        VHD_LOG_ERROR("recvmsg() gets less bytes = %d, than required = %lu",
-                len, sizeof(msg->hdr));
+    } else if (ret != sizeof(*hdr)) {
+        VHD_LOG_ERROR("recvmsg() gets less bytes = %zd, than required = %lu",
+                ret, sizeof(*hdr));
         return -EIO;
     } else if (msgh.msg_flags & MSG_CTRUNC) {
         VHD_LOG_ERROR("recvmsg(): file descriptor array truncated");
         return -ENOBUFS;
-    } else if (msg->hdr.size > sizeof(msg->payload)) {
+    } else if (hdr->size > len) {
         VHD_LOG_ERROR("Payload size = %d exceeds buffer size = %lu",
-                msg->hdr.size, sizeof(msg->payload));
+                hdr->size, len);
         return -EMSGSIZE;
     }
 
@@ -215,19 +216,19 @@ static int net_recv_msg(int fd, struct vhost_user_msg *msg,
     }
 
     /* Request payload data for the request. */
-    payload_len = read(fd, &msg->payload, msg->hdr.size);
-    if (payload_len < 0) {
+    rlen = read(fd, payload, hdr->size);
+    if (rlen < 0) {
         VHD_LOG_ERROR("Payload read failed. Error code = %d, %s",
                 errno, strerror(errno));
         return -errno;
-    } else if ((size_t)payload_len != msg->hdr.size) {
-        VHD_LOG_ERROR("Read only part of the payload = %d, required = %d",
-                payload_len, msg->hdr.size);
+    } else if ((size_t)rlen != hdr->size) {
+        VHD_LOG_ERROR("Read only part of the payload = %zd, required = %d",
+                rlen, hdr->size);
         return -EIO;
     }
-    len += payload_len;
+    ret += rlen;
 
-    return len;
+    return ret;
 }
 
 /*
@@ -1303,7 +1304,8 @@ static int conn_read(void *data)
     size_t num_fds = VHOST_USER_MAX_FDS;
     struct vhd_vdev *vdev = data;
 
-    if (net_recv_msg(vdev->connfd, &msg, fds, &num_fds) <= 0) {
+    if (net_recv_msg(vdev->connfd, &msg.hdr, &msg.payload, sizeof(msg.payload),
+                     fds, &num_fds) <= 0) {
         goto err_out;
     }
 
