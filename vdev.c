@@ -302,12 +302,13 @@ static inline bool has_feature(uint64_t features_qword, size_t feature_bit)
 }
 
 static int vhost_send_fds(struct vhd_vdev *vdev,
-                          const struct vhost_user_msg *msg,
+                          const struct vhost_user_msg_hdr *hdr,
+                          const void *payload,
                           int *fds, size_t num_fds)
 {
     int len;
 
-    len = net_send_msg(vdev->connfd, &msg->hdr, &msg->payload, fds, num_fds);
+    len = net_send_msg(vdev->connfd, hdr, payload, fds, num_fds);
     if (len < 0) {
         return len;
     }
@@ -315,47 +316,45 @@ static int vhost_send_fds(struct vhd_vdev *vdev,
     return 0;
 }
 
-static int vhost_send(struct vhd_vdev *vdev, const struct vhost_user_msg *msg)
+static int vhost_reply_fds(struct vhd_vdev *vdev, uint32_t req,
+                           const void *payload, uint32_t len,
+                           int *fds, size_t num_fds)
 {
-    return vhost_send_fds(vdev, msg, NULL, 0);
+    struct vhost_user_msg_hdr hdr = {
+        .req = req,
+        .size = len,
+        .flags = VHOST_USER_MSG_FLAGS_REPLY,
+    };
+
+    return vhost_send_fds(vdev, &hdr, payload, fds, num_fds);
+}
+
+static int vhost_reply(struct vhd_vdev *vdev, uint32_t req,
+                       const void *payload, uint32_t len)
+{
+    return vhost_reply_fds(vdev, req, payload, len, NULL, 0);
+}
+
+static int vhost_reply_u64(struct vhd_vdev *vdev, uint32_t req, uint64_t u64)
+{
+    return vhost_reply(vdev, req, &u64, sizeof(u64));
 }
 
 static int vhost_send_reply(struct vhd_vdev *vdev,
                             const struct vhost_user_msg *msgin, uint64_t u64)
 {
-    struct vhost_user_msg reply = {
-        .hdr = {
-            .req = msgin->hdr.req,
-            .size = sizeof(u64),
-            .flags = VHOST_USER_MSG_FLAGS_REPLY,
-        },
-        .payload.u64 = u64,
-    };
-
-    return vhost_send(vdev, &reply);
+    return vhost_reply_u64(vdev, msgin->hdr.req, u64);
 }
 
 static int vhost_send_vring_base(struct vhd_vring *vring)
 {
-    int ret;
-    uint16_t idx = vring_idx(vring);
-    struct vhost_user_msg reply = {
-        .hdr = {
-            .req = VHOST_USER_GET_VRING_BASE,
-            .size = sizeof(reply.payload.vring_state),
-            .flags = VHOST_USER_MSG_FLAGS_REPLY,
-        },
-        .payload.vring_state = {
-            .index = idx,
-            .num = vring->vq.last_avail,
-        },
+    struct vhost_user_vring_state vrstate = {
+        .index = vring_idx(vring),
+        .num = vring->vq.last_avail,
     };
 
-    ret = vhost_send(vring->vdev, &reply);
-    if (ret) {
-        VHD_LOG_ERROR("Can't send vring base to master. vring id: %d", idx);
-    }
-    return ret;
+    return vhost_reply(vring->vdev, VHOST_USER_GET_VRING_BASE,
+                       &vrstate, sizeof(vrstate));
 }
 
 static int vhost_ack_request_if_needed(struct vhd_vdev *vdev,
@@ -625,9 +624,7 @@ static int vhost_get_config(struct vhd_vdev *vdev, struct vhost_user_msg *msg)
            0,
            msg->hdr.size - VHOST_CONFIG_HDR_SIZE - config->size);
 
-    msg->hdr.flags = VHOST_USER_MSG_FLAGS_REPLY;
-
-    return vhost_send(vdev, msg);
+    return vhost_reply(vdev, VHOST_USER_GET_CONFIG, config, msg->hdr.size);
 }
 
 static int vhost_get_queue_num(struct vhd_vdev *vdev,
@@ -966,8 +963,8 @@ static int vhost_get_inflight_fd(struct vhd_vdev *vdev,
     idesc->mmap_size = vdev->inflight_size;
     idesc->mmap_offset = 0;
 
-    msg->hdr.flags = VHOST_USER_MSG_FLAGS_REPLY;
-    ret = vhost_send_fds(vdev, msg, &fd, 1);
+    ret = vhost_reply_fds(vdev, VHOST_USER_GET_INFLIGHT_FD,
+                          idesc, msg->hdr.size, &fd, 1);
     if (ret) {
         VHD_LOG_ERROR("can't send reply to get_inflight_fd command");
         vhd_vdev_inflight_cleanup(vdev);
