@@ -69,8 +69,6 @@ static inline int vhd_find_first_bit64(uint64_t val)
 #   define MIN(num1, num2) ((num1) < (num2) ? (num1) : (num2))
 #endif
 
-#define VHD_UNUSED(var) ((void)(var))
-
 /*////////////////////////////////////////////////////////////////////////////*/
 
 static inline void VHD_NORETURN _vhd_verify_helper(

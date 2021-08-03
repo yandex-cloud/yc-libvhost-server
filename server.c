@@ -22,7 +22,6 @@ static inline void free_vhost_event_loop(void)
 static void *vhost_evloop_func(void *arg)
 {
     int res;
-    VHD_UNUSED(arg);
 
     do {
         res = vhd_run_event_loop(g_vhost_evloop, -1);

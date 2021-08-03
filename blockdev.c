@@ -28,14 +28,11 @@ LIST_HEAD(, vhd_bdev) g_bdev_list = LIST_HEAD_INITIALIZER(g_bdev_list);
 
 static uint64_t vblk_get_features(struct vhd_vdev *vdev)
 {
-    VHD_UNUSED(vdev);
     return VIRTIO_BLK_DEFAULT_FEATURES;
 }
 
 static int vblk_set_features(struct vhd_vdev *vdev, uint64_t features)
 {
-    VHD_UNUSED(vdev);
-    VHD_UNUSED(features);
     return 0;
 }
 
@@ -61,8 +58,6 @@ static size_t vblk_get_config(struct vhd_vdev *vdev, void *cfgbuf,
 static int vblk_dispatch(struct vhd_vdev *vdev, struct vhd_vring *vring,
                          struct vhd_request_queue *rq)
 {
-    VHD_UNUSED(rq);
-
     struct vhd_bdev *dev = VHD_BLOCKDEV_FROM_VDEV(vdev);
     return virtio_blk_dispatch_requests(&dev->vblk, &vring->vq);
 }
