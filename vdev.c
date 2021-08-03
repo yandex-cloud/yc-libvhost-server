@@ -272,13 +272,15 @@ static int net_send_msg(int fd, const struct vhost_user_msg_hdr *hdr,
         cmsgh->cmsg_type = SCM_RIGHTS;
         memcpy(CMSG_DATA(cmsgh), fds, fdsize);
     }
+
     ret = sendmsg(fd, &msgh, 0);
     if (ret < 0) {
-        VHD_LOG_ERROR("sendmsg() failed: %d", errno);
-        return -errno;
-    } else if ((unsigned)ret != (sizeof(*hdr) + hdr->size)) {
-        VHD_LOG_ERROR("sendmsg() puts less bytes = %d, than required = %lu",
-                ret, sizeof(*hdr) + hdr->size);
+        ret = -errno;
+        VHD_LOG_ERROR("sendmsg: %s", strerror(-ret));
+        return ret;
+    }
+    if ((unsigned)ret != sizeof(*hdr) + hdr->size) {
+        VHD_LOG_ERROR("sent %d wanted %zu", ret, sizeof(*hdr) + hdr->size);
         return -EIO;
     }
 
