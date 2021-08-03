@@ -167,8 +167,11 @@ static ssize_t net_recv_msg(int fd, struct vhost_user_msg_hdr *hdr,
     ssize_t ret;
     ssize_t rlen;
     struct cmsghdr *cmsg;
+    int fds_rcvd[VHOST_USER_MAX_FDS];
+    size_t num_fds_rcvd = 0;
+    size_t i;
     union {
-        char buf[CMSG_SPACE(sizeof(int) * VHOST_USER_MAX_FDS)];
+        char buf[CMSG_SPACE(sizeof(fds_rcvd))];
         struct cmsghdr cmsg_align;
     } control;
     struct iovec iov = {
@@ -184,50 +187,60 @@ static ssize_t net_recv_msg(int fd, struct vhost_user_msg_hdr *hdr,
 
     ret = recvmsg(fd, &msgh, 0);
     if (ret == 0) {
-        return 0;
-    } else if (ret < 0) {
-        VHD_LOG_ERROR("recvmsg() failed. Error code = %d, %s",
-                errno, strerror(errno));
-        return -errno;
-    } else if (ret != sizeof(*hdr)) {
-        VHD_LOG_ERROR("recvmsg() gets less bytes = %zd, than required = %lu",
-                ret, sizeof(*hdr));
-        return -EIO;
-    } else if (msgh.msg_flags & MSG_CTRUNC) {
-        VHD_LOG_ERROR("recvmsg(): file descriptor array truncated");
-        return -ENOBUFS;
-    } else if (hdr->size > len) {
-        VHD_LOG_ERROR("Payload size = %d exceeds buffer size = %lu",
-                hdr->size, len);
-        return -EMSGSIZE;
+        goto out;
+    }
+    if (ret < 0) {
+        ret = -errno;
+        VHD_LOG_ERROR("recvmsg: %s", strerror(-ret));
+        goto out;
     }
 
-    /* Fill in file descriptors, if any. */
     for (cmsg = CMSG_FIRSTHDR(&msgh); cmsg; cmsg = CMSG_NXTHDR(&msgh, cmsg)) {
         if ((cmsg->cmsg_level == SOL_SOCKET) &&
             (cmsg->cmsg_type == SCM_RIGHTS)) {
-            size_t fdlen = cmsg->cmsg_len - CMSG_LEN(0);
-            if (fdlen / sizeof(int) < *num_fds) {
-                *num_fds = fdlen / sizeof(int);
-            }
-            memcpy(fds, CMSG_DATA(cmsg), *num_fds * sizeof(int));
+            num_fds_rcvd = (cmsg->cmsg_len - CMSG_LEN(0)) / sizeof(int);
+            memcpy(fds_rcvd, CMSG_DATA(cmsg), num_fds_rcvd * sizeof(int));
             break;
         }
     }
 
-    /* Request payload data for the request. */
+    if (ret != sizeof(*hdr)) {
+        VHD_LOG_ERROR("recvmsg() read %zd expected %lu", ret, sizeof(*hdr));
+        ret = -EIO;
+        goto out;
+    }
+    if (hdr->size > len) {
+        VHD_LOG_ERROR("payload size %d exceeds buffer size %zu", hdr->size,
+                      len);
+        ret = -EMSGSIZE;
+        goto out;
+    }
+
     rlen = read(fd, payload, hdr->size);
     if (rlen < 0) {
-        VHD_LOG_ERROR("Payload read failed. Error code = %d, %s",
-                errno, strerror(errno));
-        return -errno;
-    } else if ((size_t)rlen != hdr->size) {
-        VHD_LOG_ERROR("Read only part of the payload = %zd, required = %d",
-                rlen, hdr->size);
-        return -EIO;
+        ret = -errno;
+        VHD_LOG_ERROR("payload read failed: %s", strerror(-ret));
+        goto out;
+    }
+    if ((size_t)rlen != hdr->size) {
+        VHD_LOG_ERROR("payload read %zd, expected %d", rlen, hdr->size);
+        ret = -EIO;
+        goto out;
     }
     ret += rlen;
 
+out:
+    if (ret <= 0) {
+        *num_fds = 0;
+    }
+    if (*num_fds > num_fds_rcvd) {
+        *num_fds = num_fds_rcvd;
+    }
+    memcpy(fds, fds_rcvd, *num_fds * sizeof(int));
+
+    for (i = *num_fds; i < num_fds_rcvd; i++) {
+        close(fds_rcvd[i]);
+    }
     return ret;
 }
 
