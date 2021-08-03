@@ -9,7 +9,6 @@
 #include <sys/un.h>
 #include <sys/mman.h>
 #include <pthread.h>
-#include <alloca.h>
 
 #include "vdev.h"
 #include "server_internal.h"
@@ -252,15 +251,20 @@ static int net_send_msg(int fd, const struct vhost_user_msg_hdr *hdr,
         .msg_iov = iov,
         .msg_iovlen = 2,
     };
-    char *control;
+    union {
+        char buf[CMSG_SPACE(sizeof(int) * VHOST_USER_MAX_FDS)];
+        struct cmsghdr cmsg_align;
+    } control;
     struct cmsghdr *cmsgh;
-    int fdsize;
+
+    if (num_fds > VHOST_USER_MAX_FDS) {
+        VHD_LOG_ERROR("too many fds: %zu", num_fds);
+        return -EMSGSIZE;
+    }
 
     if (num_fds) {
-        /* Prepare file descriptors for sending. */
-        fdsize = sizeof(*fds) * num_fds;
-        control = alloca(CMSG_SPACE(fdsize));
-        msgh.msg_control = control;
+        size_t fdsize = sizeof(*fds) * num_fds;
+        msgh.msg_control = &control;
         msgh.msg_controllen = CMSG_SPACE(fdsize);
         cmsgh = CMSG_FIRSTHDR(&msgh);
         cmsgh->cmsg_len = CMSG_LEN(fdsize);
