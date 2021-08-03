@@ -487,8 +487,6 @@ static int vhost_set_features(struct vhd_vdev *vdev, struct vhost_user_msg *msg)
 static int vhost_set_owner(struct vhd_vdev *vdev, struct vhost_user_msg *msg)
 {
     VHD_LOG_TRACE();
-    VHD_UNUSED(vdev);
-    VHD_UNUSED(msg);
     return 0;
 }
 

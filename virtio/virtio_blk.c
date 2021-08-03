@@ -188,7 +188,6 @@ static int handle_getid(struct virtio_blk_dev *dev,
                         struct virtio_iov *iov)
 {
     VHD_ASSERT(req->type == VIRTIO_BLK_T_GET_ID);
-    VHD_UNUSED(req);
 
     if (iov->nvecs != 3) {
         VHD_LOG_ERROR("Bad number of buffers %d in iov", iov->nvecs);

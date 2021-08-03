@@ -30,14 +30,11 @@ LIST_HEAD(, vhd_fsdev) g_fsdev_list = LIST_HEAD_INITIALIZER(g_fsdev_list);
 
 static uint64_t vfs_get_features(struct vhd_vdev *vdev)
 {
-    VHD_UNUSED(vdev);
     return VIRTIO_FS_DEFAULT_FEATURES;
 }
 
 static int vfs_set_features(struct vhd_vdev *vdev, uint64_t features)
 {
-    VHD_UNUSED(vdev);
-    VHD_UNUSED(features);
     return 0;
 }
 
@@ -61,8 +58,6 @@ static int vfs_dispatch_requests(struct vhd_vdev *vdev,
                                  struct vhd_vring *vring,
                                  struct vhd_request_queue *rq)
 {
-    VHD_UNUSED(rq);
-
     struct vhd_fsdev *dev = VHD_FSDEV_FROM_VDEV(vdev);
     return virtio_fs_dispatch_requests(&dev->vfs, &vring->vq);
 }
