@@ -163,8 +163,6 @@ static void vhd_vring_stop(struct vhd_vring *vring)
 static int net_recv_msg(int fd, struct vhost_user_msg *msg,
                         int *fds, size_t *num_fds)
 {
-    struct msghdr msgh;
-    struct iovec iov;
     int len;
     int payload_len;
     struct cmsghdr *cmsg;
@@ -172,18 +170,17 @@ static int net_recv_msg(int fd, struct vhost_user_msg *msg,
         char buf[CMSG_SPACE(sizeof(int) * VHOST_USER_MAX_FDS)];
         struct cmsghdr cmsg_align;
     } control;
+    struct iovec iov = {
+        .iov_base = msg,
+        .iov_len = sizeof(msg->hdr),
+    };
+    struct msghdr msgh = {
+        .msg_iov = &iov,
+        .msg_iovlen = 1,
+        .msg_control = &control,
+        .msg_controllen = sizeof(control),
+    };
 
-    /* Receive header for new request. */
-    iov.iov_base = msg;
-    iov.iov_len = sizeof(msg->hdr);
-
-    memset(&msgh, 0, sizeof(msgh));
-    msgh.msg_name = NULL;
-    msgh.msg_namelen = 0;
-    msgh.msg_iov = &iov;
-    msgh.msg_iovlen = 1;
-    msgh.msg_control = &control;
-    msgh.msg_controllen = sizeof(control);
     len = recvmsg(fd, &msgh, 0);
     if (len == 0) {
         return 0;
