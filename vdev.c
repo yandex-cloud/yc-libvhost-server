@@ -235,25 +235,30 @@ static int net_recv_msg(int fd, struct vhost_user_msg *msg,
  * Send message to master. Return number of bytes sent or negative
  * error code in case of error.
  */
-static int net_send_msg_fds(int fd, const struct vhost_user_msg *msg,
-        int *fds, int fdn)
+static int net_send_msg(int fd, const struct vhost_user_msg_hdr *hdr,
+                        const void *payload, int *fds, size_t num_fds)
 {
-    struct msghdr msgh;
-    struct iovec iov;
-    int len;
+    int ret;
+    struct iovec iov[] = {
+        {
+            .iov_base = (void *)hdr,
+            .iov_len = sizeof(*hdr),
+        }, {
+            .iov_base = (void *)payload,
+            .iov_len = hdr->size,
+        }
+    };
+    struct msghdr msgh = {
+        .msg_iov = iov,
+        .msg_iovlen = 2,
+    };
     char *control;
     struct cmsghdr *cmsgh;
     int fdsize;
 
-    iov.iov_base = (void *)msg;
-    iov.iov_len = sizeof(msg->hdr) + msg->hdr.size;
-
-    memset(&msgh, 0, sizeof(msgh));
-    msgh.msg_iov = &iov;
-    msgh.msg_iovlen = 1;
-    if (fdn) {
+    if (num_fds) {
         /* Prepare file descriptors for sending. */
-        fdsize = sizeof(*fds) * fdn;
+        fdsize = sizeof(*fds) * num_fds;
         control = alloca(CMSG_SPACE(fdsize));
         msgh.msg_control = control;
         msgh.msg_controllen = CMSG_SPACE(fdsize);
@@ -263,17 +268,17 @@ static int net_send_msg_fds(int fd, const struct vhost_user_msg *msg,
         cmsgh->cmsg_type = SCM_RIGHTS;
         memcpy(CMSG_DATA(cmsgh), fds, fdsize);
     }
-    len = sendmsg(fd, &msgh, 0);
-    if (len < 0) {
+    ret = sendmsg(fd, &msgh, 0);
+    if (ret < 0) {
         VHD_LOG_ERROR("sendmsg() failed: %d", errno);
         return -errno;
-    } else if ((unsigned)len != (sizeof(msg->hdr) + msg->hdr.size)) {
+    } else if ((unsigned)ret != (sizeof(*hdr) + hdr->size)) {
         VHD_LOG_ERROR("sendmsg() puts less bytes = %d, than required = %lu",
-                len, sizeof(msg->hdr) + msg->hdr.size);
+                ret, sizeof(*hdr) + hdr->size);
         return -EIO;
     }
 
-    return len;
+    return ret;
 }
 
 /*
@@ -297,11 +302,12 @@ static inline bool has_feature(uint64_t features_qword, size_t feature_bit)
 }
 
 static int vhost_send_fds(struct vhd_vdev *vdev,
-                          const struct vhost_user_msg *msg, int *fds, int fdn)
+                          const struct vhost_user_msg *msg,
+                          int *fds, size_t num_fds)
 {
     int len;
 
-    len = net_send_msg_fds(vdev->connfd, msg, fds, fdn);
+    len = net_send_msg(vdev->connfd, &msg->hdr, &msg->payload, fds, num_fds);
     if (len < 0) {
         return len;
     }
