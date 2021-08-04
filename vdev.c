@@ -321,6 +321,20 @@ static inline bool has_feature(uint64_t features_qword, size_t feature_bit)
     return features_qword & (1ull << feature_bit);
 }
 
+static void vdev_handle_start(struct vhd_vdev *vdev)
+{
+    /* do not accept further messages until this one is fully handled */
+    vhd_detach_io_handler(vdev->conn_handler);
+}
+
+static void vdev_handle_finish(struct vhd_vdev *vdev)
+{
+    /* resume accepting further messages if still connected */
+    if (vdev->conn_handler) {
+        vhd_attach_io_handler(vdev->conn_handler);
+    }
+}
+
 static int vhost_send_fds(struct vhd_vdev *vdev,
                           const struct vhost_user_msg_hdr *hdr,
                           const void *payload,
@@ -1316,13 +1330,20 @@ static int conn_read(void *data)
     int fds[VHOST_USER_MAX_FDS];
     size_t num_fds = VHOST_USER_MAX_FDS;
     struct vhd_vdev *vdev = data;
+    int ret;
 
     if (net_recv_msg(vdev->connfd, &msg.hdr, &msg.payload, sizeof(msg.payload),
                      fds, &num_fds) <= 0) {
         goto err_out;
     }
 
-    if (vhost_handle_request(vdev, &msg, fds, num_fds)) {
+    vdev_handle_start(vdev);
+
+    ret = vhost_handle_request(vdev, &msg, fds, num_fds);
+
+    vdev_handle_finish(vdev);
+
+    if (ret < 0) {
         goto err_out;
     }
 
