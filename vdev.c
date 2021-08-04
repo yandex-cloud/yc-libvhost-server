@@ -79,54 +79,6 @@ static int vring_update_vq_addrs(struct vhd_vring *vring)
 static void vdev_ref(struct vhd_vdev *vdev);
 static void vdev_unref(struct vhd_vdev *vdev);
 
-static int vring_start(struct vhd_vring *vring)
-{
-    int res;
-
-    if (vring->is_started) {
-        VHD_LOG_ERROR("Try to start already started vring: vring %d",
-                      vring_idx(vring));
-        return 0;
-    }
-
-    /*
-     * Update vq addresses from cache right before vq init.
-     * This guarantees that vq rings addresses are set with
-     * actual guest memory mapping.
-     */
-    res = vring_update_vq_addrs(vring);
-    if (res) {
-        return res;
-    }
-
-    res = virtio_virtq_init(&vring->vq);
-    if (res != 0) {
-        VHD_LOG_ERROR("virtq init failed: %d", res);
-       return res;
-    }
-
-    virtq_set_notify_fd(&vring->vq, vring->callfd);
-
-    vring->is_started = true;
-    /* pairs with unref in vring_stop_bh() */
-    vhd_vring_ref(vring);
-    /* pairs with vdev_unref in vring_unref on vring disabling */
-    vdev_ref(vring->vdev);
-    vring->kick_handler = vhd_add_rq_io_handler(vring->vdev->rq, vring->kickfd,
-                                                vring_kick, vring);
-
-    if (!vring->kick_handler) {
-        vring->is_started = false;
-        vhd_vring_unref(vring);
-        vdev_unref(vring->vdev);
-        virtio_virtq_release(&vring->vq);
-        VHD_LOG_ERROR("Could not create vring event from kickfd");
-        return -EIO;
-    }
-
-    return 0;
-}
-
 static void vring_stop_bh(void *opaque)
 {
     struct vhd_vring *vring = (struct vhd_vring *) opaque;
@@ -729,6 +681,7 @@ static int vhost_set_vring_kick(struct vhd_vdev *vdev,
                                 struct vhost_user_msg *msg,
                                 int *fds, size_t num_fds)
 {
+    int res;
     struct vhd_vring *vring = msg_get_vring(vdev, msg);
 
     if (!vring || !msg_valid_num_fds(msg, num_fds)) {
@@ -740,7 +693,49 @@ static int vhost_set_vring_kick(struct vhd_vdev *vdev,
     }
 
     vring->kickfd = fds[0];
-    return vring_start(vring);
+
+    if (vring->is_started) {
+        VHD_LOG_ERROR("Try to start already started vring: vring %d",
+                      vring_idx(vring));
+        return 0;
+    }
+
+    /*
+     * Update vq addresses from cache right before vq init.
+     * This guarantees that vq rings addresses are set with
+     * actual guest memory mapping.
+     */
+    res = vring_update_vq_addrs(vring);
+    if (res) {
+        return res;
+    }
+
+    res = virtio_virtq_init(&vring->vq);
+    if (res != 0) {
+        VHD_LOG_ERROR("virtq init failed: %d", res);
+       return res;
+    }
+
+    virtq_set_notify_fd(&vring->vq, vring->callfd);
+
+    vring->is_started = true;
+    /* pairs with unref in vring_stop_bh() */
+    vhd_vring_ref(vring);
+    /* pairs with vdev_unref in vring_unref on vring disabling */
+    vdev_ref(vring->vdev);
+    vring->kick_handler = vhd_add_rq_io_handler(vring->vdev->rq, vring->kickfd,
+                                                vring_kick, vring);
+
+    if (!vring->kick_handler) {
+        vring->is_started = false;
+        vhd_vring_unref(vring);
+        vdev_unref(vring->vdev);
+        virtio_virtq_release(&vring->vq);
+        VHD_LOG_ERROR("Could not create vring event from kickfd");
+        return -EIO;
+    }
+
+    return 0;
 }
 
 static int vhost_set_vring_err(struct vhd_vdev *vdev,
