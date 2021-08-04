@@ -1170,6 +1170,7 @@ static int change_device_state(struct vhd_vdev *vdev,
             vhost_reset_mem_table(vdev);
             if (vdev->memlog) {
                 vhd_memlog_free(vdev->memlog);
+                vdev->memlog = NULL;
             }
 
             close(vdev->connfd);
