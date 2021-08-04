@@ -1455,8 +1455,6 @@ void vhd_vring_unref(struct vhd_vring *vring)
 {
     vring->refcount--;
 
-    VHD_ASSERT(vring->refcount >= 0);
-
     /*
      * vring->refcount == 0 only when we unref-ed vring
      * for disabling
