@@ -307,8 +307,9 @@ struct vhd_event_loop *vhd_create_event_loop(size_t max_events)
     }
 
     /* Register notify eventfd, make sure it is level-triggered */
-    struct epoll_event ev = {0};
-    ev.events = EPOLLIN;
+    struct epoll_event ev = {
+        .events = EPOLLIN,
+    };
     if (epoll_ctl(epollfd, EPOLL_CTL_ADD, notifyfd, &ev) == -1) {
         VHD_LOG_ERROR("Can't add event: %d", errno);
         goto error_out;
