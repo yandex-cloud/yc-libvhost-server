@@ -156,11 +156,13 @@ int virtio_fs_init_dev(
     dev->dispatch = dispatch;
     dev->fsdev = fsdev;
 
+    dev->config = (struct virtio_fs_config) {
+        .num_request_queues = fsdev->num_queues,
+    };
     if (fsdev->tag) {
-        strncpy((char *) dev->config.tag, fsdev->tag, sizeof(dev->config.tag));
+        memcpy(dev->config.tag, fsdev->tag,
+               MIN(strlen(fsdev->tag), sizeof(dev->config.tag)));
     }
-
-    dev->config.num_request_queues = fsdev->num_queues;
 
     return 0;
 }
