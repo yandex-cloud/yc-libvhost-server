@@ -627,30 +627,38 @@ static struct vhd_vring *get_vring_not_started(struct vhd_vdev *vdev, int index)
     return vring;
 }
 
-static struct vhd_vring *msg_get_vring(struct vhd_vdev *vdev,
-                                       struct vhost_user_msg *msg)
+static struct vhd_vring *msg_u64_get_vring(struct vhd_vdev *vdev,
+                                           const void *payload,
+                                           size_t size, size_t num_fds)
 {
-    uint8_t vring_idx = msg->payload.u64 & VHOST_VRING_IDX_MASK;
-    return get_vring(vdev, vring_idx);
-}
+    const uint64_t *u64 = payload;
+    uint8_t vring_idx;
+    bool has_fd;
 
-static bool msg_valid_num_fds(struct vhost_user_msg *msg, size_t num_fds)
-{
-    bool has_fd = !(msg->payload.u64 & VHOST_VRING_INVALID_FD);
+    if (size < sizeof(*u64)) {
+        VHD_LOG_ERROR("malformed message size=%zu", size);
+        return NULL;
+    }
+
+    has_fd = !(*u64 & VHOST_VRING_INVALID_FD);
+    vring_idx = *u64 & VHOST_VRING_IDX_MASK;
+
     if (num_fds != has_fd) {
         VHD_LOG_ERROR("unexpected #fds: %zu (expected %u)", num_fds, has_fd);
-        return false;
+        return NULL;
     }
-    return true;
+
+    return get_vring(vdev, vring_idx);
 }
 
 static int vhost_set_vring_call(struct vhd_vdev *vdev,
                                 struct vhost_user_msg *msg,
                                 int *fds, size_t num_fds)
 {
-    struct vhd_vring *vring = msg_get_vring(vdev, msg);
+    struct vhd_vring *vring = msg_u64_get_vring(vdev, &msg->payload,
+                                                msg->hdr.size, num_fds);
 
-    if (!vring || !msg_valid_num_fds(msg, num_fds)) {
+    if (!vring) {
         return -EINVAL;
     }
 
@@ -666,9 +674,10 @@ static int vhost_set_vring_kick(struct vhd_vdev *vdev,
                                 int *fds, size_t num_fds)
 {
     int res;
-    struct vhd_vring *vring = msg_get_vring(vdev, msg);
+    struct vhd_vring *vring = msg_u64_get_vring(vdev, &msg->payload,
+                                                msg->hdr.size, num_fds);
 
-    if (!vring || !msg_valid_num_fds(msg, num_fds)) {
+    if (!vring) {
         return -EINVAL;
     }
     if (num_fds == 0) {
@@ -726,9 +735,10 @@ static int vhost_set_vring_err(struct vhd_vdev *vdev,
                                 struct vhost_user_msg *msg,
                                 int *fds, size_t num_fds)
 {
-    struct vhd_vring *vring = msg_get_vring(vdev, msg);
+    struct vhd_vring *vring = msg_u64_get_vring(vdev, &msg->payload,
+                                                msg->hdr.size, num_fds);
 
-    if (!vring || !msg_valid_num_fds(msg, num_fds)) {
+    if (!vring) {
         return -EINVAL;
     }
 
