@@ -512,7 +512,7 @@ static void set_mem_table_bh(void *opaque)
 static int vhost_set_mem_table(struct vhd_vdev *vdev, const void *payload,
                                size_t size, const int *fds, size_t num_fds)
 {
-    int ret = 0;
+    int ret;
     const struct vhost_user_mem_desc *desc = payload;
     struct vhd_memory_map *mm;
     struct set_mem_table_data *data;
@@ -520,14 +520,12 @@ static int vhost_set_mem_table(struct vhd_vdev *vdev, const void *payload,
 
     if (desc->nregions > VHOST_USER_MEM_REGIONS_MAX) {
         VHD_LOG_ERROR("Invalid number of memory regions %d", desc->nregions);
-        ret = -EINVAL;
-        goto out;
+        return -EINVAL;
     }
     if (desc->nregions != num_fds) {
         VHD_LOG_ERROR("#memory regions != #fds: %u != %zu", desc->nregions,
                       num_fds);
-        ret = -EINVAL;
-        goto out;
+        return -EINVAL;
     }
 
     mm = vhd_memmap_new(vdev->map_cb, vdev->unmap_cb, vdev->priv);
@@ -538,7 +536,7 @@ static int vhost_set_mem_table(struct vhd_vdev *vdev, const void *payload,
                                   region->size, fds[i], region->mmap_offset);
         if (ret < 0) {
             vhd_memmap_unref(mm);
-            goto out;
+            return ret;
         }
     }
 
@@ -547,11 +545,7 @@ static int vhost_set_mem_table(struct vhd_vdev *vdev, const void *payload,
     data->mm = mm;
 
     vhd_run_in_rq(vdev->rq, set_mem_table_bh, data);
-out:
-    for (i = 0; i < num_fds; i++) {
-        close(fds[i]);
-    }
-    return ret;
+    return 0;
 }
 
 static int vhost_get_config(struct vhd_vdev *vdev, const void *payload,
@@ -639,7 +633,7 @@ static int vhost_set_vring_call(struct vhd_vdev *vdev, const void *payload,
         return -EINVAL;
     }
 
-    vring->callfd = num_fds > 0 ? fds[0] : -1;
+    vring->callfd = num_fds > 0 ? dup(fds[0]) : -1;
     if (vring->is_started) {
         virtq_set_notify_fd(&vring->vq, vring->callfd);
     }
@@ -660,7 +654,7 @@ static int vhost_set_vring_kick(struct vhd_vdev *vdev, const void *payload,
         return -ENOTSUP;
     }
 
-    vring->kickfd = fds[0];
+    vring->kickfd = dup(fds[0]);
 
     if (vring->is_started) {
         VHD_LOG_ERROR("Try to start already started vring: vring %d",
@@ -715,7 +709,7 @@ static int vhost_set_vring_err(struct vhd_vdev *vdev, const void *payload,
         return -EINVAL;
     }
 
-    vring->errfd = num_fds > 0 ? fds[0] : -1;
+    vring->errfd = num_fds > 0 ? dup(fds[0]) : -1;
     return vhost_ack(vdev, VHOST_USER_SET_VRING_ERR, 0);
 }
 
@@ -835,7 +829,6 @@ static int vhost_set_log_base(struct vhd_vdev *vdev, const void *payload,
     }
 
     memlog = vhd_memlog_new(log->size, fds[0], log->offset);
-    close(fds[0]);
     if (!memlog) {
         return -EFAULT;
     }
@@ -995,7 +988,6 @@ static int vhost_set_inflight_fd(struct vhd_vdev *vdev, const void *payload,
 
     vhd_vdev_inflight_cleanup(vdev);
     ret = inflight_mmap_region(vdev, fds[0], queue_region_size, idesc->num_queues);
-    close(fds[0]);
     if (ret < 0) {
         return ret;
     }
@@ -1252,6 +1244,10 @@ static int conn_read(void *data)
     vdev_handle_start(vdev, msg_ack_needed(vdev, hdr.flags));
 
     ret = vhost_handle_msg(vdev, hdr.req, &payload, hdr.size, fds, num_fds);
+
+    while (num_fds--) {
+        close(fds[num_fds]);
+    }
 
     if (ret < 0) {
         goto handle_fail;
