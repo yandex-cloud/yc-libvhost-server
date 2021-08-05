@@ -108,18 +108,18 @@ struct vhost_user_mem_region {
     uint64_t size;
     uint64_t user_addr;
     uint64_t mmap_offset;
-} __attribute__((packed));
+};
 
 struct vhost_user_mem_desc {
     uint32_t nregions;
     uint32_t _padding;
     struct vhost_user_mem_region regions[VHOST_USER_MEM_REGIONS_MAX];
-} __attribute__((packed));
+};
 
 struct vhost_user_vring_state {
     uint32_t index;
     uint32_t num;
-} __attribute__((packed));
+};
 
 struct vhost_user_vring_addr {
     uint32_t index;
@@ -129,14 +129,14 @@ struct vhost_user_vring_addr {
     uint64_t used_addr;
     uint64_t avail_addr;
     uint64_t used_gpa_base;
-} __attribute__((packed));
+};
 
 struct vhost_user_config_space {
     uint32_t offset;
     uint32_t size;
     uint32_t flags;
     uint8_t payload[VHOST_USER_CONFIG_SPACE_MAX];
-} __attribute__((packed));
+};
 #define VHOST_CONFIG_HDR_SIZE (offsetof(struct vhost_user_config_space, payload))
 
 struct vhost_user_inflight_desc {
@@ -144,14 +144,14 @@ struct vhost_user_inflight_desc {
     uint64_t mmap_offset;
     uint16_t num_queues;
     uint16_t queue_size;
-} __attribute__((packed));
+};
 
 struct inflight_split_desc {
     uint8_t inflight;
     uint8_t padding[5];
     uint16_t next;
     uint64_t counter;
-} __attribute__((packed));
+};
 
 struct inflight_split_region {
     uint64_t features;
@@ -160,18 +160,18 @@ struct inflight_split_region {
     uint16_t last_batch_head;
     uint16_t used_idx;
     struct inflight_split_desc desc[];
-} __attribute__((packed));
+};
 
 struct vhost_user_log {
     uint64_t size;
     uint64_t offset;
-} __attribute__((packed));
+};
 
 struct vhost_user_msg_hdr {
     uint32_t req;
     uint32_t flags;
     uint32_t size;
-} __attribute__((packed));
+};
 
 union vhost_user_msg_payload {
     /*
@@ -196,11 +196,6 @@ union vhost_user_msg_payload {
     /* VHOST_USER_SET_LOG_BASE */
     struct vhost_user_log log;
 };
-
-struct vhost_user_msg {
-    struct vhost_user_msg_hdr hdr;
-    union vhost_user_msg_payload payload;
-} __attribute__((packed));
 
 #ifdef __cplusplus
 }

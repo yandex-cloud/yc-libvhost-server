@@ -1282,21 +1282,21 @@ close_client:
 
 static int conn_read(void *data)
 {
-    struct vhost_user_msg msg;
+    struct vhost_user_msg_hdr hdr;
+    union vhost_user_msg_payload payload;
     int fds[VHOST_USER_MAX_FDS];
     size_t num_fds = VHOST_USER_MAX_FDS;
     struct vhd_vdev *vdev = data;
     int ret;
 
-    if (net_recv_msg(vdev->connfd, &msg.hdr, &msg.payload, sizeof(msg.payload),
+    if (net_recv_msg(vdev->connfd, &hdr, &payload, sizeof(payload),
                      fds, &num_fds) <= 0) {
         goto recv_fail;
     }
 
-    vdev_handle_start(vdev, msg_ack_needed(vdev, msg.hdr.flags));
+    vdev_handle_start(vdev, msg_ack_needed(vdev, hdr.flags));
 
-    ret = vhost_handle_msg(vdev, msg.hdr.req, &msg.payload, msg.hdr.size,
-                           fds, num_fds);
+    ret = vhost_handle_msg(vdev, hdr.req, &payload, hdr.size, fds, num_fds);
 
     if (ret < 0) {
         goto handle_fail;
