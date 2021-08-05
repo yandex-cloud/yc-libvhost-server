@@ -273,7 +273,7 @@ static int net_send_msg(int fd, const struct vhost_user_msg_hdr *hdr,
         memcpy(CMSG_DATA(cmsgh), fds, fdsize);
     }
 
-    ret = sendmsg(fd, &msgh, 0);
+    ret = sendmsg(fd, &msgh, MSG_NOSIGNAL);
     if (ret < 0) {
         ret = -errno;
         VHD_LOG_ERROR("sendmsg: %s", strerror(-ret));
