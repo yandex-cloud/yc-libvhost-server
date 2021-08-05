@@ -1009,81 +1009,42 @@ static int vhost_set_inflight_fd(struct vhd_vdev *vdev, void *payload,
     return vhost_ack(vdev, VHOST_USER_SET_INFLIGHT_FD, 0);
 }
 
-/*
- * Return 0 in case of success, otherwise return error code.
- */
+static int (*vhost_msg_handlers[])(struct vhd_vdev *vdev,
+                                   void *payload, size_t size,
+                                   int *fds, size_t num_fds) = {
+    [VHOST_USER_GET_FEATURES]           = vhost_get_features,
+    [VHOST_USER_SET_FEATURES]           = vhost_set_features,
+    [VHOST_USER_SET_OWNER]              = vhost_set_owner,
+    [VHOST_USER_GET_PROTOCOL_FEATURES]  = vhost_get_protocol_features,
+    [VHOST_USER_SET_PROTOCOL_FEATURES]  = vhost_set_protocol_features,
+    [VHOST_USER_GET_CONFIG]             = vhost_get_config,
+    [VHOST_USER_SET_MEM_TABLE]          = vhost_set_mem_table,
+    [VHOST_USER_GET_QUEUE_NUM]          = vhost_get_queue_num,
+    [VHOST_USER_SET_LOG_BASE]           = vhost_set_log_base,
+    [VHOST_USER_SET_VRING_CALL]         = vhost_set_vring_call,
+    [VHOST_USER_SET_VRING_KICK]         = vhost_set_vring_kick,
+    [VHOST_USER_SET_VRING_ERR]          = vhost_set_vring_err,
+    [VHOST_USER_SET_VRING_NUM]          = vhost_set_vring_num,
+    [VHOST_USER_SET_VRING_BASE]         = vhost_set_vring_base,
+    [VHOST_USER_GET_VRING_BASE]         = vhost_get_vring_base,
+    [VHOST_USER_SET_VRING_ADDR]         = vhost_set_vring_addr,
+    [VHOST_USER_GET_INFLIGHT_FD]        = vhost_get_inflight_fd,
+    [VHOST_USER_SET_INFLIGHT_FD]        = vhost_set_inflight_fd,
+};
+
 static int vhost_handle_msg(struct vhd_vdev *vdev, uint32_t req,
                             void *payload, size_t size,
                             int *fds, size_t num_fds)
 {
-    int ret = 0;
+    VHD_LOG_DEBUG("Handle command %u, size %zu", req, size);
 
-    switch (req) {
-    case VHOST_USER_GET_FEATURES:
-        ret = vhost_get_features(vdev, payload, size, fds, num_fds);
-        break;
-    case VHOST_USER_SET_FEATURES:
-        ret = vhost_set_features(vdev, payload, size, fds, num_fds);
-        break;
-    case VHOST_USER_SET_OWNER:
-        ret = vhost_set_owner(vdev, payload, size, fds, num_fds);
-        break;
-    case VHOST_USER_GET_PROTOCOL_FEATURES:
-        ret = vhost_get_protocol_features(vdev, payload, size, fds, num_fds);
-        break;
-    case VHOST_USER_SET_PROTOCOL_FEATURES:
-        ret = vhost_set_protocol_features(vdev, payload, size, fds, num_fds);
-        break;
-    case VHOST_USER_GET_CONFIG:
-        ret = vhost_get_config(vdev, payload, size, fds, num_fds);
-        break;
-    case VHOST_USER_SET_MEM_TABLE:
-        ret = vhost_set_mem_table(vdev, payload, size, fds, num_fds);
-        break;
-    case VHOST_USER_GET_QUEUE_NUM:
-        ret = vhost_get_queue_num(vdev, payload, size, fds, num_fds);
-        break;
-    case VHOST_USER_SET_LOG_BASE:
-        ret = vhost_set_log_base(vdev, payload, size, fds, num_fds);
-        break;
-    case VHOST_USER_SET_VRING_CALL:
-        ret = vhost_set_vring_call(vdev, payload, size, fds, num_fds);
-        break;
-    case VHOST_USER_SET_VRING_KICK:
-        ret = vhost_set_vring_kick(vdev, payload, size, fds, num_fds);
-        break;
-    case VHOST_USER_SET_VRING_ERR:
-        ret = vhost_set_vring_err(vdev, payload, size, fds, num_fds);
-        break;
-    case VHOST_USER_SET_VRING_NUM:
-        ret = vhost_set_vring_num(vdev, payload, size, fds, num_fds);
-        break;
-    case VHOST_USER_SET_VRING_BASE:
-        ret = vhost_set_vring_base(vdev, payload, size, fds, num_fds);
-        break;
-    case VHOST_USER_GET_VRING_BASE:
-        ret = vhost_get_vring_base(vdev, payload, size, fds, num_fds);
-        break;
-    case VHOST_USER_SET_VRING_ADDR:
-        ret = vhost_set_vring_addr(vdev, payload, size, fds, num_fds);
-        break;
-    case VHOST_USER_GET_INFLIGHT_FD:
-        ret = vhost_get_inflight_fd(vdev, payload, size, fds, num_fds);
-        break;
-    case VHOST_USER_SET_INFLIGHT_FD:
-        ret = vhost_set_inflight_fd(vdev, payload, size, fds, num_fds);
-        break;
-    default:
-        VHD_LOG_WARN("Command = %d, not supported", req);
-        ret = -ENOTSUP;
-        break;
+    if (req >= sizeof(vhost_msg_handlers) / sizeof(vhost_msg_handlers[0]) ||
+        !vhost_msg_handlers[req]) {
+        VHD_LOG_WARN("VHOST_USER command %u not supported", req);
+        return -ENOTSUP;
     }
 
-    if (ret != 0) {
-        VHD_LOG_ERROR("Request %d failed with %d", req, ret);
-    }
-
-    return ret;
+    return vhost_msg_handlers[req](vdev, payload, size, fds, num_fds);
 }
 
 struct vdev_work {
