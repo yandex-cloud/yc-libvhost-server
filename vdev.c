@@ -364,8 +364,8 @@ static int vhost_ack(struct vhd_vdev *vdev, uint32_t req, int ret)
 }
 
 static int vhost_get_protocol_features(struct vhd_vdev *vdev,
-                                       void *payload, size_t size,
-                                       int *fds, size_t num_fds)
+                                       const void *payload, size_t size,
+                                       const int *fds, size_t num_fds)
 {
     VHD_LOG_TRACE();
 
@@ -374,8 +374,8 @@ static int vhost_get_protocol_features(struct vhd_vdev *vdev,
 }
 
 static int vhost_set_protocol_features(struct vhd_vdev *vdev,
-                                       void *payload, size_t size,
-                                       int *fds, size_t num_fds)
+                                       const void *payload, size_t size,
+                                       const int *fds, size_t num_fds)
 {
     VHD_LOG_TRACE();
 
@@ -392,8 +392,8 @@ static int vhost_set_protocol_features(struct vhd_vdev *vdev,
     return vhost_ack(vdev, VHOST_USER_SET_PROTOCOL_FEATURES, 0);
 }
 
-static int vhost_get_features(struct vhd_vdev *vdev, void *payload,
-                              size_t size, int *fds, size_t num_fds)
+static int vhost_get_features(struct vhd_vdev *vdev, const void *payload,
+                              size_t size, const int *fds, size_t num_fds)
 {
     VHD_LOG_TRACE();
 
@@ -416,8 +416,8 @@ static void vdev_update_memlog(struct vhd_vdev *vdev)
     }
 }
 
-static int vhost_set_features(struct vhd_vdev *vdev, void *payload,
-                              size_t size, int *fds, size_t num_fds)
+static int vhost_set_features(struct vhd_vdev *vdev, const void *payload,
+                              size_t size, const int *fds, size_t num_fds)
 {
     VHD_LOG_TRACE();
 
@@ -452,8 +452,8 @@ static int vhost_set_features(struct vhd_vdev *vdev, void *payload,
     return vhost_ack(vdev, VHOST_USER_SET_FEATURES, 0);
 }
 
-static int vhost_set_owner(struct vhd_vdev *vdev, void *payload,
-                           size_t size, int *fds, size_t num_fds)
+static int vhost_set_owner(struct vhd_vdev *vdev, const void *payload,
+                           size_t size, const int *fds, size_t num_fds)
 {
     VHD_LOG_TRACE();
     return vhost_ack(vdev, VHOST_USER_SET_OWNER, 0);
@@ -544,8 +544,8 @@ reply:
     vhost_ack(vdev, VHOST_USER_SET_MEM_TABLE, 0);
 }
 
-static int vhost_set_mem_table(struct vhd_vdev *vdev, void *payload,
-                               size_t size, int *fds, size_t num_fds)
+static int vhost_set_mem_table(struct vhd_vdev *vdev, const void *payload,
+                               size_t size, const int *fds, size_t num_fds)
 {
     const struct vhost_user_mem_desc *desc = payload;
     struct set_mem_table_data *data =
@@ -559,31 +559,30 @@ static int vhost_set_mem_table(struct vhd_vdev *vdev, void *payload,
     return 0;
 }
 
-static int vhost_get_config(struct vhd_vdev *vdev, void *payload,
-                            size_t size, int *fds, size_t num_fds)
+static int vhost_get_config(struct vhd_vdev *vdev, const void *payload,
+                            size_t size, const int *fds, size_t num_fds)
 {
-    struct vhost_user_config_space *config = payload;
+    const struct vhost_user_config_space *config = payload;
+    struct vhost_user_config_space reply = {};
 
     VHD_LOG_DEBUG("size %zu, config->size %u", size, config->size);
 
     if (config->size > size - VHOST_CONFIG_HDR_SIZE) {
         VHD_LOG_WARN("Message size is not enough for requested data");
-        config->size = size - VHOST_CONFIG_HDR_SIZE;
+        reply.size = size - VHOST_CONFIG_HDR_SIZE;
+    } else {
+        reply.size = config->size;
     }
+    reply.offset = config->offset;
 
-    config->size = vdev->type->get_config(vdev, config->payload,
-                                          config->size, config->offset);
+    reply.size = vdev->type->get_config(vdev, &reply.payload, reply.size,
+                                        reply.offset);
 
-    /* zero-fill leftover space */
-    memset(config->payload + config->size,
-           0,
-           size - VHOST_CONFIG_HDR_SIZE - config->size);
-
-    return vhost_reply(vdev, VHOST_USER_GET_CONFIG, config, size);
+    return vhost_reply(vdev, VHOST_USER_GET_CONFIG, &reply, size);
 }
 
-static int vhost_get_queue_num(struct vhd_vdev *vdev, void *payload,
-                               size_t size, int *fds, size_t num_fds)
+static int vhost_get_queue_num(struct vhd_vdev *vdev, const void *payload,
+                               size_t size, const int *fds, size_t num_fds)
 {
     VHD_LOG_TRACE();
 
@@ -636,8 +635,8 @@ static struct vhd_vring *msg_u64_get_vring(struct vhd_vdev *vdev,
     return get_vring(vdev, vring_idx);
 }
 
-static int vhost_set_vring_call(struct vhd_vdev *vdev, void *payload,
-                                size_t size, int *fds, size_t num_fds)
+static int vhost_set_vring_call(struct vhd_vdev *vdev, const void *payload,
+                                size_t size, const int *fds, size_t num_fds)
 {
     struct vhd_vring *vring = msg_u64_get_vring(vdev, payload, size, num_fds);
 
@@ -652,8 +651,8 @@ static int vhost_set_vring_call(struct vhd_vdev *vdev, void *payload,
     return vhost_ack(vdev, VHOST_USER_SET_VRING_CALL, 0);
 }
 
-static int vhost_set_vring_kick(struct vhd_vdev *vdev, void *payload,
-                                size_t size, int *fds, size_t num_fds)
+static int vhost_set_vring_kick(struct vhd_vdev *vdev, const void *payload,
+                                size_t size, const int *fds, size_t num_fds)
 {
     int res;
     struct vhd_vring *vring = msg_u64_get_vring(vdev, payload, size, num_fds);
@@ -712,8 +711,8 @@ static int vhost_set_vring_kick(struct vhd_vdev *vdev, void *payload,
     return vhost_ack(vdev, VHOST_USER_SET_VRING_KICK, 0);
 }
 
-static int vhost_set_vring_err(struct vhd_vdev *vdev, void *payload,
-                               size_t size, int *fds, size_t num_fds)
+static int vhost_set_vring_err(struct vhd_vdev *vdev, const void *payload,
+                               size_t size, const int *fds, size_t num_fds)
 {
     struct vhd_vring *vring = msg_u64_get_vring(vdev, payload, size, num_fds);
 
@@ -725,8 +724,8 @@ static int vhost_set_vring_err(struct vhd_vdev *vdev, void *payload,
     return vhost_ack(vdev, VHOST_USER_SET_VRING_ERR, 0);
 }
 
-static int vhost_set_vring_num(struct vhd_vdev *vdev, void *payload,
-                               size_t size, int *fds, size_t num_fds)
+static int vhost_set_vring_num(struct vhd_vdev *vdev, const void *payload,
+                               size_t size, const int *fds, size_t num_fds)
 {
     VHD_LOG_TRACE();
 
@@ -741,8 +740,8 @@ static int vhost_set_vring_num(struct vhd_vdev *vdev, void *payload,
     return vhost_ack(vdev, VHOST_USER_SET_VRING_NUM, 0);
 }
 
-static int vhost_set_vring_base(struct vhd_vdev *vdev, void *payload,
-                                size_t size, int *fds, size_t num_fds)
+static int vhost_set_vring_base(struct vhd_vdev *vdev, const void *payload,
+                                size_t size, const int *fds, size_t num_fds)
 {
     VHD_LOG_TRACE();
 
@@ -768,8 +767,8 @@ static void vring_clear_on_drain_cb(struct vhd_vring *vring)
     vring->on_drain_cb = NULL;
 }
 
-static int vhost_get_vring_base(struct vhd_vdev *vdev, void *payload,
-                                size_t size, int *fds, size_t num_fds)
+static int vhost_get_vring_base(struct vhd_vdev *vdev, const void *payload,
+                                size_t size, const int *fds, size_t num_fds)
 {
     VHD_LOG_TRACE();
 
@@ -791,8 +790,8 @@ static int vhost_get_vring_base(struct vhd_vdev *vdev, void *payload,
     return 0;
 }
 
-static int vhost_set_vring_addr(struct vhd_vdev *vdev, void *payload,
-                                size_t size, int *fds, size_t num_fds)
+static int vhost_set_vring_addr(struct vhd_vdev *vdev, const void *payload,
+                                size_t size, const int *fds, size_t num_fds)
 {
     VHD_LOG_TRACE();
 
@@ -827,8 +826,8 @@ static int vhost_set_vring_addr(struct vhd_vdev *vdev, void *payload,
     return vhost_ack(vdev, VHOST_USER_SET_VRING_ADDR, 0);
 }
 
-static int vhost_set_log_base(struct vhd_vdev *vdev, void *payload,
-                              size_t size, int *fds, size_t num_fds)
+static int vhost_set_log_base(struct vhd_vdev *vdev, const void *payload,
+                              size_t size, const int *fds, size_t num_fds)
 {
     struct vhd_memory_log *memlog, *old_memlog = vdev->memlog;
     const struct vhost_user_log *log = payload;
@@ -925,12 +924,13 @@ static int memfd_create(const char *name, unsigned int flags)
 }
 #endif
 
-static int vhost_get_inflight_fd(struct vhd_vdev *vdev, void *payload,
-                                 size_t size, int *fds, size_t num_fds)
+static int vhost_get_inflight_fd(struct vhd_vdev *vdev, const void *payload,
+                                 size_t size, const int *fds, size_t num_fds)
 {
     VHD_LOG_TRACE();
 
-    struct vhost_user_inflight_desc *idesc = payload;
+    const struct vhost_user_inflight_desc *idesc = payload;
+    struct vhost_user_inflight_desc reply = {};
     size_t queue_region_size = vring_inflight_buf_size(idesc->queue_size);
     size_t mmap_size = queue_region_size * idesc->num_queues;
     int fd;
@@ -959,11 +959,10 @@ static int vhost_get_inflight_fd(struct vhd_vdev *vdev, void *payload,
                       idesc->queue_size);
 
     /* Prepare reply to the master side. */
-    idesc->mmap_size = vdev->inflight_size;
-    idesc->mmap_offset = 0;
+    reply.mmap_size = vdev->inflight_size;
 
     ret = vhost_reply_fds(vdev, VHOST_USER_GET_INFLIGHT_FD,
-                          idesc, size, &fd, 1);
+                          &reply, sizeof(reply), &fd, 1);
     if (ret) {
         VHD_LOG_ERROR("can't send reply to get_inflight_fd command");
         vhd_vdev_inflight_cleanup(vdev);
@@ -974,8 +973,8 @@ out:
     return ret;
 }
 
-static int vhost_set_inflight_fd(struct vhd_vdev *vdev, void *payload,
-                                 size_t size, int *fds, size_t num_fds)
+static int vhost_set_inflight_fd(struct vhd_vdev *vdev, const void *payload,
+                                 size_t size, const int *fds, size_t num_fds)
 {
     VHD_LOG_TRACE();
 
@@ -1010,8 +1009,8 @@ static int vhost_set_inflight_fd(struct vhd_vdev *vdev, void *payload,
 }
 
 static int (*vhost_msg_handlers[])(struct vhd_vdev *vdev,
-                                   void *payload, size_t size,
-                                   int *fds, size_t num_fds) = {
+                                   const void *payload, size_t size,
+                                   const int *fds, size_t num_fds) = {
     [VHOST_USER_GET_FEATURES]           = vhost_get_features,
     [VHOST_USER_SET_FEATURES]           = vhost_set_features,
     [VHOST_USER_SET_OWNER]              = vhost_set_owner,
@@ -1033,8 +1032,8 @@ static int (*vhost_msg_handlers[])(struct vhd_vdev *vdev,
 };
 
 static int vhost_handle_msg(struct vhd_vdev *vdev, uint32_t req,
-                            void *payload, size_t size,
-                            int *fds, size_t num_fds)
+                            const void *payload, size_t size,
+                            const int *fds, size_t num_fds)
 {
     VHD_LOG_DEBUG("Handle command %u, size %zu", req, size);
 
