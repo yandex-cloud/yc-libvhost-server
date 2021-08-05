@@ -125,6 +125,9 @@ struct vhd_vdev {
     /** Global vdev list */
     LIST_ENTRY(vhd_vdev) vdev_list;
 
+    /* whether an ACK should be sent once the message is handled  */
+    bool ack_pending;
+
     struct vhd_work *work;
 };
 
