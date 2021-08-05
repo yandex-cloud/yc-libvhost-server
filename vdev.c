@@ -273,14 +273,18 @@ static inline bool has_feature(uint64_t features_qword, size_t feature_bit)
     return features_qword & (1ull << feature_bit);
 }
 
-static void vdev_handle_start(struct vhd_vdev *vdev)
+static void vdev_handle_start(struct vhd_vdev *vdev, bool ack_pending)
 {
     /* do not accept further messages until this one is fully handled */
     vhd_detach_io_handler(vdev->conn_handler);
+
+    vdev->ack_pending = ack_pending;
 }
 
 static void vdev_handle_finish(struct vhd_vdev *vdev)
 {
+    vdev->ack_pending = false;
+
     /* resume accepting further messages if still connected */
     if (vdev->conn_handler) {
         vhd_attach_io_handler(vdev->conn_handler);
@@ -290,7 +294,8 @@ static void vdev_handle_finish(struct vhd_vdev *vdev)
 static int vhost_send_fds(struct vhd_vdev *vdev,
                           const struct vhost_user_msg_hdr *hdr,
                           const void *payload,
-                          int *fds, size_t num_fds)
+                          int *fds, size_t num_fds,
+                          bool handle_finish)
 {
     int len;
 
@@ -299,6 +304,9 @@ static int vhost_send_fds(struct vhd_vdev *vdev,
         return len;
     }
 
+    if (handle_finish) {
+        vdev_handle_finish(vdev);
+    }
     return 0;
 }
 
@@ -312,7 +320,7 @@ static int vhost_reply_fds(struct vhd_vdev *vdev, uint32_t req,
         .flags = VHOST_USER_MSG_FLAGS_REPLY,
     };
 
-    return vhost_send_fds(vdev, &hdr, payload, fds, num_fds);
+    return vhost_send_fds(vdev, &hdr, payload, fds, num_fds, true);
 }
 
 static int vhost_reply(struct vhd_vdev *vdev, uint32_t req,
@@ -326,12 +334,6 @@ static int vhost_reply_u64(struct vhd_vdev *vdev, uint32_t req, uint64_t u64)
     return vhost_reply(vdev, req, &u64, sizeof(u64));
 }
 
-static int vhost_send_reply(struct vhd_vdev *vdev,
-                            const struct vhost_user_msg *msgin, uint64_t u64)
-{
-    return vhost_reply_u64(vdev, msgin->hdr.req, u64);
-}
-
 static int vhost_send_vring_base(struct vhd_vring *vring)
 {
     struct vhost_user_vring_state vrstate = {
@@ -343,41 +345,21 @@ static int vhost_send_vring_base(struct vhd_vring *vring)
                        &vrstate, sizeof(vrstate));
 }
 
-static int vhost_ack_request_if_needed(struct vhd_vdev *vdev,
-                                       const struct vhost_user_msg *msg,
-                                       int ret)
+static bool msg_ack_needed(struct vhd_vdev *vdev, uint32_t flags)
 {
-    /*
-     * If REPLY_ACK protocol feature was not negotiated
-     * then we have nothing to do
-     */
-    if (!has_feature(vdev->negotiated_protocol_features,
-                     VHOST_USER_PROTOCOL_F_REPLY_ACK)) {
+    return has_feature(vdev->negotiated_protocol_features,
+                       VHOST_USER_PROTOCOL_F_REPLY_ACK) &&
+        (flags & VHOST_USER_MSG_FLAGS_REPLY_ACK);
+}
+
+static int vhost_ack(struct vhd_vdev *vdev, uint32_t req, int ret)
+{
+    if (!vdev->ack_pending) {
+        vdev_handle_finish(vdev);
         return 0;
     }
 
-    /* We negotiated REPLY_ACK but client does not need it for this message */
-    if (!(msg->hdr.flags & VHOST_USER_MSG_FLAGS_REPLY_ACK)) {
-        return 0;
-    }
-
-    /*
-     * We negotiated REPLY_ACK but message already has an explicit reply
-     * which was successfully sent
-     */
-    if (ret == 0) {
-        switch (msg->hdr.req) {
-        case VHOST_USER_GET_FEATURES:
-        case VHOST_USER_GET_PROTOCOL_FEATURES:
-        case VHOST_USER_GET_CONFIG:
-        case VHOST_USER_GET_QUEUE_NUM:
-        case VHOST_USER_GET_VRING_BASE:
-            return 0;
-        };
-    }
-
-    /* Ok, send the reply */
-    return vhost_send_reply(vdev, msg, ret);
+    return vhost_reply_u64(vdev, req, ret);
 }
 
 static int vhost_get_protocol_features(struct vhd_vdev *vdev,
@@ -385,7 +367,8 @@ static int vhost_get_protocol_features(struct vhd_vdev *vdev,
 {
     VHD_LOG_TRACE();
 
-    return vhost_send_reply(vdev, msg, vdev->supported_protocol_features);
+    return vhost_reply_u64(vdev, VHOST_USER_GET_PROTOCOL_FEATURES,
+                           vdev->supported_protocol_features);
 }
 
 static int vhost_set_protocol_features(struct vhd_vdev *vdev,
@@ -414,7 +397,7 @@ static int vhost_set_protocol_features(struct vhd_vdev *vdev,
     VHD_LOG_DEBUG("Negotiated protocol features 0x%llx",
         (unsigned long long)feats);
 
-    return 0;
+    return vhost_ack(vdev, VHOST_USER_SET_PROTOCOL_FEATURES, 0);
 }
 
 static int vhost_get_features(struct vhd_vdev *vdev, struct vhost_user_msg *msg)
@@ -424,7 +407,8 @@ static int vhost_get_features(struct vhd_vdev *vdev, struct vhost_user_msg *msg)
     vdev->supported_features = g_default_features |
                                vdev->type->get_features(vdev);
 
-    return vhost_send_reply(vdev, msg, vdev->supported_features);
+    return vhost_reply_u64(vdev, VHOST_USER_GET_FEATURES,
+                           vdev->supported_features);
 }
 
 static void vdev_update_memlog(struct vhd_vdev *vdev)
@@ -476,13 +460,13 @@ static int vhost_set_features(struct vhd_vdev *vdev, struct vhost_user_msg *msg)
 
     vdev_update_memlog(vdev);
 
-    return 0;
+    return vhost_ack(vdev, VHOST_USER_SET_FEATURES, 0);
 }
 
 static int vhost_set_owner(struct vhd_vdev *vdev, struct vhost_user_msg *msg)
 {
     VHD_LOG_TRACE();
-    return 0;
+    return vhost_ack(vdev, VHOST_USER_SET_OWNER, 0);
 }
 
 static void vhost_reset_mem_table(struct vhd_vdev *vdev)
@@ -569,7 +553,7 @@ out:
         close(fds[i]);
     }
 reply:
-    vhost_ack_request_if_needed(vdev, msg, ret);
+    vhost_ack(vdev, VHOST_USER_SET_MEM_TABLE, 0);
 }
 
 static void vhost_set_mem_table(struct vhd_vdev *vdev,
@@ -618,7 +602,7 @@ static int vhost_get_queue_num(struct vhd_vdev *vdev,
 {
     VHD_LOG_TRACE();
 
-    return vhost_send_reply(vdev, msg, vdev->num_queues);
+    return vhost_reply_u64(vdev, VHOST_USER_GET_QUEUE_NUM, vdev->num_queues);
 }
 
 static struct vhd_vring *get_vring(struct vhd_vdev *vdev, uint32_t index)
@@ -674,7 +658,7 @@ static int vhost_set_vring_call(struct vhd_vdev *vdev,
     if (vring->is_started) {
         virtq_set_notify_fd(&vring->vq, vring->callfd);
     }
-    return 0;
+    return vhost_ack(vdev, VHOST_USER_SET_VRING_CALL, 0);
 }
 
 static int vhost_set_vring_kick(struct vhd_vdev *vdev,
@@ -735,7 +719,7 @@ static int vhost_set_vring_kick(struct vhd_vdev *vdev,
         return -EIO;
     }
 
-    return 0;
+    return vhost_ack(vdev, VHOST_USER_SET_VRING_KICK, 0);
 }
 
 static int vhost_set_vring_err(struct vhd_vdev *vdev,
@@ -749,7 +733,7 @@ static int vhost_set_vring_err(struct vhd_vdev *vdev,
     }
 
     vring->errfd = num_fds > 0 ? fds[0] : -1;
-    return 0;
+    return vhost_ack(vdev, VHOST_USER_SET_VRING_ERR, 0);
 }
 
 static int vhost_set_vring_num(struct vhd_vdev *vdev,
@@ -765,7 +749,7 @@ static int vhost_set_vring_num(struct vhd_vdev *vdev,
     }
 
     vring->vq.qsz = vrstate->num;
-    return 0;
+    return vhost_ack(vdev, VHOST_USER_SET_VRING_NUM, 0);
 }
 
 static int vhost_set_vring_base(struct vhd_vdev *vdev,
@@ -781,7 +765,7 @@ static int vhost_set_vring_base(struct vhd_vdev *vdev,
     }
 
     vring->vq.last_avail = vrstate->num;
-    return 0;
+    return vhost_ack(vdev, VHOST_USER_SET_VRING_BASE, 0);
 }
 
 static void vring_set_on_drain_cb(struct vhd_vring *vring,
@@ -851,7 +835,7 @@ static int vhost_set_vring_addr(struct vhd_vdev *vdev,
         vring->vq.flags = vraddr->flags;
     }
 
-    return 0;
+    return vhost_ack(vdev, VHOST_USER_SET_VRING_ADDR, 0);
 }
 
 static int vhost_set_log_base(struct vhd_vdev *vdev,
@@ -883,7 +867,7 @@ static int vhost_set_log_base(struct vhd_vdev *vdev,
         vhd_memlog_free(old_memlog);
     }
 
-    return vhost_send_reply(vdev, msg, 0);
+    return vhost_reply_u64(vdev, VHOST_USER_SET_LOG_BASE, 0);
 }
 
 static void inflight_mem_init(void *buf, size_t queue_region_size,
@@ -1033,8 +1017,11 @@ static int vhost_set_inflight_fd(struct vhd_vdev *vdev,
     vhd_vdev_inflight_cleanup(vdev);
     ret = inflight_mmap_region(vdev, fds[0], queue_region_size, idesc->num_queues);
     close(fds[0]);
+    if (ret < 0) {
+        return ret;
+    }
 
-    return ret;
+    return vhost_ack(vdev, VHOST_USER_SET_INFLIGHT_FD, 0);
 }
 
 /*
@@ -1111,15 +1098,6 @@ static int vhost_handle_request(struct vhd_vdev *vdev,
 
     if (ret != 0) {
         VHD_LOG_ERROR("Request %d failed with %d", msg->hdr.req, ret);
-    }
-
-    int reply_ret = vhost_ack_request_if_needed(vdev, msg, ret);
-    if (reply_ret != 0) {
-        /*
-         * We've logged failed ret above,
-         * so we are probably ok with overriding it if ack now failed as well
-         */
-        ret = reply_ret;
     }
 
     return ret;
@@ -1329,21 +1307,21 @@ static int conn_read(void *data)
 
     if (net_recv_msg(vdev->connfd, &msg.hdr, &msg.payload, sizeof(msg.payload),
                      fds, &num_fds) <= 0) {
-        goto err_out;
+        goto recv_fail;
     }
 
-    vdev_handle_start(vdev);
+    vdev_handle_start(vdev, msg_ack_needed(vdev, msg.hdr.flags));
 
     ret = vhost_handle_request(vdev, &msg, fds, num_fds);
 
-    vdev_handle_finish(vdev);
-
     if (ret < 0) {
-        goto err_out;
+        goto handle_fail;
     }
 
     return 0;
-err_out:
+handle_fail:
+    vdev_handle_finish(vdev);
+recv_fail:
     VHD_LOG_DEBUG("Close connection with client, sock = %d",
                   vdev->connfd);
 
