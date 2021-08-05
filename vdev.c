@@ -471,9 +471,7 @@ static void vhost_reset_mem_table(struct vhd_vdev *vdev)
 
 struct set_mem_table_data {
     struct vhd_vdev *vdev;
-    const struct vhost_user_mem_desc *desc;
-    const int *fds;
-    size_t num_fds;
+    struct vhd_memory_map *mm;
 };
 
 static void set_mem_table_bh(void *opaque)
@@ -481,44 +479,15 @@ static void set_mem_table_bh(void *opaque)
     VHD_LOG_TRACE();
 
     struct set_mem_table_data *data = opaque;
-
     struct vhd_vdev *vdev = data->vdev;
-    const struct vhost_user_mem_desc *desc = data->desc;
-    const int *fds = data->fds;
-    size_t num_fds = data->num_fds;
+    struct vhd_memory_map *mm = data->mm;
 
     int ret = 0;
-    struct vhd_memory_map *mm;
     uint32_t i;
 
     vhd_free(data);
 
     vhost_reset_mem_table(vdev);
-
-    if (desc->nregions > VHOST_USER_MEM_REGIONS_MAX) {
-        VHD_LOG_ERROR("Invalid number of memory regions %d", desc->nregions);
-        ret = -EINVAL;
-        goto reply;
-    }
-    if (desc->nregions != num_fds) {
-        VHD_LOG_ERROR("#memory regions != #fds: %u != %zu", desc->nregions,
-                      num_fds);
-        ret = -EINVAL;
-        goto reply;
-    }
-
-    mm = vhd_memmap_new(vdev->map_cb, vdev->unmap_cb, vdev->priv);
-
-    for (i = 0; i < desc->nregions; i++) {
-        const struct vhost_user_mem_region *region = &desc->regions[i];
-        ret = vhd_memmap_add_slot(mm, region->guest_addr, region->user_addr,
-                                  region->size, fds[i], region->mmap_offset);
-        if (ret < 0) {
-            vhd_memmap_unref(mm);
-            goto out;
-        }
-    }
-
     vdev->memmap = mm;
 
     /*
@@ -536,27 +505,53 @@ static void set_mem_table_bh(void *opaque)
             break;
         }
     }
-out:
-    for (i = 0; i < num_fds; i++) {
-        close(fds[i]);
-    }
-reply:
+
     vhost_ack(vdev, VHOST_USER_SET_MEM_TABLE, 0);
 }
 
 static int vhost_set_mem_table(struct vhd_vdev *vdev, const void *payload,
                                size_t size, const int *fds, size_t num_fds)
 {
+    int ret = 0;
     const struct vhost_user_mem_desc *desc = payload;
-    struct set_mem_table_data *data =
-                               vhd_alloc(sizeof(struct set_mem_table_data));
+    struct vhd_memory_map *mm;
+    struct set_mem_table_data *data;
+    uint16_t i;
+
+    if (desc->nregions > VHOST_USER_MEM_REGIONS_MAX) {
+        VHD_LOG_ERROR("Invalid number of memory regions %d", desc->nregions);
+        ret = -EINVAL;
+        goto out;
+    }
+    if (desc->nregions != num_fds) {
+        VHD_LOG_ERROR("#memory regions != #fds: %u != %zu", desc->nregions,
+                      num_fds);
+        ret = -EINVAL;
+        goto out;
+    }
+
+    mm = vhd_memmap_new(vdev->map_cb, vdev->unmap_cb, vdev->priv);
+
+    for (i = 0; i < desc->nregions; i++) {
+        const struct vhost_user_mem_region *region = &desc->regions[i];
+        ret = vhd_memmap_add_slot(mm, region->guest_addr, region->user_addr,
+                                  region->size, fds[i], region->mmap_offset);
+        if (ret < 0) {
+            vhd_memmap_unref(mm);
+            goto out;
+        }
+    }
+
+    data = vhd_alloc(sizeof(struct set_mem_table_data));
     data->vdev = vdev;
-    data->desc = desc;
-    data->fds = fds;
-    data->num_fds = num_fds;
+    data->mm = mm;
 
     vhd_run_in_rq(vdev->rq, set_mem_table_bh, data);
-    return 0;
+out:
+    for (i = 0; i < num_fds; i++) {
+        close(fds[i]);
+    }
+    return ret;
 }
 
 static int vhost_get_config(struct vhd_vdev *vdev, const void *payload,
