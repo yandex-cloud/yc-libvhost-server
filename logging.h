@@ -25,5 +25,3 @@ extern log_function __attribute__((format(printf, 2, 3))) g_log_fn;
 #define VHD_LOG_WARN(fmt, ...)     VHD_LOG(LOG_WARNING, fmt, ##__VA_ARGS__)
 
 #define VHD_LOG_ERROR(fmt, ...)    VHD_LOG(LOG_ERROR, fmt, ##__VA_ARGS__)
-
-#define VHD_LOG_TRACE()            VHD_LOG_DEBUG("")
