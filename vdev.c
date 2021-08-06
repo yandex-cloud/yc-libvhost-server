@@ -722,7 +722,7 @@ static int vhost_set_vring_num(struct vhd_vdev *vdev, const void *payload,
 
     struct vhd_vring *vring = get_vring_not_started(vdev, vrstate->index);
     if (!vring) {
-        return EINVAL;
+        return -EINVAL;
     }
 
     vring->vq.qsz = vrstate->num;
@@ -738,7 +738,7 @@ static int vhost_set_vring_base(struct vhd_vdev *vdev, const void *payload,
 
     struct vhd_vring *vring = get_vring_not_started(vdev, vrstate->index);
     if (!vring) {
-        return EINVAL;
+        return -EINVAL;
     }
 
     vring->vq.last_avail = vrstate->num;
@@ -765,7 +765,7 @@ static int vhost_get_vring_base(struct vhd_vdev *vdev, const void *payload,
 
     struct vhd_vring *vring = get_vring(vdev, vrstate->index);
     if (!vring) {
-        return EINVAL;
+        return -EINVAL;
     }
 
     /*
@@ -788,7 +788,7 @@ static int vhost_set_vring_addr(struct vhd_vdev *vdev, const void *payload,
 
     struct vhd_vring *vring = get_vring(vdev, vraddr->index);
     if (!vring) {
-        return EINVAL;
+        return -EINVAL;
     }
 
     if (!vring->is_started) {
