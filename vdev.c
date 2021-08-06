@@ -1255,36 +1255,40 @@ recv_fail:
 static int sock_create_server(const char *path)
 {
     int fd;
-    struct sockaddr_un sockaddr;
+    int ret;
+    struct sockaddr_un sockaddr = {
+        .sun_family = AF_UNIX,
+    };
 
     if (strlen(path) >= sizeof(sockaddr.sun_path)) {
-        VHD_LOG_ERROR(
-            "Path = %s to socket is too long, it should be less than %lu",
-            path, sizeof(sockaddr.sun_path));
-        return -1;
+        VHD_LOG_ERROR("%s exceeds max size %zu", path,
+                      sizeof(sockaddr.sun_path));
+        return -EINVAL;
     }
+    strcpy(sockaddr.sun_path, path);
 
     if (unlink(path) < 0 && errno != ENOENT) {
-        VHD_LOG_ERROR("unlink(%s): %s", path, strerror(errno));
-        return -1;
+        ret = -errno;
+        VHD_LOG_ERROR("unlink(%s): %s", path, strerror(-ret));
+        return ret;
     }
 
     fd = socket(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK, 0);
     if (fd < 0) {
-        VHD_LOG_ERROR("Can't create socket");
-        return -1;
+        ret = -errno;
+        VHD_LOG_ERROR("socket: %s", strerror(-ret));
+        return ret;
     }
 
-    memset(&sockaddr, 0, sizeof(sockaddr));
-    sockaddr.sun_family = AF_UNIX;
-    strncpy(sockaddr.sun_path, path, sizeof(sockaddr.sun_path) - 1);
     if (bind(fd, (struct sockaddr *)&sockaddr, sizeof(sockaddr)) < 0) {
-        VHD_LOG_ERROR("Can't bind socket to path = %s", path);
+        ret = -errno;
+        VHD_LOG_ERROR("bind(%s): %s", path, strerror(-ret));
         goto close_fd;
     }
 
     if (listen(fd, 1) < 0) {
-        VHD_LOG_ERROR("Can't listen for the incoming connections");
+        ret = -errno;
+        VHD_LOG_ERROR("listen(%s): %s", path, strerror(-ret));
         goto close_fd;
     }
 
@@ -1292,7 +1296,7 @@ static int sock_create_server(const char *path)
 
 close_fd:
     close(fd);
-    return -1;
+    return ret;
 }
 
 static void vdev_ref(struct vhd_vdev *vdev)
