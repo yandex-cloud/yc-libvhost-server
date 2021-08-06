@@ -1192,26 +1192,13 @@ invalid_transition:
  */
 static int server_read(void *data)
 {
-    int flags;
     int connfd;
     struct vhd_vdev *vdev = (struct vhd_vdev *)data;
 
-    connfd = accept(vdev->listenfd, NULL, NULL);
+    connfd = accept4(vdev->listenfd, NULL, NULL, SOCK_NONBLOCK);
     if (connfd == -1) {
         VHD_LOG_ERROR("accept() failed: %d", errno);
         return 0;
-    }
-
-    flags = fcntl(connfd, F_GETFL, 0);
-    if (flags < 0) {
-        VHD_LOG_ERROR("fcntl on client socket failed: %d", errno);
-        goto close_client;
-    }
-
-    if (fcntl(connfd, F_SETFL, flags | O_NONBLOCK) < 0) {
-        VHD_LOG_ERROR("Can't set O_NONBLOCK mode on the client socket: %d",
-                      errno);
-        goto close_client;
     }
 
     vdev->connfd = connfd;
@@ -1268,7 +1255,6 @@ recv_fail:
 static int sock_create_server(const char *path)
 {
     int fd;
-    int flags;
     struct sockaddr_un sockaddr;
 
     if (strlen(path) >= sizeof(sockaddr.sun_path)) {
@@ -1283,7 +1269,7 @@ static int sock_create_server(const char *path)
         return -1;
     }
 
-    fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    fd = socket(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK, 0);
     if (fd < 0) {
         VHD_LOG_ERROR("Can't create socket");
         return -1;
@@ -1299,17 +1285,6 @@ static int sock_create_server(const char *path)
 
     if (listen(fd, 1) < 0) {
         VHD_LOG_ERROR("Can't listen for the incoming connections");
-        goto close_fd;
-    }
-
-    flags = fcntl(fd, F_GETFL, 0);
-    if (flags < 0) {
-        VHD_LOG_ERROR("Can't get flags for a file = %s", path);
-        goto close_fd;
-    }
-
-    if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) {
-        VHD_LOG_ERROR("Can't set O_NONBLOCK mode on the server socket");
         goto close_fd;
     }
 
