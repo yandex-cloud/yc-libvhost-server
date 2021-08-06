@@ -367,8 +367,6 @@ static int vhost_get_protocol_features(struct vhd_vdev *vdev,
                                        const void *payload, size_t size,
                                        const int *fds, size_t num_fds)
 {
-    VHD_LOG_TRACE();
-
     if (num_fds) {
         VHD_LOG_ERROR("malformed message num_fds=%zu", num_fds);
         return -EINVAL;
@@ -382,8 +380,6 @@ static int vhost_set_protocol_features(struct vhd_vdev *vdev,
                                        const void *payload, size_t size,
                                        const int *fds, size_t num_fds)
 {
-    VHD_LOG_TRACE();
-
     const uint64_t *features = payload;
 
     if (num_fds || size < sizeof(*features)) {
@@ -405,8 +401,6 @@ static int vhost_set_protocol_features(struct vhd_vdev *vdev,
 static int vhost_get_features(struct vhd_vdev *vdev, const void *payload,
                               size_t size, const int *fds, size_t num_fds)
 {
-    VHD_LOG_TRACE();
-
     if (num_fds) {
         VHD_LOG_ERROR("malformed message num_fds=%zu", num_fds);
         return -EINVAL;
@@ -434,8 +428,6 @@ static void vdev_update_memlog(struct vhd_vdev *vdev)
 static int vhost_set_features(struct vhd_vdev *vdev, const void *payload,
                               size_t size, const int *fds, size_t num_fds)
 {
-    VHD_LOG_TRACE();
-
     const uint64_t *features = payload;
 
     /*
@@ -475,8 +467,6 @@ static int vhost_set_features(struct vhd_vdev *vdev, const void *payload,
 static int vhost_set_owner(struct vhd_vdev *vdev, const void *payload,
                            size_t size, const int *fds, size_t num_fds)
 {
-    VHD_LOG_TRACE();
-
     if (num_fds) {
         VHD_LOG_ERROR("malformed message num_fds=%zu", num_fds);
         return -EINVAL;
@@ -502,8 +492,6 @@ struct set_mem_table_data {
 
 static void set_mem_table_bh(void *opaque)
 {
-    VHD_LOG_TRACE();
-
     struct set_mem_table_data *data = opaque;
     struct vhd_vdev *vdev = data->vdev;
     struct vhd_memory_map *mm = data->mm;
@@ -609,8 +597,6 @@ static int vhost_get_config(struct vhd_vdev *vdev, const void *payload,
 static int vhost_get_queue_num(struct vhd_vdev *vdev, const void *payload,
                                size_t size, const int *fds, size_t num_fds)
 {
-    VHD_LOG_TRACE();
-
     if (num_fds) {
         VHD_LOG_ERROR("malformed message num_fds=%zu", num_fds);
         return -EINVAL;
@@ -757,8 +743,6 @@ static int vhost_set_vring_err(struct vhd_vdev *vdev, const void *payload,
 static int vhost_set_vring_num(struct vhd_vdev *vdev, const void *payload,
                                size_t size, const int *fds, size_t num_fds)
 {
-    VHD_LOG_TRACE();
-
     const struct vhost_user_vring_state *vrstate = payload;
     struct vhd_vring *vring;
 
@@ -779,8 +763,6 @@ static int vhost_set_vring_num(struct vhd_vdev *vdev, const void *payload,
 static int vhost_set_vring_base(struct vhd_vdev *vdev, const void *payload,
                                 size_t size, const int *fds, size_t num_fds)
 {
-    VHD_LOG_TRACE();
-
     const struct vhost_user_vring_state *vrstate = payload;
     struct vhd_vring *vring;
 
@@ -812,8 +794,6 @@ static void vring_clear_on_drain_cb(struct vhd_vring *vring)
 static int vhost_get_vring_base(struct vhd_vdev *vdev, const void *payload,
                                 size_t size, const int *fds, size_t num_fds)
 {
-    VHD_LOG_TRACE();
-
     const struct vhost_user_vring_state *vrstate = payload;
     struct vhd_vring *vring;
 
@@ -841,8 +821,6 @@ static int vhost_get_vring_base(struct vhd_vdev *vdev, const void *payload,
 static int vhost_set_vring_addr(struct vhd_vdev *vdev, const void *payload,
                                 size_t size, const int *fds, size_t num_fds)
 {
-    VHD_LOG_TRACE();
-
     const struct vhost_user_vring_addr *vraddr = payload;
     struct vhd_vring *vring;
 
@@ -885,8 +863,6 @@ static int vhost_set_log_base(struct vhd_vdev *vdev, const void *payload,
 {
     struct vhd_memory_log *memlog, *old_memlog = vdev->memlog;
     const struct vhost_user_log *log = payload;
-
-    VHD_LOG_TRACE();
 
     if (num_fds != 1 || size < sizeof(*log)) {
         VHD_LOG_ERROR("malformed message size=%zu #fds=%zu", size, num_fds);
@@ -980,8 +956,6 @@ static int memfd_create(const char *name, unsigned int flags)
 static int vhost_get_inflight_fd(struct vhd_vdev *vdev, const void *payload,
                                  size_t size, const int *fds, size_t num_fds)
 {
-    VHD_LOG_TRACE();
-
     const struct vhost_user_inflight_desc *idesc = payload;
     struct vhost_user_inflight_desc reply = {};
     size_t queue_region_size = vring_inflight_buf_size(idesc->queue_size);
@@ -1034,8 +1008,6 @@ out:
 static int vhost_set_inflight_fd(struct vhd_vdev *vdev, const void *payload,
                                  size_t size, const int *fds, size_t num_fds)
 {
-    VHD_LOG_TRACE();
-
     const struct vhost_user_inflight_desc *idesc = payload;
     size_t queue_region_size = vring_inflight_buf_size(idesc->queue_size);
     int ret;
