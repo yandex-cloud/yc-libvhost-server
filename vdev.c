@@ -1264,42 +1264,11 @@ recv_fail:
     return 0;
 }
 
-/*
- * Prepare the sock path for the server. Return 0 if the requested path
- * can be used for the bind() and listen() calls. In case of error, return
- * error code.
- * Note that if the file with such path exists and it is socket, then it
- * will be unlinked.
- */
-static int prepare_server_sock_path(const char *path)
-{
-    struct stat buf;
-
-    if (stat(path, &buf) == -1) {
-        if (errno == ENOENT) {
-            return 0;
-        } else {
-            return errno;
-        }
-    }
-
-    if (!S_ISSOCK(buf.st_mode)) {
-        return EINVAL;
-    }
-
-    if (unlink(path) == -1) {
-        return errno;
-    }
-
-    return 0;
-}
-
 /* TODO: properly destroy server on close */
 static int sock_create_server(const char *path)
 {
     int fd;
     int flags;
-    int ret;
     struct sockaddr_un sockaddr;
 
     if (strlen(path) >= sizeof(sockaddr.sun_path)) {
@@ -1309,11 +1278,8 @@ static int sock_create_server(const char *path)
         return -1;
     }
 
-    ret = prepare_server_sock_path(path);
-    if (ret) {
-        VHD_LOG_ERROR(
-            "Sock path = %s, is busy or can't be unlinked. Error code = %d, %s",
-            path, ret, strerror(ret));
+    if (unlink(path) < 0 && errno != ENOENT) {
+        VHD_LOG_ERROR("unlink(%s): %s", path, strerror(errno));
         return -1;
     }
 
