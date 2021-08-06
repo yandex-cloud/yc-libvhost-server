@@ -519,7 +519,7 @@ static int vhost_set_mem_table(struct vhd_vdev *vdev, const void *payload,
     uint16_t i;
 
     if (desc->nregions > VHOST_USER_MEM_REGIONS_MAX) {
-        VHD_LOG_ERROR("Invalid number of memory regions %d", desc->nregions);
+        VHD_LOG_ERROR("invalid number of memory regions %u", desc->nregions);
         return -EINVAL;
     }
     if (desc->nregions != num_fds) {
@@ -581,8 +581,8 @@ static int vhost_get_queue_num(struct vhd_vdev *vdev, const void *payload,
 static struct vhd_vring *get_vring(struct vhd_vdev *vdev, uint32_t index)
 {
     if (index >= vdev->num_queues) {
-        VHD_LOG_ERROR("vring index out of bounds (%d >= %d)", index,
-                      vdev->num_queues);
+        VHD_LOG_ERROR("vring %u doesn't exist (max %u)", index,
+                      vdev->num_queues - 1);
         return NULL;
     }
 
@@ -657,7 +657,7 @@ static int vhost_set_vring_kick(struct vhd_vdev *vdev, const void *payload,
     vring->kickfd = dup(fds[0]);
 
     if (vring->is_started) {
-        VHD_LOG_ERROR("Try to start already started vring: vring %d",
+        VHD_LOG_ERROR("Try to start already started vring: vring %u",
                       vring_idx(vring));
         return 0;
     }
@@ -867,7 +867,7 @@ static int inflight_mmap_region(struct vhd_vdev *vdev, int fd,
     buf = mmap(NULL, mmap_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if (buf == MAP_FAILED) {
         ret = -errno;
-        VHD_LOG_ERROR("can't mmap fd = %d, size = %lu", fd, mmap_size);
+        VHD_LOG_ERROR("mmap(%d, %zu): %s", fd, mmap_size, strerror(-ret));
         return ret;
     }
 
@@ -929,13 +929,13 @@ static int vhost_get_inflight_fd(struct vhd_vdev *vdev, const void *payload,
     fd = memfd_create("vhost_get_inflight_fd", MFD_CLOEXEC);
     if (fd == -1) {
         ret = -errno;
-        VHD_LOG_ERROR("can't create memfd object");
+        VHD_LOG_ERROR("memfd_create: %s", strerror(-ret));
         return ret;
     }
     ret = ftruncate(fd, mmap_size);
     if (ret == -1) {
         ret = -errno;
-        VHD_LOG_ERROR("can't truncate fd = %d, to size = %lu", fd, mmap_size);
+        VHD_LOG_ERROR("ftruncate(memfd, %zu): %s", mmap_size, strerror(-ret));
         goto out;
     }
     ret = inflight_mmap_region(vdev, fd, queue_region_size, idesc->num_queues);
@@ -1197,7 +1197,7 @@ static int server_read(void *data)
 
     connfd = accept4(vdev->listenfd, NULL, NULL, SOCK_NONBLOCK);
     if (connfd == -1) {
-        VHD_LOG_ERROR("accept() failed: %d", errno);
+        VHD_LOG_ERROR("accept: %s", strerror(errno));
         return 0;
     }
 
