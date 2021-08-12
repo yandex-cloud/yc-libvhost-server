@@ -1361,8 +1361,8 @@ static void vdev_unref(struct vhd_vdev *vdev)
     VHD_ASSERT(val);
     /* check refcount drops to 0 */
     if (val == 1) {
-        if (vdev->unregister_cb) {
-            vdev->unregister_cb(vdev->unregister_arg);
+        if (vdev->release_cb) {
+            vdev->release_cb(vdev->release_arg);
         }
         vhd_vdev_release(vdev);
     }
@@ -1492,16 +1492,16 @@ int vhd_vdev_init_server(
 }
 
 struct vdev_stop_work {
-    void (*cb)(void *);
-    void *opaque;
+    void (*release_cb)(void *);
+    void *release_arg;
 };
 
 static void vdev_stop(struct vhd_vdev *vdev, void *opaque)
 {
     struct vdev_stop_work *work = opaque;
 
-    vdev->unregister_cb = work->cb;
-    vdev->unregister_arg = work->opaque;
+    vdev->release_cb = work->release_cb;
+    vdev->release_arg = work->release_arg;
 
     change_device_state(vdev, VDEV_TERMINATING);
     vhd_vdev_stop(vdev);
@@ -1511,12 +1511,12 @@ static void vdev_stop(struct vhd_vdev *vdev, void *opaque)
 }
 
 int vhd_vdev_stop_server(struct vhd_vdev *vdev,
-                         void (*unregister_complete)(void *), void *arg)
+                         void (*release_cb)(void *), void *release_arg)
 {
     int ret;
     struct vdev_stop_work work = {
-        .cb = unregister_complete,
-        .opaque = arg
+        .release_cb = release_cb,
+        .release_arg = release_arg
     };
 
     ret = vdev_submit_work_and_wait(vdev, vdev_stop, &work);
