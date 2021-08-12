@@ -119,8 +119,10 @@ struct vhd_vdev {
      * Refcount and callback for device stopping
      */
     atomic_uint refcount;
-    void (*unregister_cb)(void *);
-    void *unregister_arg;
+
+    /* callback and arg to be called when the device is released */
+    void (*release_cb)(void *);
+    void *release_arg;
 
     /** Global vdev list */
     LIST_ENTRY(vhd_vdev) vdev_list;
@@ -156,7 +158,7 @@ int vhd_vdev_init_server(
  * Stop vhost device
  */
 int vhd_vdev_stop_server(struct vhd_vdev *vdev,
-                         void (*unregister_complete)(void *), void *arg);
+                         void (*release_cb)(void *), void *release_arg);
 
 /**
  * Device vring instance
