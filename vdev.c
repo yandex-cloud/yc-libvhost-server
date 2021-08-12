@@ -24,6 +24,14 @@ static uint16_t vring_idx(struct vhd_vring *vring)
     return vring - vring->vdev->vrings;
 }
 
+static void replace_fd(int *fd, int newfd)
+{
+    if (*fd >= 0) {
+        close(*fd);
+    }
+    *fd = newfd;
+}
+
 /* Return size of per queue inflight buffer. */
 static size_t vring_inflight_buf_size(uint16_t num)
 {
@@ -664,16 +672,23 @@ static int vhost_set_vring_call(struct vhd_vdev *vdev, const void *payload,
                                 size_t size, const int *fds, size_t num_fds)
 {
     struct vhd_vring *vring = msg_u64_get_vring(vdev, payload, size, num_fds);
+    int ret;
 
     if (!vring) {
         return -EINVAL;
     }
 
-    vring->callfd = num_fds > 0 ? dup(fds[0]) : -1;
+    replace_fd(&vring->callfd, num_fds > 0 ? dup(fds[0]) : -1);
+
     if (vring->is_started) {
         virtq_set_notify_fd(&vring->vq, vring->callfd);
     }
-    return vhost_ack(vdev, VHOST_USER_SET_VRING_CALL, 0);
+
+    ret = vhost_ack(vdev, VHOST_USER_SET_VRING_CALL, 0);
+    if (ret < 0) {
+        replace_fd(&vring->callfd, -1);
+    }
+    return ret;
 }
 
 static int vhost_set_vring_kick(struct vhd_vdev *vdev, const void *payload,
@@ -690,6 +705,7 @@ static int vhost_set_vring_kick(struct vhd_vdev *vdev, const void *payload,
         return -ENOTSUP;
     }
 
+    VHD_ASSERT(vring->kickfd < 0);
     vring->kickfd = dup(fds[0]);
 
     if (vring->is_started) {
@@ -740,13 +756,19 @@ static int vhost_set_vring_err(struct vhd_vdev *vdev, const void *payload,
                                size_t size, const int *fds, size_t num_fds)
 {
     struct vhd_vring *vring = msg_u64_get_vring(vdev, payload, size, num_fds);
+    int ret;
 
     if (!vring) {
         return -EINVAL;
     }
 
-    vring->errfd = num_fds > 0 ? dup(fds[0]) : -1;
-    return vhost_ack(vdev, VHOST_USER_SET_VRING_ERR, 0);
+    replace_fd(&vring->errfd, num_fds > 0 ? dup(fds[0]) : -1);
+
+    ret = vhost_ack(vdev, VHOST_USER_SET_VRING_ERR, 0);
+    if (ret < 0) {
+        replace_fd(&vring->errfd, -1);
+    }
+    return ret;
 }
 
 static int vhost_set_vring_num(struct vhd_vdev *vdev, const void *payload,
@@ -1168,8 +1190,7 @@ static int change_device_state(struct vhd_vdev *vdev,
                 vdev->memlog = NULL;
             }
 
-            close(vdev->connfd);
-            vdev->connfd = -1; /* Not nessesary, just defensive */
+            replace_fd(&vdev->connfd, -1);
             /* Fall thru */
 
         case VDEV_INITIALIZED:
@@ -1246,6 +1267,8 @@ static int server_read(void *data)
     int connfd;
     struct vhd_vdev *vdev = (struct vhd_vdev *)data;
 
+    VHD_ASSERT(vdev->connfd < 0);
+
     connfd = accept4(vdev->listenfd, NULL, NULL, SOCK_NONBLOCK);
     if (connfd == -1) {
         VHD_LOG_ERROR("accept: %s", strerror(errno));
@@ -1254,6 +1277,7 @@ static int server_read(void *data)
 
     vdev->connfd = connfd;
     if (change_device_state(vdev, VDEV_CONNECTED)) {
+        vdev->connfd = -1;
         goto close_client;
     }
 
@@ -1417,6 +1441,11 @@ void vhd_vring_unref(struct vhd_vring *vring)
             vring_clear_on_drain_cb(vring);
         }
         virtio_virtq_release(&vring->vq);
+
+        replace_fd(&vring->callfd, -1);
+        replace_fd(&vring->kickfd, -1);
+        replace_fd(&vring->errfd, -1);
+
         /*
          * unref vdev on vring disabling
          * this pairs with dev_ref in vring_start
@@ -1478,7 +1507,12 @@ int vhd_vdev_init_server(
 
     vdev->vrings = vhd_calloc(vdev->num_queues, sizeof(vdev->vrings[0]));
     for (i = 0; i < vdev->num_queues; i++) {
-        vdev->vrings[i].vdev = vdev;
+        vdev->vrings[i] = (struct vhd_vring) {
+            .vdev = vdev,
+            .callfd = -1,
+            .kickfd = -1,
+            .errfd = -1,
+        };
     }
 
     LIST_INSERT_HEAD(&g_vdevs, vdev, vdev_list);
