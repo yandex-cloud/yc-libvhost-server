@@ -587,10 +587,6 @@ void virtq_notify(struct virtio_virtq *vq)
 
 void virtq_set_notify_fd(struct virtio_virtq *vq, int fd)
 {
-    if (vq->notify_fd != -1 && vq->notify_fd != fd) {
-        close(vq->notify_fd);
-    }
-
     vq->notify_fd = fd;
 
     /*
