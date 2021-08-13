@@ -693,15 +693,13 @@ static int vhost_set_vring_kick(struct vhd_vdev *vdev, const void *payload,
         VHD_LOG_ERROR("vring polling mode is not supported");
         return -ENOTSUP;
     }
+    if (vring->is_started) {
+        VHD_LOG_ERROR("vring %u is already started", vring_idx(vring));
+        return -EISCONN;
+    }
 
     VHD_ASSERT(vring->kickfd < 0);
     vring->kickfd = dup(fds[0]);
-
-    if (vring->is_started) {
-        VHD_LOG_ERROR("Try to start already started vring: vring %u",
-                      vring_idx(vring));
-        return 0;
-    }
 
     /*
      * Update vq addresses from cache right before vq init.
