@@ -95,17 +95,14 @@ struct vhd_vdev {
     uint16_t num_queues;
     struct vhd_vring *vrings; /* Total num_queues elements */
 
-    /**
-     * Memory mappings that relate to this device
-     */
-    struct vhd_memory_map *memmap;
-
     /* Gets called after mapping guest memory region */
     int (*map_cb)(void *addr, size_t len, void *priv);
 
     /* Gets called before unmapping guest memory region */
     int (*unmap_cb)(void *addr, size_t len, void *priv);
 
+    struct vhd_memory_map *memmap;
+    struct vhd_memory_map *old_memmap;
     struct vhd_memory_log *memlog;
 
     /**

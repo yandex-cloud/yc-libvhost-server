@@ -61,8 +61,6 @@ static int vring_update_vq_addrs(struct vhd_vring *vring)
 {
     struct vhd_vdev *vdev = vring->vdev;
 
-    vhd_memmap_ref(vdev->memmap);
-
     void *desc = uva_to_ptr(vdev->memmap, vring->addr_cache.desc);
     void *used = uva_to_ptr(vdev->memmap, vring->addr_cache.used);
     void *avail = uva_to_ptr(vdev->memmap, vring->addr_cache.avail);
@@ -70,16 +68,12 @@ static int vring_update_vq_addrs(struct vhd_vring *vring)
     if (!desc || !used || !avail) {
         VHD_LOG_ERROR("invalid vring component address (%p, %p, %p)",
                        desc, used, avail);
-        vhd_memmap_unref(vdev->memmap);
         return -EINVAL;
     }
 
     vring->vq.desc = desc;
     vring->vq.used = used;
     vring->vq.avail = avail;
-    if (vring->vq.mm) {
-        vhd_memmap_unref(vring->vq.mm);
-    }
     vring->vq.mm = vdev->memmap;
 
     return 0;
@@ -93,9 +87,6 @@ static void vring_stop_bh(void *opaque)
     struct vhd_vring *vring = (struct vhd_vring *) opaque;
     vhd_del_io_handler(vring->kick_handler);
     vring->is_started = false;
-    if (vring->vq.mm) {
-        vhd_memmap_unref(vring->vq.mm);
-    }
     /* pairs with ref in vring_started() */
     vhd_vring_unref(vring);
 }
@@ -502,24 +493,12 @@ static void vhost_reset_mem_table(struct vhd_vdev *vdev)
     vdev->memmap = NULL;
 }
 
-struct set_mem_table_data {
-    struct vhd_vdev *vdev;
-    struct vhd_memory_map *mm;
-};
-
 static void set_mem_table_bh(void *opaque)
 {
-    struct set_mem_table_data *data = opaque;
-    struct vhd_vdev *vdev = data->vdev;
-    struct vhd_memory_map *mm = data->mm;
+    struct vhd_vdev *vdev = opaque;
 
     int ret = 0;
     uint32_t i;
-
-    vhd_free(data);
-
-    vhost_reset_mem_table(vdev);
-    vdev->memmap = mm;
 
     /*
      * update started rings vq-s addresses with new mapping
@@ -537,6 +516,11 @@ static void set_mem_table_bh(void *opaque)
         }
     }
 
+    if (vdev->old_memmap) {
+        vhd_memmap_unref(vdev->old_memmap);
+        vdev->old_memmap = NULL;
+    }
+
     vhost_ack(vdev, VHOST_USER_SET_MEM_TABLE, 0);
 }
 
@@ -548,7 +532,6 @@ static int vhost_set_mem_table(struct vhd_vdev *vdev, const void *payload,
     size_t exp_size = offsetof(struct vhost_user_mem_desc, regions) +
         sizeof(desc->regions[0]) * num_fds;
     struct vhd_memory_map *mm;
-    struct set_mem_table_data *data;
     uint16_t i;
 
     if (size < exp_size) {
@@ -573,17 +556,19 @@ static int vhost_set_mem_table(struct vhd_vdev *vdev, const void *payload,
         ret = vhd_memmap_add_slot(mm, region->guest_addr, region->user_addr,
                                   region->size, fds[i], region->mmap_offset);
         if (ret < 0) {
-            vhd_memmap_unref(mm);
-            return ret;
+            goto fail;
         }
     }
 
-    data = vhd_alloc(sizeof(struct set_mem_table_data));
-    data->vdev = vdev;
-    data->mm = mm;
+    vdev->old_memmap = vdev->memmap;
+    vdev->memmap = mm;
 
-    vhd_run_in_rq(vdev->rq, set_mem_table_bh, data);
+    vhd_run_in_rq(vdev->rq, set_mem_table_bh, vdev);
     return 0;
+
+fail:
+    vhd_memmap_unref(mm);
+    return ret;
 }
 
 static int vhost_get_config(struct vhd_vdev *vdev, const void *payload,
@@ -1159,6 +1144,7 @@ static void vhd_vdev_release(struct vhd_vdev *vdev)
     close(vdev->listenfd);
     close(vdev->connfd);
 
+    VHD_ASSERT(!vdev->old_memmap);
     vhost_reset_mem_table(vdev);
     vhd_vdev_inflight_cleanup(vdev);
 
