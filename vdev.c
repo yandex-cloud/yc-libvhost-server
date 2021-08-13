@@ -633,17 +633,6 @@ static struct vhd_vring *get_vring(struct vhd_vdev *vdev, uint32_t index)
     return vdev->vrings + index;
 }
 
-static struct vhd_vring *get_vring_not_started(struct vhd_vdev *vdev, int index)
-{
-    struct vhd_vring *vring = get_vring(vdev, index);
-    if (vring && vring->is_started) {
-        VHD_LOG_ERROR("vring %d is started", index);
-        return NULL;
-    }
-
-    return vring;
-}
-
 static struct vhd_vring *msg_u64_get_vring(struct vhd_vdev *vdev,
                                            const void *payload,
                                            size_t size, size_t num_fds)
@@ -782,9 +771,14 @@ static int vhost_set_vring_num(struct vhd_vdev *vdev, const void *payload,
         return -EINVAL;
     }
 
-    vring = get_vring_not_started(vdev, vrstate->index);
+    vring = get_vring(vdev, vrstate->index);
     if (!vring) {
         return -EINVAL;
+    }
+
+    if (vring->is_started) {
+        VHD_LOG_ERROR("vring %u is already started", vrstate->index);
+        return -EISCONN;
     }
 
     vring->vq.qsz = vrstate->num;
@@ -802,9 +796,14 @@ static int vhost_set_vring_base(struct vhd_vdev *vdev, const void *payload,
         return -EINVAL;
     }
 
-    vring = get_vring_not_started(vdev, vrstate->index);
+    vring = get_vring(vdev, vrstate->index);
     if (!vring) {
         return -EINVAL;
+    }
+
+    if (vring->is_started) {
+        VHD_LOG_ERROR("vring %u is already started", vrstate->index);
+        return -EISCONN;
     }
 
     vring->vq.last_avail = vrstate->num;
