@@ -835,6 +835,10 @@ static int vhost_get_vring_base(struct vhd_vdev *vdev, const void *payload,
         return -EINVAL;
     }
 
+    if (!vring->is_started) {
+        return vhost_send_vring_base(vring);
+    }
+
     /*
      * we don't reply to the command at once but send a reply when
      * the vring is drained. qemu won't send another commands until
