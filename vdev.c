@@ -57,26 +57,38 @@ static int vring_kick(void *opaque)
     return vdev->type->dispatch_requests(vdev, vring, vdev->rq);
 }
 
-static int vring_update_vq_addrs(struct vhd_vring *vring)
+static int vring_update_shadow_vq_addrs(struct vhd_vring *vring,
+                                        struct vhd_memory_map *mm)
 {
-    struct vhd_vdev *vdev = vring->vdev;
-
-    void *desc = uva_to_ptr(vdev->memmap, vring->addr_cache.desc);
-    void *used = uva_to_ptr(vdev->memmap, vring->addr_cache.used);
-    void *avail = uva_to_ptr(vdev->memmap, vring->addr_cache.avail);
+    void *desc = uva_to_ptr(mm, vring->addr_cache.desc);
+    void *used = uva_to_ptr(mm, vring->addr_cache.used);
+    void *avail = uva_to_ptr(mm, vring->addr_cache.avail);
 
     if (!desc || !used || !avail) {
-        VHD_LOG_ERROR("invalid vring component address (%p, %p, %p)",
-                       desc, used, avail);
+        VHD_LOG_ERROR("failed to resolve vring[%u] addresses "
+                      "(0x%" PRIx64 ", 0x%" PRIx64 ", 0x%" PRIx64 ")",
+                      vring_idx(vring), vring->addr_cache.desc,
+                      vring->addr_cache.used, vring->addr_cache.avail);
         return -EINVAL;
     }
 
-    vring->vq.desc = desc;
-    vring->vq.used = used;
-    vring->vq.avail = avail;
-    vring->vq.mm = vdev->memmap;
+    vring->shadow_vq.desc = desc;
+    vring->shadow_vq.used = used;
+    vring->shadow_vq.avail = avail;
+    vring->shadow_vq.mm = mm;
 
     return 0;
+}
+
+static void vring_sync_to_virtq(struct vhd_vring *vring)
+{
+    vring->vq.flags = vring->shadow_vq.flags;
+    vring->vq.desc = vring->shadow_vq.desc;
+    vring->vq.used = vring->shadow_vq.used;
+    vring->vq.avail = vring->shadow_vq.avail;
+    vring->vq.mm = vring->shadow_vq.mm;
+    vring->vq.log = vring->shadow_vq.log;
+    virtq_set_notify_fd(&vring->vq, vring->callfd);
 }
 
 static void vdev_ref(struct vhd_vdev *vdev);
@@ -421,7 +433,7 @@ static int vhost_get_features(struct vhd_vdev *vdev, const void *payload,
                            vdev->supported_features);
 }
 
-static void vdev_update_memlog(struct vhd_vdev *vdev)
+static void update_shadow_vq_memlog(struct vhd_vdev *vdev)
 {
     uint16_t i;
     struct vhd_memory_log *log =
@@ -429,13 +441,14 @@ static void vdev_update_memlog(struct vhd_vdev *vdev)
         vdev->memlog : NULL;
 
     for (i = 0; i < vdev->num_queues; i++) {
-        vdev->vrings[i].vq.log = log;
+        vdev->vrings[i].shadow_vq.log = log;
     }
 }
 
 static int vhost_set_features(struct vhd_vdev *vdev, const void *payload,
                               size_t size, const int *fds, size_t num_fds)
 {
+    uint16_t i;
     const uint64_t *features = payload;
 
     /*
@@ -467,7 +480,11 @@ static int vhost_set_features(struct vhd_vdev *vdev, const void *payload,
 
     vdev->negotiated_features = *features;
 
-    vdev_update_memlog(vdev);
+    update_shadow_vq_memlog(vdev);
+
+    for (i = 0; i < vdev->num_queues; i++) {
+        vring_sync_to_virtq(&vdev->vrings[i]);
+    }
 
     return vhost_ack(vdev, VHOST_USER_SET_FEATURES, 0);
 }
@@ -496,24 +513,10 @@ static void vhost_reset_mem_table(struct vhd_vdev *vdev)
 static void set_mem_table_bh(void *opaque)
 {
     struct vhd_vdev *vdev = opaque;
+    uint16_t i;
 
-    int ret = 0;
-    uint32_t i;
-
-    /*
-     * update started rings vq-s addresses with new mapping
-     */
     for (i = 0; i < vdev->num_queues; i++) {
-        struct vhd_vring *vring = vdev->vrings + i;
-
-        if (!vring->is_started) {
-            continue;
-        }
-
-        ret = vring_update_vq_addrs(vring);
-        if (ret) {
-            break;
-        }
+        vring_sync_to_virtq(&vdev->vrings[i]);
     }
 
     if (vdev->old_memmap) {
@@ -555,6 +558,16 @@ static int vhost_set_mem_table(struct vhd_vdev *vdev, const void *payload,
         const struct vhost_user_mem_region *region = &desc->regions[i];
         ret = vhd_memmap_add_slot(mm, region->guest_addr, region->user_addr,
                                   region->size, fds[i], region->mmap_offset);
+        if (ret < 0) {
+            goto fail;
+        }
+    }
+
+    for (i = 0; i < vdev->num_queues; i++) {
+        if (!vdev->vrings[i].is_started) {
+            continue;
+        }
+        ret = vring_update_shadow_vq_addrs(&vdev->vrings[i], mm);
         if (ret < 0) {
             goto fail;
         }
@@ -668,8 +681,8 @@ static int vhost_set_vring_call(struct vhd_vdev *vdev, const void *payload,
 static int vhost_set_vring_kick(struct vhd_vdev *vdev, const void *payload,
                                 size_t size, const int *fds, size_t num_fds)
 {
-    int res;
     struct vhd_vring *vring = msg_u64_get_vring(vdev, payload, size, num_fds);
+    int ret;
 
     if (!vring) {
         return -EINVAL;
@@ -683,26 +696,16 @@ static int vhost_set_vring_kick(struct vhd_vdev *vdev, const void *payload,
         return -EISCONN;
     }
 
+    ret = vring_update_shadow_vq_addrs(vring, vdev->memmap);
+    if (ret < 0) {
+        return ret;
+    }
+
     VHD_ASSERT(vring->kickfd < 0);
     vring->kickfd = dup(fds[0]);
 
-    /*
-     * Update vq addresses from cache right before vq init.
-     * This guarantees that vq rings addresses are set with
-     * actual guest memory mapping.
-     */
-    res = vring_update_vq_addrs(vring);
-    if (res) {
-        return res;
-    }
-
-    res = virtio_virtq_init(&vring->vq);
-    if (res != 0) {
-        VHD_LOG_ERROR("virtq init failed: %d", res);
-       return res;
-    }
-
-    virtq_set_notify_fd(&vring->vq, vring->callfd);
+    vring_sync_to_virtq(vring);
+    virtio_virtq_init(&vring->vq);
 
     vring->is_started = true;
     /* pairs with unref in vring_stop_bh() */
@@ -852,25 +855,25 @@ static int vhost_set_vring_addr(struct vhd_vdev *vdev, const void *payload,
     }
 
     if (!vring->is_started) {
-        vring->addr_cache.desc =  vraddr->desc_addr;
+        vring->addr_cache.desc = vraddr->desc_addr;
         vring->addr_cache.used = vraddr->used_addr;
         vring->addr_cache.avail = vraddr->avail_addr;
-        vring->vq.flags = vraddr->flags;
+        vring->shadow_vq.flags = vraddr->flags;
         vring->vq.used_gpa_base = vraddr->used_gpa_base;
-    } else {
-        if (vring->addr_cache.desc != vraddr->desc_addr ||
-            vring->addr_cache.used != vraddr->used_addr ||
-            vring->addr_cache.avail != vraddr->avail_addr ||
-            vring->vq.used_gpa_base != vraddr->used_gpa_base)
-        {
-            VHD_LOG_ERROR("Enabled vring %d parameters mismatch "
-                          "(0x%ld, 0x%ld, 0x%ld)",
-                          vraddr->index, vraddr->desc_addr, vraddr->desc_addr,
-                          vraddr->desc_addr);
-            return -EINVAL;
-        }
-        vring->vq.flags = vraddr->flags;
+        return vhost_ack(vdev, VHOST_USER_SET_VRING_ADDR, 0);
     }
+
+    if (vring->addr_cache.desc != vraddr->desc_addr ||
+        vring->addr_cache.used != vraddr->used_addr ||
+        vring->addr_cache.avail != vraddr->avail_addr ||
+        vring->vq.used_gpa_base != vraddr->used_gpa_base) {
+        VHD_LOG_ERROR("changing vring %u addresses not allowed once started",
+                      vraddr->index);
+        return -EISCONN;
+    }
+
+    vring->shadow_vq.flags = vraddr->flags;
+    vring_sync_to_virtq(vring);
 
     return vhost_ack(vdev, VHOST_USER_SET_VRING_ADDR, 0);
 }
@@ -878,6 +881,7 @@ static int vhost_set_vring_addr(struct vhd_vdev *vdev, const void *payload,
 static int vhost_set_log_base(struct vhd_vdev *vdev, const void *payload,
                               size_t size, const int *fds, size_t num_fds)
 {
+    uint16_t i;
     struct vhd_memory_log *memlog, *old_memlog = vdev->memlog;
     const struct vhost_user_log *log = payload;
 
@@ -892,7 +896,11 @@ static int vhost_set_log_base(struct vhd_vdev *vdev, const void *payload,
     }
 
     vdev->memlog = memlog;
-    vdev_update_memlog(vdev);
+    update_shadow_vq_memlog(vdev);
+
+    for (i = 0; i < vdev->num_queues; i++) {
+        vring_sync_to_virtq(&vdev->vrings[i]);
+    }
 
     if (old_memlog) {
         vhd_memlog_free(old_memlog);

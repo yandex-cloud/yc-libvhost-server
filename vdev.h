@@ -173,9 +173,6 @@ struct vhd_vring {
     /* Client kick event */
     struct vhd_io_handler *kick_handler;
 
-    /* Low-level virtio queue */
-    struct virtio_virtq vq;
-
     /*
      * Is called when vring is drained.
      */
@@ -196,6 +193,21 @@ struct vhd_vring {
         uint64_t desc;
         uint64_t used;
     } addr_cache;
+
+    /*
+     * vq attributes that may change while vring is started; these are updated
+     * in the control event loop and propagated via BH into vq
+     */
+    struct {
+        uint32_t flags;
+        void *desc;
+        void *avail;
+        void *used;
+        struct vhd_memory_map *mm;
+        struct vhd_memory_log *log;
+    } shadow_vq;
+
+    struct virtio_virtq vq;
 };
 
 void vhd_vring_ref(struct vhd_vring *vring);
