@@ -186,9 +186,6 @@ int virtio_virtq_init(struct virtio_virtq *vq)
     vq->inflight_check = true;
     virtq_inflight_reconnect_update(vq);
 
-    /* Notify fd is set separately */
-    vq->notify_fd = -1;
-
     virtio_virtq_reset_stat(vq);
 
     return 0;
