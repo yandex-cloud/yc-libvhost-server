@@ -172,14 +172,9 @@ static void virtio_virtq_reset_stat(struct virtio_virtq *vq)
     memset(&vq->stat, 0, sizeof(vq->stat));
 }
 
-int virtio_virtq_init(struct virtio_virtq *vq)
+void virtio_virtq_init(struct virtio_virtq *vq)
 {
-    if (!vq->desc || !vq->used || !vq->avail || !vq->qsz ||
-        !vq->used_gpa_base || !vq->inflight_region ||
-        vq->qsz > vq->inflight_region->desc_num) {
-        return -EINVAL;
-    }
-
+    VHD_ASSERT(!vq->buffers);
     vq->buffers = vhd_calloc(vq->qsz, sizeof(vq->buffers[0]));
 
     /* Make check on the first virtq dequeue. */
@@ -187,12 +182,11 @@ int virtio_virtq_init(struct virtio_virtq *vq)
     virtq_inflight_reconnect_update(vq);
 
     virtio_virtq_reset_stat(vq);
-
-    return 0;
 }
 
 void virtio_virtq_release(struct virtio_virtq *vq)
 {
+    VHD_ASSERT(vq->buffers);
     vhd_free(vq->buffers);
     *vq = (struct virtio_virtq) {};
 }

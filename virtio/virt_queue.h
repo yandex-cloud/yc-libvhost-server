@@ -80,7 +80,7 @@ struct virtio_virtq {
     } stat;
 };
 
-int virtio_virtq_init(struct virtio_virtq *vq);
+void virtio_virtq_init(struct virtio_virtq *vq);
 
 void virtio_virtq_release(struct virtio_virtq *vq);
 
