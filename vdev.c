@@ -21,7 +21,7 @@ static LIST_HEAD(, vhd_vdev) g_vdevs = LIST_HEAD_INITIALIZER(g_vdevs);
 
 static uint16_t vring_idx(struct vhd_vring *vring)
 {
-    return vring->vdev->vrings - vring;
+    return vring - vring->vdev->vrings;
 }
 
 /* Return size of per queue inflight buffer. */
