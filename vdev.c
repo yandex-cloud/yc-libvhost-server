@@ -500,16 +500,6 @@ static int vhost_set_owner(struct vhd_vdev *vdev, const void *payload,
     return vhost_ack(vdev, VHOST_USER_SET_OWNER, 0);
 }
 
-static void vhost_reset_mem_table(struct vhd_vdev *vdev)
-{
-    if (!vdev->memmap) {
-        return;
-    }
-
-    vhd_memmap_unref(vdev->memmap);
-    vdev->memmap = NULL;
-}
-
 static void set_mem_table_bh(void *opaque)
 {
     struct vhd_vdev *vdev = opaque;
@@ -1147,14 +1137,30 @@ static void vhd_vdev_stop(struct vhd_vdev *vdev)
     }
 }
 
-static void vhd_vdev_release(struct vhd_vdev *vdev)
+static void vdev_cleanup(struct vhd_vdev *vdev)
 {
-    close(vdev->listenfd);
     close(vdev->connfd);
 
     VHD_ASSERT(!vdev->old_memmap);
-    vhost_reset_mem_table(vdev);
+
+    replace_fd(&vdev->connfd, -1);
+
     vhd_vdev_inflight_cleanup(vdev);
+
+    if (vdev->memmap) {
+        vhd_memmap_unref(vdev->memmap);
+        vdev->memmap = NULL;
+    }
+
+    if (vdev->memlog) {
+        vhd_memlog_free(vdev->memlog);
+        vdev->memlog = NULL;
+    }
+}
+
+static void vhd_vdev_release(struct vhd_vdev *vdev)
+{
+    close(vdev->listenfd);
 
     LIST_REMOVE(vdev, vdev_list);
     vhd_free(vdev->vrings);
@@ -1179,13 +1185,7 @@ static int change_device_state(struct vhd_vdev *vdev,
 
             vhd_vdev_stop(vdev);
 
-            vhost_reset_mem_table(vdev);
-            if (vdev->memlog) {
-                vhd_memlog_free(vdev->memlog);
-                vdev->memlog = NULL;
-            }
-
-            replace_fd(&vdev->connfd, -1);
+            vdev_cleanup(vdev);
             /* Fall thru */
 
         case VDEV_INITIALIZED:
