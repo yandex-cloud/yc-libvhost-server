@@ -141,7 +141,7 @@ static void rq_complete_bh(void *opaque)
         /* completion_handler destroys bio. save vring for unref */
         struct vhd_vring *vring = bio->vring;
         bio->completion_handler(bio);
-        vhd_vring_unref(vring);
+        vhd_vring_dec_in_flight(vring);
     }
 }
 
@@ -208,7 +208,7 @@ bool vhd_dequeue_request(struct vhd_request_queue *rq,
 
 int vhd_enqueue_block_request(struct vhd_request_queue *rq, struct vhd_bio *bio)
 {
-    vhd_vring_ref(bio->vring);
+    vhd_vring_inc_in_flight(bio->vring);
 
     TAILQ_INSERT_TAIL(&rq->submission, bio, submission_link);
     return 0;
