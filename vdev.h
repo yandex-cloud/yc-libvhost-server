@@ -13,28 +13,6 @@ struct vhd_vdev;
 struct vhd_vring;
 struct vhd_request_queue;
 
-enum vhd_vdev_state {
-    /*
-     * Device is initialized. For vhost-user server devices listening socket is
-     * created.
-     */
-    VDEV_INITIALIZED = 0,
-
-    /* Device is in server mode and is listening for connection */
-    VDEV_LISTENING,
-
-    /*
-     * Device has a client connection and can start negotiating vhost-user
-     * handshake
-     */
-    VDEV_CONNECTED,
-
-    /*
-     * Device is being unregistered
-     */
-    VDEV_TERMINATING,
-};
-
 /**
  * Vhost device type description.
  */
@@ -79,9 +57,6 @@ struct vhd_vdev {
     /* Attached request queue */
     struct vhd_request_queue *rq;
 
-    /* Current state */
-    enum vhd_vdev_state state;
-
     /*
      * Vhost protocol features which can be supported for this vdev and
      * those which have been actually enabled during negotiation.
@@ -104,6 +79,7 @@ struct vhd_vdev {
     struct vhd_memory_map *memmap;
     struct vhd_memory_map *old_memmap;
     struct vhd_memory_log *memlog;
+    struct vhd_memory_log *old_memlog;
 
     /**
      * Shared memory to store information about inflight requests and restore
@@ -112,10 +88,10 @@ struct vhd_vdev {
     struct inflight_split_region *inflight_mem;
     uint64_t inflight_size;
 
-    /**
-     * Refcount and callback for device stopping
-     */
-    atomic_uint refcount;
+    /* #vrings which may have requests in flight */
+    uint16_t num_vrings_in_flight;
+    /* #vrings started and haven't yet acknowledged stop */
+    uint16_t num_vrings_started;
 
     /* callback and arg to be called when the device is released */
     void (*release_cb)(void *);
@@ -123,6 +99,11 @@ struct vhd_vdev {
 
     /** Global vdev list */
     LIST_ENTRY(vhd_vdev) vdev_list;
+
+    /* #vrings performing an action in response to a control message */
+    uint16_t num_vrings_handling_msg;
+    /* function to call once the current message is handled in all vrings */
+    int (*handle_complete)(struct vhd_vdev *vdev);
 
     /* whether an ACK should be sent once the message is handled  */
     bool ack_pending;
@@ -167,22 +148,16 @@ struct vhd_vring {
     int callfd;
     int errfd;
 
-    /* vring can service master's requests */
-    bool is_started;
+    /* started as seen from control plane */
+    bool started_in_ctl;
+    /* requested to disconnect */
+    bool disconnecting;
 
     /* Client kick event */
     struct vhd_io_handler *kick_handler;
 
-    /*
-     * Is called when vring is drained.
-     */
+    /* called in control plane once vring is drained */
     int (*on_drain_cb)(struct vhd_vring *);
-
-   /*
-    * refcount for in-flight requests per vring
-    * not atomic - is supposed to be accessed from vdev's request queue (bh)
-    */
-    uint64_t refcount;
 
    /*
     * ring addresses cache
@@ -207,11 +182,19 @@ struct vhd_vring {
         struct vhd_memory_log *log;
     } shadow_vq;
 
+    /*
+     * the fields below are only accessed in dataplane unless the vring is
+     * known to be stopped
+     */
     struct virtio_virtq vq;
+    /* started as seen from dataplane */
+    bool started_in_rq;
+    /* #requests pending completion */
+    uint16_t num_in_flight;
 };
 
-void vhd_vring_ref(struct vhd_vring *vring);
-void vhd_vring_unref(struct vhd_vring *vring);
+void vhd_vring_inc_in_flight(struct vhd_vring *vring);
+void vhd_vring_dec_in_flight(struct vhd_vring *vring);
 
 #ifdef __cplusplus
 }

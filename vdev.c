@@ -44,10 +44,6 @@ static int vring_kick(void *opaque)
     struct vhd_vring *vring = opaque;
     struct vhd_vdev *vdev = vring->vdev;
 
-    if (!vring->is_started) {
-        return 0;
-    }
-
     /*
      * Clear vring event now, before processing virtq.
      * Otherwise we might lose events if guest has managed to
@@ -91,34 +87,180 @@ static void vring_sync_to_virtq(struct vhd_vring *vring)
     virtq_set_notify_fd(&vring->vq, vring->callfd);
 }
 
-static void vdev_ref(struct vhd_vdev *vdev);
-static void vdev_unref(struct vhd_vdev *vdev);
-
-static void vring_stop_bh(void *opaque)
+static void vring_handle_msg(struct vhd_vring *vring,
+                             void (*handler_bh)(void *))
 {
-    struct vhd_vring *vring = (struct vhd_vring *) opaque;
-    vhd_del_io_handler(vring->kick_handler);
-    vring->is_started = false;
-    /* pairs with ref in vring_started() */
-    vhd_vring_unref(vring);
-}
+    struct vhd_vdev *vdev = vring->vdev;
 
-static void vring_stop(struct vhd_vring *vring)
-{
-    /* there should be no cases when we stop already stopped vring */
-    VHD_ASSERT(vring->is_started);
-
-    vhd_run_in_rq(vring->vdev->rq, vring_stop_bh, vring);
-}
-
-static void vhd_vring_stop(struct vhd_vring *vring)
-{
-    if (!vring || !vring->is_started) {
+    if (!vring->started_in_ctl) {
         return;
     }
 
-    vring_stop(vring);
+    vdev->num_vrings_handling_msg++;
+
+    vhd_run_in_rq(vdev->rq, handler_bh, vring);
 }
+
+static void vdev_disconnect(struct vhd_vdev *vdev);
+
+static void vring_mark_msg_handled(struct vhd_vring *vring)
+{
+    struct vhd_vdev *vdev = vring->vdev;
+
+    VHD_ASSERT(vdev->num_vrings_handling_msg);
+    vdev->num_vrings_handling_msg--;
+
+    if (!vdev->num_vrings_handling_msg) {
+        int ret = vdev->handle_complete(vdev);
+        vdev->handle_complete = NULL;
+        if (ret < 0) {
+            vdev_disconnect(vdev);
+        }
+    }
+}
+
+static void vring_mark_msg_handled_bh(void *opaque)
+{
+    vring_mark_msg_handled(opaque);
+}
+
+static void vdev_vrings_stopped(struct vhd_vdev *vdev);
+static void vdev_drained(struct vhd_vdev *vdev);
+
+static void vdev_maybe_vrings_stopped(struct vhd_vdev *vdev)
+{
+    if (!vdev->num_vrings_started) {
+        vdev_vrings_stopped(vdev);
+    }
+}
+
+static bool vdev_in_use(struct vhd_vdev *vdev)
+{
+    return vdev->num_vrings_in_flight || vdev->num_vrings_handling_msg ||
+        vdev->conn_handler;
+}
+
+static void vdev_maybe_drained(struct vhd_vdev *vdev)
+{
+    if (!vdev_in_use(vdev)) {
+        /*
+         * If vring_mark_stopped_bh hasn't run yet due to BH reordering,
+         * postpone calling vdev_drained.
+         */
+        if (!vdev->num_vrings_started) {
+            vdev_drained(vdev);
+        }
+    }
+}
+
+static void vring_mark_stopped(struct vhd_vring *vring)
+{
+    struct vhd_vdev *vdev = vring->vdev;
+
+    VHD_ASSERT(vdev->num_vrings_started);
+    vdev->num_vrings_started--;
+    vdev_maybe_vrings_stopped(vdev);
+
+    /*
+     * If vring_mark_drained_bh has run earlier due to BH reordering, it must
+     * have noticed that not all vrings were stopped, and must have postponed
+     * calling vdev_drained.  Do it now.
+     */
+    vdev_maybe_drained(vdev);
+}
+
+static void vring_mark_stopped_bh(void *opaque)
+{
+    vring_mark_stopped(opaque);
+}
+
+static void vring_reset(struct vhd_vring *vring)
+{
+    replace_fd(&vring->callfd, -1);
+    replace_fd(&vring->kickfd, -1);
+    replace_fd(&vring->errfd, -1);
+
+    memset(&vring->shadow_vq, 0, sizeof(vring->shadow_vq));
+    memset(&vring->addr_cache, 0, sizeof(vring->addr_cache));
+
+    vring->disconnecting = false;
+}
+
+static void vring_mark_drained(struct vhd_vring *vring)
+{
+    struct vhd_vdev *vdev = vring->vdev;
+
+    VHD_ASSERT(vring->started_in_ctl);
+    vring->started_in_ctl = false;
+
+    if (vring->on_drain_cb) {
+        int ret = vring->on_drain_cb(vring);
+        vring->on_drain_cb = NULL;
+        if (ret < 0) {
+            vdev_disconnect(vdev);
+        }
+    }
+
+    virtio_virtq_release(&vring->vq);
+    vring_reset(vring);
+
+    VHD_ASSERT(vdev->num_vrings_in_flight);
+    vdev->num_vrings_in_flight--;
+
+    vdev_maybe_drained(vdev);
+}
+
+static void vring_mark_drained_bh(void *opaque)
+{
+    vring_mark_drained(opaque);
+}
+
+void vhd_vring_inc_in_flight(struct vhd_vring *vring)
+{
+    vring->num_in_flight++;
+}
+
+void vhd_vring_dec_in_flight(struct vhd_vring *vring)
+{
+    vring->num_in_flight--;
+    if (!vring->num_in_flight && !vring->started_in_rq) {
+        vhd_run_in_ctl(vring_mark_drained_bh, vring);
+    }
+}
+
+static void vring_stop_bh(void *opaque)
+{
+    struct vhd_vring *vring = opaque;
+
+    if (!vring->started_in_rq) {
+        return;
+    }
+
+    vhd_del_io_handler(vring->kick_handler);
+    vring->kick_handler = NULL;
+    vring->started_in_rq = false;
+
+    vhd_run_in_ctl(vring_mark_stopped_bh, vring);
+    if (!vring->num_in_flight) {
+        vhd_run_in_ctl(vring_mark_drained_bh, vring);
+    }
+}
+
+static void vring_disconnect(struct vhd_vring *vring)
+{
+    if (vring->started_in_ctl) {
+        /*
+         * If vring_start_bh gets reordered with vring_stop_bh, make sure it
+         * doesn't actually start vring.
+         */
+        vring->disconnecting = true;
+
+        vhd_run_in_rq(vring->vdev->rq, vring_stop_bh, vring);
+    } else {
+        vring_reset(vring);
+    }
+}
+
 /*
  * Receive and store the message from the socket. Fill in the file
  * descriptor array. Return number of bytes received or
@@ -407,6 +549,11 @@ static int vhost_set_protocol_features(struct vhd_vdev *vdev,
         return -EINVAL;
     }
 
+    if (vdev->num_vrings_in_flight) {
+        VHD_LOG_ERROR("not allowed once vrings are started");
+        return -EISCONN;
+    }
+
     if (*features & ~vdev->supported_protocol_features) {
         VHD_LOG_ERROR("requested unsupported features 0x%" PRIx64,
                       *features & ~vdev->supported_protocol_features);
@@ -445,6 +592,18 @@ static void update_shadow_vq_memlog(struct vhd_vdev *vdev)
     }
 }
 
+static void vring_sync_to_virtq_bh(void *opaque)
+{
+    struct vhd_vring *vring = opaque;
+    vring_sync_to_virtq(vring);
+    vhd_run_in_ctl(vring_mark_msg_handled_bh, vring);
+}
+
+static int set_features_complete(struct vhd_vdev *vdev)
+{
+    return vhost_ack(vdev, VHOST_USER_SET_FEATURES, 0);
+}
+
 static int vhost_set_features(struct vhd_vdev *vdev, const void *payload,
                               size_t size, const int *fds, size_t num_fds)
 {
@@ -466,6 +625,7 @@ static int vhost_set_features(struct vhd_vdev *vdev, const void *payload,
      */
     uint64_t supported_features =
         vdev->supported_features & ~(1ull << VHOST_USER_F_PROTOCOL_FEATURES);
+    uint64_t changed_features;
 
     if (num_fds || size < sizeof(*features)) {
         VHD_LOG_ERROR("malformed message size=%zu #fds=%zu", size, num_fds);
@@ -478,15 +638,31 @@ static int vhost_set_features(struct vhd_vdev *vdev, const void *payload,
         return -ENOTSUP;
     }
 
+    if (!vdev->num_vrings_in_flight) {
+        vdev->negotiated_features = *features;
+        return set_features_complete(vdev);
+    }
+
+    /* only logging may be toggled in a started device */
+    changed_features =
+        (vdev->negotiated_features ^ *features) & ~(1ull << VHOST_F_LOG_ALL);
+    if (changed_features) {
+        VHD_LOG_ERROR("changing features 0x%" PRIx64
+                      " not allowed once vrings are started",
+                      changed_features);
+        return -EISCONN;
+    }
+
     vdev->negotiated_features = *features;
 
     update_shadow_vq_memlog(vdev);
 
+    vdev->handle_complete = set_features_complete;
     for (i = 0; i < vdev->num_queues; i++) {
-        vring_sync_to_virtq(&vdev->vrings[i]);
+        vring_handle_msg(&vdev->vrings[i], vring_sync_to_virtq_bh);
     }
 
-    return vhost_ack(vdev, VHOST_USER_SET_FEATURES, 0);
+    return 0;
 }
 
 static int vhost_set_owner(struct vhd_vdev *vdev, const void *payload,
@@ -500,21 +676,14 @@ static int vhost_set_owner(struct vhd_vdev *vdev, const void *payload,
     return vhost_ack(vdev, VHOST_USER_SET_OWNER, 0);
 }
 
-static void set_mem_table_bh(void *opaque)
+static int set_mem_table_complete(struct vhd_vdev *vdev)
 {
-    struct vhd_vdev *vdev = opaque;
-    uint16_t i;
-
-    for (i = 0; i < vdev->num_queues; i++) {
-        vring_sync_to_virtq(&vdev->vrings[i]);
-    }
-
     if (vdev->old_memmap) {
         vhd_memmap_unref(vdev->old_memmap);
         vdev->old_memmap = NULL;
     }
 
-    vhost_ack(vdev, VHOST_USER_SET_MEM_TABLE, 0);
+    return vhost_ack(vdev, VHOST_USER_SET_MEM_TABLE, 0);
 }
 
 static int vhost_set_mem_table(struct vhd_vdev *vdev, const void *payload,
@@ -554,7 +723,7 @@ static int vhost_set_mem_table(struct vhd_vdev *vdev, const void *payload,
     }
 
     for (i = 0; i < vdev->num_queues; i++) {
-        if (!vdev->vrings[i].is_started) {
+        if (!vdev->vrings[i].started_in_ctl) {
             continue;
         }
         ret = vring_update_shadow_vq_addrs(&vdev->vrings[i], mm);
@@ -566,7 +735,14 @@ static int vhost_set_mem_table(struct vhd_vdev *vdev, const void *payload,
     vdev->old_memmap = vdev->memmap;
     vdev->memmap = mm;
 
-    vhd_run_in_rq(vdev->rq, set_mem_table_bh, vdev);
+    if (!vdev->num_vrings_in_flight) {
+        return set_mem_table_complete(vdev);
+    }
+
+    vdev->handle_complete = set_mem_table_complete;
+    for (i = 0; i < vdev->num_queues; i++) {
+        vring_handle_msg(&vdev->vrings[i], vring_sync_to_virtq_bh);
+    }
     return 0;
 
 fail:
@@ -610,7 +786,7 @@ static int vhost_get_queue_num(struct vhd_vdev *vdev, const void *payload,
     return vhost_reply_u64(vdev, VHOST_USER_GET_QUEUE_NUM, vdev->num_queues);
 }
 
-static struct vhd_vring *get_vring(struct vhd_vdev *vdev, uint32_t index)
+static struct vhd_vring *get_vring(struct vhd_vdev *vdev, uint16_t index)
 {
     if (index >= vdev->num_queues) {
         VHD_LOG_ERROR("vring %u doesn't exist (max %u)", index,
@@ -618,7 +794,7 @@ static struct vhd_vring *get_vring(struct vhd_vdev *vdev, uint32_t index)
         return NULL;
     }
 
-    return vdev->vrings + index;
+    return &vdev->vrings[index];
 }
 
 static struct vhd_vring *msg_u64_get_vring(struct vhd_vdev *vdev,
@@ -645,11 +821,15 @@ static struct vhd_vring *msg_u64_get_vring(struct vhd_vdev *vdev,
     return get_vring(vdev, vring_idx);
 }
 
+static int set_vring_call_complete(struct vhd_vdev *vdev)
+{
+    return vhost_ack(vdev, VHOST_USER_SET_VRING_CALL, 0);
+}
+
 static int vhost_set_vring_call(struct vhd_vdev *vdev, const void *payload,
                                 size_t size, const int *fds, size_t num_fds)
 {
     struct vhd_vring *vring = msg_u64_get_vring(vdev, payload, size, num_fds);
-    int ret;
 
     if (!vring) {
         return -EINVAL;
@@ -657,15 +837,69 @@ static int vhost_set_vring_call(struct vhd_vdev *vdev, const void *payload,
 
     replace_fd(&vring->callfd, num_fds > 0 ? dup(fds[0]) : -1);
 
-    if (vring->is_started) {
-        virtq_set_notify_fd(&vring->vq, vring->callfd);
+    if (!vring->started_in_ctl) {
+        int ret = set_vring_call_complete(vdev);
+        if (ret < 0) {
+            replace_fd(&vring->callfd, -1);
+        }
+        return ret;
     }
 
-    ret = vhost_ack(vdev, VHOST_USER_SET_VRING_CALL, 0);
-    if (ret < 0) {
-        replace_fd(&vring->callfd, -1);
+    vdev->handle_complete = set_vring_call_complete;
+    vring_handle_msg(vring, vring_sync_to_virtq_bh);
+    return 0;
+}
+
+static int set_vring_kick_complete(struct vhd_vdev *vdev)
+{
+    return vhost_ack(vdev, VHOST_USER_SET_VRING_KICK, 0);
+}
+
+static int set_vring_kick_fail_complete(struct vhd_vdev *vdev)
+{
+    return vhost_ack(vdev, VHOST_USER_SET_VRING_KICK, -EIO);
+}
+
+static void vring_start_failed_bh(void *opaque)
+{
+    struct vhd_vring *vring = opaque;
+    struct vhd_vdev *vdev = vring->vdev;
+
+    vdev->handle_complete = set_vring_kick_fail_complete;
+
+    vring_mark_msg_handled(vring);
+    vring_mark_stopped(vring);
+    vring_mark_drained(vring);
+}
+
+static void vring_start_bh(void *opaque)
+{
+    struct vhd_vring *vring = opaque;
+
+    VHD_ASSERT(!vring->started_in_rq);
+
+    /*
+     * If vring_stop_bh from vdev_disconnect gets reordered with
+     * vring_start_bh, do not start the vring as the device is going down.
+     */
+    if (vring->disconnecting) {
+        goto fail;
     }
-    return ret;
+
+    vring->kick_handler = vhd_add_rq_io_handler(vring->vdev->rq, vring->kickfd,
+                                                vring_kick, vring);
+    if (!vring->kick_handler) {
+        VHD_LOG_ERROR("Could not attach kick handler");
+        goto fail;
+    }
+
+    vring_sync_to_virtq(vring);
+    vring->started_in_rq = true;
+    vhd_run_in_ctl(vring_mark_msg_handled_bh, vring);
+    return;
+
+fail:
+    vhd_run_in_ctl(vring_start_failed_bh, vring);
 }
 
 static int vhost_set_vring_kick(struct vhd_vdev *vdev, const void *payload,
@@ -681,7 +915,7 @@ static int vhost_set_vring_kick(struct vhd_vdev *vdev, const void *payload,
         VHD_LOG_ERROR("vring polling mode is not supported");
         return -ENOTSUP;
     }
-    if (vring->is_started) {
+    if (vring->started_in_ctl) {
         VHD_LOG_ERROR("vring %u is already started", vring_idx(vring));
         return -EISCONN;
     }
@@ -697,31 +931,24 @@ static int vhost_set_vring_kick(struct vhd_vdev *vdev, const void *payload,
     vring_sync_to_virtq(vring);
     virtio_virtq_init(&vring->vq);
 
-    vring->is_started = true;
-    /* pairs with unref in vring_stop_bh() */
-    vhd_vring_ref(vring);
-    /* pairs with vdev_unref in vring_unref on vring disabling */
-    vdev_ref(vring->vdev);
-    vring->kick_handler = vhd_add_rq_io_handler(vring->vdev->rq, vring->kickfd,
-                                                vring_kick, vring);
+    vring->started_in_ctl = true;
+    vdev->num_vrings_started++;
+    vdev->num_vrings_in_flight++;
 
-    if (!vring->kick_handler) {
-        vring->is_started = false;
-        vhd_vring_unref(vring);
-        vdev_unref(vring->vdev);
-        virtio_virtq_release(&vring->vq);
-        VHD_LOG_ERROR("Could not create vring event from kickfd");
-        return -EIO;
-    }
+    vdev->handle_complete = set_vring_kick_complete;
+    vring_handle_msg(vring, vring_start_bh);
+    return 0;
+}
 
-    return vhost_ack(vdev, VHOST_USER_SET_VRING_KICK, 0);
+static int set_vring_err_complete(struct vhd_vdev *vdev)
+{
+    return vhost_ack(vdev, VHOST_USER_SET_VRING_ERR, 0);
 }
 
 static int vhost_set_vring_err(struct vhd_vdev *vdev, const void *payload,
                                size_t size, const int *fds, size_t num_fds)
 {
     struct vhd_vring *vring = msg_u64_get_vring(vdev, payload, size, num_fds);
-    int ret;
 
     if (!vring) {
         return -EINVAL;
@@ -729,11 +956,17 @@ static int vhost_set_vring_err(struct vhd_vdev *vdev, const void *payload,
 
     replace_fd(&vring->errfd, num_fds > 0 ? dup(fds[0]) : -1);
 
-    ret = vhost_ack(vdev, VHOST_USER_SET_VRING_ERR, 0);
-    if (ret < 0) {
-        replace_fd(&vring->errfd, -1);
+    if (!vring->started_in_ctl) {
+        int ret = set_vring_err_complete(vdev);
+        if (ret < 0) {
+            replace_fd(&vring->errfd, -1);
+        }
+        return ret;
     }
-    return ret;
+
+    vdev->handle_complete = set_vring_err_complete;
+    vring_handle_msg(vring, vring_sync_to_virtq_bh);
+    return 0;
 }
 
 static int vhost_set_vring_num(struct vhd_vdev *vdev, const void *payload,
@@ -752,7 +985,7 @@ static int vhost_set_vring_num(struct vhd_vdev *vdev, const void *payload,
         return -EINVAL;
     }
 
-    if (vring->is_started) {
+    if (vring->started_in_ctl) {
         VHD_LOG_ERROR("vring %u is already started", vrstate->index);
         return -EISCONN;
     }
@@ -777,24 +1010,13 @@ static int vhost_set_vring_base(struct vhd_vdev *vdev, const void *payload,
         return -EINVAL;
     }
 
-    if (vring->is_started) {
+    if (vring->started_in_ctl) {
         VHD_LOG_ERROR("vring %u is already started", vrstate->index);
         return -EISCONN;
     }
 
     vring->vq.last_avail = vrstate->num;
     return vhost_ack(vdev, VHOST_USER_SET_VRING_BASE, 0);
-}
-
-static void vring_set_on_drain_cb(struct vhd_vring *vring,
-                                  int (*on_drain_cb)(struct vhd_vring *))
-{
-    vring->on_drain_cb = on_drain_cb;
-}
-
-static void vring_clear_on_drain_cb(struct vhd_vring *vring)
-{
-    vring->on_drain_cb = NULL;
 }
 
 static int vhost_get_vring_base(struct vhd_vdev *vdev, const void *payload,
@@ -813,19 +1035,23 @@ static int vhost_get_vring_base(struct vhd_vdev *vdev, const void *payload,
         return -EINVAL;
     }
 
-    if (!vring->is_started) {
+    if (!vring->started_in_ctl) {
         return vhost_send_vring_base(vring);
     }
 
     /*
-     * we don't reply to the command at once but send a reply when
-     * the vring is drained. qemu won't send another commands until
-     * it gets the reply from this one.
+     * This command is special as it needs to wait for drain, not just until
+     * the message is handled in rq.  Mark this in the vring and submit
+     * vring_stop_bh() instead of going through vring_handle_msg().
      */
-    vring_set_on_drain_cb(vring, vhost_send_vring_base);
-    /* callback we just set will be cleared when the vring is drained */
-    vring_stop(vring);
+    vring->on_drain_cb = vhost_send_vring_base;
+    vhd_run_in_rq(vring->vdev->rq, vring_stop_bh, vring);
     return 0;
+}
+
+static int set_vring_addr_complete(struct vhd_vdev *vdev)
+{
+    return vhost_ack(vdev, VHOST_USER_SET_VRING_ADDR, 0);
 }
 
 static int vhost_set_vring_addr(struct vhd_vdev *vdev, const void *payload,
@@ -844,13 +1070,14 @@ static int vhost_set_vring_addr(struct vhd_vdev *vdev, const void *payload,
         return -EINVAL;
     }
 
-    if (!vring->is_started) {
+    if (!vring->started_in_ctl) {
         vring->addr_cache.desc = vraddr->desc_addr;
         vring->addr_cache.used = vraddr->used_addr;
         vring->addr_cache.avail = vraddr->avail_addr;
         vring->shadow_vq.flags = vraddr->flags;
         vring->vq.used_gpa_base = vraddr->used_gpa_base;
-        return vhost_ack(vdev, VHOST_USER_SET_VRING_ADDR, 0);
+
+        return set_vring_addr_complete(vdev);
     }
 
     if (vring->addr_cache.desc != vraddr->desc_addr ||
@@ -863,16 +1090,27 @@ static int vhost_set_vring_addr(struct vhd_vdev *vdev, const void *payload,
     }
 
     vring->shadow_vq.flags = vraddr->flags;
-    vring_sync_to_virtq(vring);
 
-    return vhost_ack(vdev, VHOST_USER_SET_VRING_ADDR, 0);
+    vdev->handle_complete = set_vring_addr_complete;
+    vring_handle_msg(vring, vring_sync_to_virtq_bh);
+    return 0;
+}
+
+static int set_log_base_complete(struct vhd_vdev *vdev)
+{
+    if (vdev->old_memlog) {
+        vhd_free(vdev->old_memlog);
+        vdev->old_memlog = NULL;
+    }
+
+    return vhost_reply_u64(vdev, VHOST_USER_SET_LOG_BASE, 0);
 }
 
 static int vhost_set_log_base(struct vhd_vdev *vdev, const void *payload,
                               size_t size, const int *fds, size_t num_fds)
 {
     uint16_t i;
-    struct vhd_memory_log *memlog, *old_memlog = vdev->memlog;
+    struct vhd_memory_log *memlog;
     const struct vhost_user_log *log = payload;
 
     if (num_fds != 1 || size < sizeof(*log)) {
@@ -885,18 +1123,21 @@ static int vhost_set_log_base(struct vhd_vdev *vdev, const void *payload,
         return -EFAULT;
     }
 
+    vdev->old_memlog = vdev->memlog;
     vdev->memlog = memlog;
+
     update_shadow_vq_memlog(vdev);
 
+    if (!vdev->num_vrings_in_flight) {
+        return set_log_base_complete(vdev);
+    }
+
+    vdev->handle_complete = set_log_base_complete;
     for (i = 0; i < vdev->num_queues; i++) {
-        vring_sync_to_virtq(&vdev->vrings[i]);
+        vring_handle_msg(&vdev->vrings[i], vring_sync_to_virtq_bh);
     }
 
-    if (old_memlog) {
-        vhd_memlog_free(old_memlog);
-    }
-
-    return vhost_reply_u64(vdev, VHOST_USER_SET_LOG_BASE, 0);
+    return 0;
 }
 
 static void inflight_mem_init(void *buf, size_t queue_region_size,
@@ -941,21 +1182,14 @@ static int inflight_mmap_region(struct vhd_vdev *vdev, int fd,
     return 0;
 }
 
-static void vhd_vdev_inflight_cleanup(struct vhd_vdev *vdev)
+static void inflight_mem_cleanup(struct vhd_vdev *vdev)
 {
-    uint16_t i;
-
     if (!vdev->inflight_mem) {
-        /* Nothing to clean up. */
         return;
     }
 
     munmap(vdev->inflight_mem, vdev->inflight_size);
     vdev->inflight_mem = NULL;
-
-    for (i = 0; i < vdev->num_queues; i++) {
-        vdev->vrings[i].vq.inflight_region = NULL;
-    }
 }
 
 /* memfd_create is only present since glibc-2.27 */
@@ -983,7 +1217,10 @@ static int vhost_get_inflight_fd(struct vhd_vdev *vdev, const void *payload,
         return -EINVAL;
     }
 
-    vhd_vdev_inflight_cleanup(vdev);
+    if (vdev->num_vrings_in_flight) {
+        VHD_LOG_ERROR("not allowed once vrings are started");
+        return -EISCONN;
+    }
 
     fd = memfd_create("vhost_get_inflight_fd", MFD_CLOEXEC);
     if (fd == -1) {
@@ -1010,11 +1247,6 @@ static int vhost_get_inflight_fd(struct vhd_vdev *vdev, const void *payload,
 
     ret = vhost_reply_fds(vdev, VHOST_USER_GET_INFLIGHT_FD,
                           &reply, sizeof(reply), &fd, 1);
-    if (ret) {
-        VHD_LOG_ERROR("can't send reply to get_inflight_fd command");
-        vhd_vdev_inflight_cleanup(vdev);
-    }
-
 out:
     close(fd);
     return ret;
@@ -1032,6 +1264,12 @@ static int vhost_set_inflight_fd(struct vhd_vdev *vdev, const void *payload,
         return -EINVAL;
     }
 
+    if (vdev->num_vrings_in_flight) {
+        VHD_LOG_ERROR("not allowed once queues started");
+        return -EISCONN;
+    }
+
+    /* we never create inflight with non-zero mmap_offset */
     if (idesc->mmap_offset) {
         VHD_LOG_ERROR("non-zero mmap offset: %lx", idesc->mmap_offset);
         return -EINVAL;
@@ -1043,8 +1281,9 @@ static int vhost_set_inflight_fd(struct vhd_vdev *vdev, const void *payload,
         return -EINVAL;
     }
 
-    vhd_vdev_inflight_cleanup(vdev);
-    ret = inflight_mmap_region(vdev, fds[0], queue_region_size, idesc->num_queues);
+    inflight_mem_cleanup(vdev);
+    ret = inflight_mmap_region(vdev, fds[0], queue_region_size,
+                               idesc->num_queues);
     if (ret < 0) {
         return ret;
     }
@@ -1130,22 +1369,15 @@ static int vdev_submit_work_and_wait(struct vhd_vdev *vdev,
     return vhd_submit_ctl_work_and_wait(vdev_work_fn, &vd_work);
 }
 
-static void vhd_vdev_stop(struct vhd_vdev *vdev)
-{
-    for (uint32_t i = 0; i < vdev->num_queues; ++i) {
-        vhd_vring_stop(vdev->vrings + i);
-    }
-}
-
 static void vdev_cleanup(struct vhd_vdev *vdev)
 {
-    close(vdev->connfd);
-
+    VHD_ASSERT(!vdev->num_vrings_handling_msg);
     VHD_ASSERT(!vdev->old_memmap);
+    VHD_ASSERT(!vdev->old_memlog);
 
     replace_fd(&vdev->connfd, -1);
 
-    vhd_vdev_inflight_cleanup(vdev);
+    inflight_mem_cleanup(vdev);
 
     if (vdev->memmap) {
         vhd_memmap_unref(vdev->memmap);
@@ -1160,137 +1392,44 @@ static void vdev_cleanup(struct vhd_vdev *vdev)
 
 static void vhd_vdev_release(struct vhd_vdev *vdev)
 {
-    close(vdev->listenfd);
-
     LIST_REMOVE(vdev, vdev_list);
     vhd_free(vdev->vrings);
+
+    if (vdev->release_cb) {
+        vdev->release_cb(vdev->release_arg);
+    }
     vdev->type->free(vdev);
 }
 
-static int server_read(void *opaque);
-static int conn_read(void *opaque);
-
-static int change_device_state(struct vhd_vdev *vdev,
-                               enum vhd_vdev_state new_state)
+static void vdev_disconnect(struct vhd_vdev *vdev)
 {
-    if (new_state == VDEV_LISTENING) {
+    uint16_t i;
 
-        switch (vdev->state) {
-        case VDEV_CONNECTED:
-            /*
-             * We're terminating existing connection
-             * and going back to listen mode
-             */
-            vhd_del_io_handler(vdev->conn_handler);
+    VHD_LOG_INFO("Close connection with client, sock = %d", vdev->connfd);
 
-            vhd_vdev_stop(vdev);
+    /*
+     * Stop processing further requests from the client but postpone closing
+     * the socket until drained.  The client doesn't expect us to touch its
+     * memory once the control connection is closed.
+     */
+    vhd_del_io_handler(vdev->conn_handler);
+    vdev->conn_handler = NULL;
 
-            vdev_cleanup(vdev);
-            /* Fall thru */
-
-        case VDEV_INITIALIZED:
-            /* Normal listening init */
-            vdev->listen_handler = vhd_add_vhost_io_handler(vdev->listenfd,
-                                                            server_read, vdev);
-            if (!vdev->listen_handler) {
-                return -EIO;
-            }
-
-            break;
-        default:
-            goto invalid_transition;
-        };
-
-    } else if (new_state == VDEV_CONNECTED) {
-
-        switch (vdev->state) {
-        case VDEV_LISTENING:
-            /* Establish new connection and exiting listen-mode */
-            vdev->conn_handler = vhd_add_vhost_io_handler(vdev->connfd,
-                                                          conn_read, vdev);
-            if (!vdev->conn_handler) {
-                return -EIO;
-            }
-
-            /*
-             * Remove server fd from event loop.
-             * We don't want multiple clients
-             */
-            vhd_del_io_handler(vdev->listen_handler);
-            break;
-        default:
-            goto invalid_transition;
-        };
-
-    } else if (new_state == VDEV_TERMINATING) {
-
-        switch (vdev->state) {
-        case VDEV_LISTENING:
-            vhd_del_io_handler(vdev->listen_handler);
-            break;
-        case VDEV_CONNECTED:
-            vhd_del_io_handler(vdev->conn_handler);
-            break;
-        case VDEV_INITIALIZED:
-            break;
-        default:
-            goto invalid_transition;
-        };
-
-    } else {
-        goto invalid_transition;
+    for (i = 0; i < vdev->num_queues; i++) {
+        vring_disconnect(&vdev->vrings[i]);
     }
 
-    VHD_LOG_DEBUG("changing state from %d to %d", vdev->state, new_state);
-    vdev->state = new_state;
-
-    return 0;
-
-invalid_transition:
-    VHD_LOG_ERROR("invalid state transition from %d to %d",
-                  vdev->state, new_state);
-    return -EINVAL;
+    vdev_maybe_vrings_stopped(vdev);
+    vdev_maybe_drained(vdev);
 }
 
-/*
- * Accept connection and add the client socket to the IO polling.
- * Will close server socket on first connection since we're only support
- * 1 active master.
- */
-static int server_read(void *data)
+static int conn_read(void *opaque)
 {
-    int connfd;
-    struct vhd_vdev *vdev = (struct vhd_vdev *)data;
-
-    VHD_ASSERT(vdev->connfd < 0);
-
-    connfd = accept4(vdev->listenfd, NULL, NULL, SOCK_NONBLOCK);
-    if (connfd == -1) {
-        VHD_LOG_ERROR("accept: %s", strerror(errno));
-        return 0;
-    }
-
-    vdev->connfd = connfd;
-    if (change_device_state(vdev, VDEV_CONNECTED)) {
-        vdev->connfd = -1;
-        goto close_client;
-    }
-
-    VHD_LOG_INFO("Connection established, sock = %d", connfd);
-    return 0;
-
-close_client:
-    close(connfd);
-    return 0;
-}
-
-static int conn_read(void *data)
-{
+    struct vhd_vdev *vdev = opaque;
     struct vhost_user_msg_hdr hdr;
     union vhost_user_msg_payload payload;
     int fds[VHOST_USER_MAX_FDS];
     size_t num_fds = VHOST_USER_MAX_FDS;
-    struct vhd_vdev *vdev = data;
     int ret;
 
     if (net_recv_msg(vdev->connfd, &hdr, &payload, sizeof(payload),
@@ -1314,11 +1453,87 @@ static int conn_read(void *data)
 handle_fail:
     vdev_handle_finish(vdev);
 recv_fail:
-    VHD_LOG_DEBUG("Close connection with client, sock = %d",
-                  vdev->connfd);
-
-    change_device_state(vdev, VDEV_LISTENING);
+    vdev_disconnect(vdev);
     return 0;
+}
+
+/*
+ * Accept connection and add the client socket to the IO polling.
+ * Will close server socket on first connection since we're only support
+ * 1 active master.
+ */
+static int server_read(void *opaque)
+{
+    struct vhd_vdev *vdev = opaque;
+    int connfd;
+
+    VHD_ASSERT(vdev->connfd < 0);
+
+    connfd = accept4(vdev->listenfd, NULL, NULL, SOCK_NONBLOCK);
+    if (connfd == -1) {
+        VHD_LOG_ERROR("accept: %s", strerror(errno));
+        return 0;
+    }
+
+    vdev->conn_handler = vhd_add_vhost_io_handler(connfd, conn_read, vdev);
+    if (!vdev->conn_handler) {
+        goto close_client;
+    }
+
+    vhd_detach_io_handler(vdev->listen_handler);
+
+    vdev->connfd = connfd;
+    vdev->negotiated_features = 0;
+    vdev->negotiated_protocol_features = 0;
+    VHD_LOG_INFO("Connection established, sock = %d", connfd);
+    return 0;
+
+close_client:
+    close(connfd);
+    return 0;
+}
+
+static int vdev_start_listening(struct vhd_vdev *vdev)
+{
+    vdev->listen_handler = vhd_add_vhost_io_handler(vdev->listenfd,
+                                                    server_read, vdev);
+    if (!vdev->listen_handler) {
+        return -EIO;
+    }
+
+    return 0;
+}
+
+static void vdev_stop_listening(struct vhd_vdev *vdev)
+{
+    vhd_del_io_handler(vdev->listen_handler);
+    vdev->listen_handler = NULL;
+    replace_fd(&vdev->listenfd, -1);
+}
+
+static void vdev_vrings_stopped(struct vhd_vdev *vdev)
+{
+    /* vdev is being shut down */
+    if (!vdev->listen_handler) {
+        /* there must be a work pending completion */
+        vdev_complete_work(vdev, 0);
+    }
+}
+
+static void vdev_drained(struct vhd_vdev *vdev)
+{
+    vdev_cleanup(vdev);
+
+    /* vdev is being shut down */
+    if (!vdev->listen_handler) {
+        vhd_vdev_release(vdev);
+    } else {
+        /* resume listening */
+        if (vhd_attach_io_handler(vdev->listen_handler) < 0) {
+            /* no useful action beside putting an error message */
+            VHD_LOG_ERROR("failed to resume listening");
+        }
+    }
 }
 
 /* TODO: properly destroy server on close */
@@ -1369,91 +1584,13 @@ close_fd:
     return ret;
 }
 
-static void vdev_ref(struct vhd_vdev *vdev)
+static void vdev_start(struct vhd_vdev *vdev, void *opaque)
 {
-    atomic_inc(&vdev->refcount);
-}
+    int ret;
 
-static void vdev_unref(struct vhd_vdev *vdev)
-{
-    unsigned int val = atomic_fetch_dec(&vdev->refcount);
-    VHD_ASSERT(val);
-    /* check refcount drops to 0 */
-    if (val == 1) {
-        if (vdev->release_cb) {
-            vdev->release_cb(vdev->release_arg);
-        }
-        vhd_vdev_release(vdev);
-    }
-}
+    ret = vdev_start_listening(vdev);
 
-/*
- * We use two different types of refcounters for device:
- *  - per-vring refcounter
- *  - per-device refcounter
- * Per-vring refcounter counts active requests for its vring, also
- * it does ref vring when it's started and does unref vring when its stoppedd.
- * Vring does ref for each request as soon as it's consumed from
- * virtio vitqueue and unref when the request completion has processed.
- *
- * When per-vring refcounter drops to 0 it calls darin callback if set.
- * The vring refcounter drops to 0 only when there're no active requests and
- *    vring is DISABLED.
- * Another words, to make a vring call the drain callback
- * one needs to stop vring and let it wait for all its active requests
- * send their completions. In this case, after the last completion vring does
- * unref which calls the vring drain callback.
- * Vring draining is based on vring refcounting (see vhost_get_vring_base).
- *
- * Per-device refcounter counts sum of started vrings. It is initialized with 1
- * and does unref on vdev stopping.
- * When per-device refcounter drops to 0 it calls its special callback (if set)
- * This notification may happen:
- *     - on the last device request completion
- *     - on the last vring disabling if there were no in-flight reuests
- *     - on the device unref if there were no started vrings
- * Device stopping is based on vdev refcounting (see vhd_vdev_stop_server)
- */
-
-/* called from vdev's request queue */
-void vhd_vring_ref(struct vhd_vring *vring)
-{
-    vring->refcount++;
-}
-
-/* called from vdev's request queue */
-void vhd_vring_unref(struct vhd_vring *vring)
-{
-    vring->refcount--;
-
-    /*
-     * vring->refcount == 0 only when we unref-ed vring
-     * for disabling
-     */
-    if (!vring->refcount) {
-        if (vring->on_drain_cb) {
-            vring->on_drain_cb(vring);
-            vring_clear_on_drain_cb(vring);
-        }
-        virtio_virtq_release(&vring->vq);
-
-        replace_fd(&vring->callfd, -1);
-        replace_fd(&vring->kickfd, -1);
-        replace_fd(&vring->errfd, -1);
-
-        /*
-         * unref vdev on vring disabling
-         * this pairs with dev_ref in vring_start
-         */
-        vdev_unref(vring->vdev);
-    }
-}
-
-static void vdev_unregister_bh(void *opaque)
-{
-    struct vhd_vdev *vdev = opaque;
-
-    vdev_unref(vdev);
+    vdev_complete_work(vdev, ret);
 }
 
 int vhd_vdev_init_server(
@@ -1496,8 +1633,6 @@ int vhd_vdev_init_server(
         .unmap_cb = unmap_cb,
         .supported_protocol_features = g_default_protocol_features,
         .num_queues = max_queues,
-        .refcount = 1,
-        .state = VDEV_INITIALIZED,
     };
 
     vdev->vrings = vhd_calloc(vdev->num_queues, sizeof(vdev->vrings[0]));
@@ -1512,7 +1647,7 @@ int vhd_vdev_init_server(
 
     LIST_INSERT_HEAD(&g_vdevs, vdev, vdev_list);
 
-    ret = change_device_state(vdev, VDEV_LISTENING);
+    ret = vdev_submit_work_and_wait(vdev, vdev_start, NULL);
     if (ret != 0) {
         vhd_vdev_release(vdev);
     }
@@ -1527,16 +1662,26 @@ struct vdev_stop_work {
 
 static void vdev_stop(struct vhd_vdev *vdev, void *opaque)
 {
-    struct vdev_stop_work *work = opaque;
+   struct vdev_stop_work *work = opaque;
 
-    vdev->release_cb = work->release_cb;
-    vdev->release_arg = work->release_arg;
+   vdev->release_cb = work->release_cb;
+   vdev->release_arg = work->release_arg;
 
-    change_device_state(vdev, VDEV_TERMINATING);
-    vhd_vdev_stop(vdev);
+    vdev_stop_listening(vdev);
 
-    vdev_complete_work(vdev, 0);
-    vhd_run_in_rq(vdev->rq, vdev_unregister_bh, vdev);
+    /*
+     * If a client was connected initiate full-fledged disconnect with stopping
+     * vrings.  The stop work completion will be signaled asynchronously once
+     * all vrings accept the stop signal.  The release callback will be called
+     * even later once all vrings are finished draining.
+     */
+    if (vdev->conn_handler) {
+        vdev_disconnect(vdev);
+        return;
+    }
+
+    vdev_maybe_vrings_stopped(vdev);
+    vdev_maybe_drained(vdev);
 }
 
 int vhd_vdev_stop_server(struct vhd_vdev *vdev,
