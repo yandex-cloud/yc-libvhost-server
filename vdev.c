@@ -444,7 +444,7 @@ static int vhost_set_features(struct vhd_vdev *vdev, const void *payload,
      * though offering it.
      */
     uint64_t supported_features =
-        vdev->supported_features & ~VHOST_USER_F_PROTOCOL_FEATURES;
+        vdev->supported_features & ~(1ull << VHOST_USER_F_PROTOCOL_FEATURES);
 
     if (num_fds || size < sizeof(*features)) {
         VHD_LOG_ERROR("malformed message size=%zu #fds=%zu", size, num_fds);
