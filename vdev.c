@@ -138,7 +138,10 @@ static ssize_t net_recv_msg(int fd, struct vhost_user_msg_hdr *hdr,
         .msg_controllen = sizeof(control),
     };
 
-    ret = recvmsg(fd, &msgh, 0);
+    do {
+        ret = recvmsg(fd, &msgh, 0);
+    } while (ret < 0 && errno == EINTR);
+
     if (ret == 0) {
         goto out;
     }
@@ -169,7 +172,10 @@ static ssize_t net_recv_msg(int fd, struct vhost_user_msg_hdr *hdr,
         goto out;
     }
 
-    rlen = read(fd, payload, hdr->size);
+    do {
+        rlen = read(fd, payload, hdr->size);
+    } while (rlen < 0 && errno == EINTR);
+
     if (rlen < 0) {
         ret = -errno;
         VHD_LOG_ERROR("payload read failed: %s", strerror(-ret));
@@ -240,7 +246,10 @@ static int net_send_msg(int fd, const struct vhost_user_msg_hdr *hdr,
         memcpy(CMSG_DATA(cmsgh), fds, fdsize);
     }
 
-    ret = sendmsg(fd, &msgh, MSG_NOSIGNAL);
+    do {
+        ret = sendmsg(fd, &msgh, MSG_NOSIGNAL);
+    } while (ret < 0 && errno == EINTR);
+
     if (ret < 0) {
         ret = -errno;
         VHD_LOG_ERROR("sendmsg: %s", strerror(-ret));
