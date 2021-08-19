@@ -61,10 +61,10 @@ static int vring_update_shadow_vq_addrs(struct vhd_vring *vring,
     void *avail = uva_to_ptr(mm, vring->addr_cache.avail);
 
     if (!desc || !used || !avail) {
-        VHD_LOG_ERROR("failed to resolve vring[%u] addresses "
+        VHD_OBJ_ERROR(vring, "failed to resolve vring addresses "
                       "(0x%" PRIx64 ", 0x%" PRIx64 ", 0x%" PRIx64 ")",
-                      vring_idx(vring), vring->addr_cache.desc,
-                      vring->addr_cache.used, vring->addr_cache.avail);
+                      vring->addr_cache.desc, vring->addr_cache.used,
+                      vring->addr_cache.avail);
         return -EINVAL;
     }
 
@@ -530,7 +530,7 @@ static int vhost_get_protocol_features(struct vhd_vdev *vdev,
                                        const int *fds, size_t num_fds)
 {
     if (num_fds) {
-        VHD_LOG_ERROR("malformed message num_fds=%zu", num_fds);
+        VHD_OBJ_ERROR(vdev, "malformed message num_fds=%zu", num_fds);
         return -EINVAL;
     }
 
@@ -545,17 +545,18 @@ static int vhost_set_protocol_features(struct vhd_vdev *vdev,
     const uint64_t *features = payload;
 
     if (num_fds || size < sizeof(*features)) {
-        VHD_LOG_ERROR("malformed message size=%zu #fds=%zu", size, num_fds);
+        VHD_OBJ_ERROR(vdev, "malformed message size=%zu #fds=%zu", size,
+                      num_fds);
         return -EINVAL;
     }
 
     if (vdev->num_vrings_in_flight) {
-        VHD_LOG_ERROR("not allowed once vrings are started");
+        VHD_OBJ_ERROR(vdev, "not allowed once vrings are started");
         return -EISCONN;
     }
 
     if (*features & ~vdev->supported_protocol_features) {
-        VHD_LOG_ERROR("requested unsupported features 0x%" PRIx64,
+        VHD_OBJ_ERROR(vdev, "requested unsupported features 0x%" PRIx64,
                       *features & ~vdev->supported_protocol_features);
         return -ENOTSUP;
     }
@@ -569,7 +570,7 @@ static int vhost_get_features(struct vhd_vdev *vdev, const void *payload,
                               size_t size, const int *fds, size_t num_fds)
 {
     if (num_fds) {
-        VHD_LOG_ERROR("malformed message num_fds=%zu", num_fds);
+        VHD_OBJ_ERROR(vdev, "malformed message num_fds=%zu", num_fds);
         return -EINVAL;
     }
 
@@ -628,12 +629,13 @@ static int vhost_set_features(struct vhd_vdev *vdev, const void *payload,
     uint64_t changed_features;
 
     if (num_fds || size < sizeof(*features)) {
-        VHD_LOG_ERROR("malformed message size=%zu #fds=%zu", size, num_fds);
+        VHD_OBJ_ERROR(vdev, "malformed message size=%zu #fds=%zu", size,
+                      num_fds);
         return -EINVAL;
     }
 
     if (*features & ~supported_features) {
-        VHD_LOG_ERROR("requested unsupported features 0x%" PRIx64,
+        VHD_OBJ_ERROR(vdev, "requested unsupported features 0x%" PRIx64,
                       *features & ~supported_features);
         return -ENOTSUP;
     }
@@ -647,7 +649,7 @@ static int vhost_set_features(struct vhd_vdev *vdev, const void *payload,
     changed_features =
         (vdev->negotiated_features ^ *features) & ~(1ull << VHOST_F_LOG_ALL);
     if (changed_features) {
-        VHD_LOG_ERROR("changing features 0x%" PRIx64
+        VHD_OBJ_ERROR(vdev, "changing features 0x%" PRIx64
                       " not allowed once vrings are started",
                       changed_features);
         return -EISCONN;
@@ -669,7 +671,7 @@ static int vhost_set_owner(struct vhd_vdev *vdev, const void *payload,
                            size_t size, const int *fds, size_t num_fds)
 {
     if (num_fds) {
-        VHD_LOG_ERROR("malformed message num_fds=%zu", num_fds);
+        VHD_OBJ_ERROR(vdev, "malformed message num_fds=%zu", num_fds);
         return -EINVAL;
     }
 
@@ -697,17 +699,17 @@ static int vhost_set_mem_table(struct vhd_vdev *vdev, const void *payload,
     uint16_t i;
 
     if (size < exp_size) {
-        VHD_LOG_ERROR("malformed message: size %zu expected %zu", size,
+        VHD_OBJ_ERROR(vdev, "malformed message: size %zu expected %zu", size,
                       exp_size);
         return -EMSGSIZE;
     }
     if (desc->nregions > VHOST_USER_MEM_REGIONS_MAX) {
-        VHD_LOG_ERROR("invalid number of memory regions %u", desc->nregions);
+        VHD_OBJ_ERROR(vdev, "invalid #memory regions %u", desc->nregions);
         return -EINVAL;
     }
     if (desc->nregions != num_fds) {
-        VHD_LOG_ERROR("#memory regions != #fds: %u != %zu", desc->nregions,
-                      num_fds);
+        VHD_OBJ_ERROR(vdev, "#memory regions != #fds: %u != %zu",
+                      desc->nregions, num_fds);
         return -EINVAL;
     }
 
@@ -757,12 +759,13 @@ static int vhost_get_config(struct vhd_vdev *vdev, const void *payload,
     struct vhost_user_config_space reply = {};
 
     if (num_fds || size < VHOST_CONFIG_HDR_SIZE || size > sizeof(*config)) {
-        VHD_LOG_ERROR("malformed message size=%zu #fds=%zu", size, num_fds);
+        VHD_OBJ_ERROR(vdev, "malformed message size=%zu #fds=%zu", size,
+                      num_fds);
         return -EINVAL;
     }
 
     if (config->size > size - VHOST_CONFIG_HDR_SIZE) {
-        VHD_LOG_WARN("Message size is not enough for requested data");
+        VHD_OBJ_WARN(vdev, "Message size is not enough for requested data");
         reply.size = size - VHOST_CONFIG_HDR_SIZE;
     } else {
         reply.size = config->size;
@@ -779,7 +782,7 @@ static int vhost_get_queue_num(struct vhd_vdev *vdev, const void *payload,
                                size_t size, const int *fds, size_t num_fds)
 {
     if (num_fds) {
-        VHD_LOG_ERROR("malformed message num_fds=%zu", num_fds);
+        VHD_OBJ_ERROR(vdev, "malformed message num_fds=%zu", num_fds);
         return -EINVAL;
     }
 
@@ -789,7 +792,7 @@ static int vhost_get_queue_num(struct vhd_vdev *vdev, const void *payload,
 static struct vhd_vring *get_vring(struct vhd_vdev *vdev, uint16_t index)
 {
     if (index >= vdev->num_queues) {
-        VHD_LOG_ERROR("vring %u doesn't exist (max %u)", index,
+        VHD_OBJ_ERROR(vdev, "vring %u doesn't exist (max %u)", index,
                       vdev->num_queues - 1);
         return NULL;
     }
@@ -806,7 +809,7 @@ static struct vhd_vring *msg_u64_get_vring(struct vhd_vdev *vdev,
     bool has_fd;
 
     if (size < sizeof(*u64)) {
-        VHD_LOG_ERROR("malformed message size=%zu", size);
+        VHD_OBJ_ERROR(vdev, "malformed message size=%zu", size);
         return NULL;
     }
 
@@ -814,7 +817,8 @@ static struct vhd_vring *msg_u64_get_vring(struct vhd_vdev *vdev,
     vring_idx = *u64 & VHOST_VRING_IDX_MASK;
 
     if (num_fds != has_fd) {
-        VHD_LOG_ERROR("unexpected #fds: %zu (expected %u)", num_fds, has_fd);
+        VHD_OBJ_ERROR(vdev, "unexpected #fds: %zu (expected %u)", num_fds,
+                      has_fd);
         return NULL;
     }
 
@@ -875,6 +879,7 @@ static void vring_start_failed_bh(void *opaque)
 static void vring_start_bh(void *opaque)
 {
     struct vhd_vring *vring = opaque;
+    struct vhd_vdev *vdev = vring->vdev;
 
     VHD_ASSERT(!vring->started_in_rq);
 
@@ -886,10 +891,10 @@ static void vring_start_bh(void *opaque)
         goto fail;
     }
 
-    vring->kick_handler = vhd_add_rq_io_handler(vring->vdev->rq, vring->kickfd,
+    vring->kick_handler = vhd_add_rq_io_handler(vdev->rq, vring->kickfd,
                                                 vring_kick, vring);
     if (!vring->kick_handler) {
-        VHD_LOG_ERROR("Could not attach kick handler");
+        VHD_OBJ_ERROR(vring, "Could not attach kick handler");
         goto fail;
     }
 
@@ -912,11 +917,11 @@ static int vhost_set_vring_kick(struct vhd_vdev *vdev, const void *payload,
         return -EINVAL;
     }
     if (num_fds == 0) {
-        VHD_LOG_ERROR("vring polling mode is not supported");
+        VHD_OBJ_ERROR(vring, "vring polling mode is not supported");
         return -ENOTSUP;
     }
     if (vring->started_in_ctl) {
-        VHD_LOG_ERROR("vring %u is already started", vring_idx(vring));
+        VHD_OBJ_ERROR(vring, "vring is already started");
         return -EISCONN;
     }
 
@@ -976,7 +981,8 @@ static int vhost_set_vring_num(struct vhd_vdev *vdev, const void *payload,
     struct vhd_vring *vring;
 
     if (num_fds || size < sizeof(*vrstate)) {
-        VHD_LOG_ERROR("malformed message size=%zu #fds=%zu", size, num_fds);
+        VHD_OBJ_ERROR(vdev, "malformed message size=%zu #fds=%zu", size,
+                      num_fds);
         return -EINVAL;
     }
 
@@ -986,7 +992,7 @@ static int vhost_set_vring_num(struct vhd_vdev *vdev, const void *payload,
     }
 
     if (vring->started_in_ctl) {
-        VHD_LOG_ERROR("vring %u is already started", vrstate->index);
+        VHD_OBJ_ERROR(vring, "vring is already started");
         return -EISCONN;
     }
 
@@ -1001,7 +1007,8 @@ static int vhost_set_vring_base(struct vhd_vdev *vdev, const void *payload,
     struct vhd_vring *vring;
 
     if (num_fds || size < sizeof(*vrstate)) {
-        VHD_LOG_ERROR("malformed message size=%zu #fds=%zu", size, num_fds);
+        VHD_OBJ_ERROR(vdev, "malformed message size=%zu #fds=%zu", size,
+                      num_fds);
         return -EINVAL;
     }
 
@@ -1011,7 +1018,7 @@ static int vhost_set_vring_base(struct vhd_vdev *vdev, const void *payload,
     }
 
     if (vring->started_in_ctl) {
-        VHD_LOG_ERROR("vring %u is already started", vrstate->index);
+        VHD_OBJ_ERROR(vring, "vring is already started");
         return -EISCONN;
     }
 
@@ -1026,7 +1033,8 @@ static int vhost_get_vring_base(struct vhd_vdev *vdev, const void *payload,
     struct vhd_vring *vring;
 
     if (num_fds || size < sizeof(*vrstate)) {
-        VHD_LOG_ERROR("malformed message size=%zu #fds=%zu", size, num_fds);
+        VHD_OBJ_ERROR(vdev, "malformed message size=%zu #fds=%zu", size,
+                      num_fds);
         return -EINVAL;
     }
 
@@ -1061,7 +1069,8 @@ static int vhost_set_vring_addr(struct vhd_vdev *vdev, const void *payload,
     struct vhd_vring *vring;
 
     if (num_fds || size < sizeof(*vraddr)) {
-        VHD_LOG_ERROR("malformed message size=%zu #fds=%zu", size, num_fds);
+        VHD_OBJ_ERROR(vdev, "malformed message size=%zu #fds=%zu", size,
+                      num_fds);
         return -EINVAL;
     }
 
@@ -1084,8 +1093,7 @@ static int vhost_set_vring_addr(struct vhd_vdev *vdev, const void *payload,
         vring->addr_cache.used != vraddr->used_addr ||
         vring->addr_cache.avail != vraddr->avail_addr ||
         vring->vq.used_gpa_base != vraddr->used_gpa_base) {
-        VHD_LOG_ERROR("changing vring %u addresses not allowed once started",
-                      vraddr->index);
+        VHD_OBJ_ERROR(vring, "changing started vring addresses not allowed");
         return -EISCONN;
     }
 
@@ -1114,7 +1122,8 @@ static int vhost_set_log_base(struct vhd_vdev *vdev, const void *payload,
     const struct vhost_user_log *log = payload;
 
     if (num_fds != 1 || size < sizeof(*log)) {
-        VHD_LOG_ERROR("malformed message size=%zu #fds=%zu", size, num_fds);
+        VHD_OBJ_ERROR(vdev, "malformed message size=%zu #fds=%zu", size,
+                      num_fds);
         return -EINVAL;
     }
 
@@ -1164,7 +1173,8 @@ static int inflight_mmap_region(struct vhd_vdev *vdev, int fd,
     buf = mmap(NULL, mmap_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if (buf == MAP_FAILED) {
         ret = -errno;
-        VHD_LOG_ERROR("mmap(%d, %zu): %s", fd, mmap_size, strerror(-ret));
+        VHD_OBJ_ERROR(vdev, "mmap(%d, %zu): %s", fd, mmap_size,
+                      strerror(-ret));
         return ret;
     }
 
@@ -1213,25 +1223,27 @@ static int vhost_get_inflight_fd(struct vhd_vdev *vdev, const void *payload,
     int ret;
 
     if (num_fds || size < sizeof(*idesc)) {
-        VHD_LOG_ERROR("malformed message size=%zu #fds=%zu", size, num_fds);
+        VHD_OBJ_ERROR(vdev, "malformed message size=%zu #fds=%zu", size,
+                      num_fds);
         return -EINVAL;
     }
 
     if (vdev->num_vrings_in_flight) {
-        VHD_LOG_ERROR("not allowed once vrings are started");
+        VHD_OBJ_ERROR(vdev, "not allowed once vrings are started");
         return -EISCONN;
     }
 
     fd = memfd_create("vhost_get_inflight_fd", MFD_CLOEXEC);
     if (fd == -1) {
         ret = -errno;
-        VHD_LOG_ERROR("memfd_create: %s", strerror(-ret));
+        VHD_OBJ_ERROR(vdev, "memfd_create: %s", strerror(-ret));
         return ret;
     }
     ret = ftruncate(fd, mmap_size);
     if (ret == -1) {
         ret = -errno;
-        VHD_LOG_ERROR("ftruncate(memfd, %zu): %s", mmap_size, strerror(-ret));
+        VHD_OBJ_ERROR(vdev, "ftruncate(memfd, %zu): %s", mmap_size,
+                      strerror(-ret));
         goto out;
     }
     ret = inflight_mmap_region(vdev, fd, queue_region_size, idesc->num_queues);
@@ -1260,23 +1272,25 @@ static int vhost_set_inflight_fd(struct vhd_vdev *vdev, const void *payload,
     int ret;
 
     if (num_fds != 1 || size < sizeof(*idesc)) {
-        VHD_LOG_ERROR("malformed message size=%zu #fds=%zu", size, num_fds);
+        VHD_OBJ_ERROR(vdev, "malformed message size=%zu #fds=%zu", size,
+                      num_fds);
         return -EINVAL;
     }
 
     if (vdev->num_vrings_in_flight) {
-        VHD_LOG_ERROR("not allowed once queues started");
+        VHD_OBJ_ERROR(vdev, "not allowed once vrings are started");
         return -EISCONN;
     }
 
     /* we never create inflight with non-zero mmap_offset */
     if (idesc->mmap_offset) {
-        VHD_LOG_ERROR("non-zero mmap offset: %lx", idesc->mmap_offset);
+        VHD_OBJ_ERROR(vdev, "non-zero mmap offset: %lx", idesc->mmap_offset);
         return -EINVAL;
     }
 
     if (idesc->mmap_size != queue_region_size * idesc->num_queues) {
-        VHD_LOG_ERROR("invalid inflight region dimensions: %zu != %zu * %u",
+        VHD_OBJ_ERROR(vdev,
+                      "invalid inflight region dimensions: %zu != %zu * %u",
                       idesc->mmap_size, queue_region_size, idesc->num_queues);
         return -EINVAL;
     }
@@ -1318,11 +1332,11 @@ static int vhost_handle_msg(struct vhd_vdev *vdev, uint32_t req,
                             const void *payload, size_t size,
                             const int *fds, size_t num_fds)
 {
-    VHD_LOG_DEBUG("Handle command %u, size %zu", req, size);
+    VHD_OBJ_DEBUG(vdev, "Handle command %u, size %zu", req, size);
 
     if (req >= sizeof(vhost_msg_handlers) / sizeof(vhost_msg_handlers[0]) ||
         !vhost_msg_handlers[req]) {
-        VHD_LOG_WARN("VHOST_USER command %u not supported", req);
+        VHD_OBJ_WARN(vdev, "VHOST_USER command %u not supported", req);
         return -ENOTSUP;
     }
 
@@ -1413,7 +1427,7 @@ static void vdev_disconnect(struct vhd_vdev *vdev)
 {
     uint16_t i;
 
-    VHD_LOG_INFO("Close connection with client, sock = %d", vdev->connfd);
+    VHD_OBJ_INFO(vdev, "Close connection with client, sock = %d", vdev->connfd);
 
     /*
      * Stop processing further requests from the client but postpone closing
@@ -1479,7 +1493,7 @@ static int server_read(void *opaque)
 
     connfd = accept4(vdev->listenfd, NULL, NULL, SOCK_NONBLOCK);
     if (connfd == -1) {
-        VHD_LOG_ERROR("accept: %s", strerror(errno));
+        VHD_OBJ_ERROR(vdev, "accept: %s", strerror(errno));
         return 0;
     }
 
@@ -1493,7 +1507,7 @@ static int server_read(void *opaque)
     vdev->connfd = connfd;
     vdev->negotiated_features = 0;
     vdev->negotiated_protocol_features = 0;
-    VHD_LOG_INFO("Connection established, sock = %d", connfd);
+    VHD_OBJ_INFO(vdev, "Connection established, sock = %d", connfd);
     return 0;
 
 close_client:
@@ -1539,7 +1553,7 @@ static void vdev_drained(struct vhd_vdev *vdev)
         /* resume listening */
         if (vhd_attach_io_handler(vdev->listen_handler) < 0) {
             /* no useful action beside putting an error message */
-            VHD_LOG_ERROR("failed to resume listening");
+            VHD_OBJ_ERROR(vdev, "failed to resume listening");
         }
     }
 }
@@ -1622,7 +1636,7 @@ int vhd_vdev_init_server(
      * only 8 bits for the vring index.
      */
     if (max_queues > VHOST_VRING_IDX_MASK + 1) {
-        VHD_LOG_ERROR("%d queues is too many", max_queues);
+        VHD_LOG_ERROR("%s: %d queues is too many", socket_path, max_queues);
         return -1;
     }
 
@@ -1706,7 +1720,7 @@ int vhd_vdev_stop_server(struct vhd_vdev *vdev,
 
     ret = vdev_submit_work_and_wait(vdev, vdev_stop, &work);
     if (ret < 0) {
-        VHD_LOG_ERROR("%s", strerror(-ret));
+        VHD_OBJ_ERROR(vdev, "%s", strerror(-ret));
     }
     return ret;
 }
