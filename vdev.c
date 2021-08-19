@@ -17,6 +17,52 @@
 #include "memmap.h"
 #include "memlog.h"
 
+#define VHOST_REQ(req) [VHOST_USER_ ## req] = #req
+static const char *const vhost_req_names[] = {
+    VHOST_REQ(GET_FEATURES),
+    VHOST_REQ(SET_FEATURES),
+    VHOST_REQ(SET_OWNER),
+    VHOST_REQ(RESET_OWNER),
+    VHOST_REQ(SET_MEM_TABLE),
+    VHOST_REQ(SET_LOG_BASE),
+    VHOST_REQ(SET_LOG_FD),
+    VHOST_REQ(SET_VRING_NUM),
+    VHOST_REQ(SET_VRING_ADDR),
+    VHOST_REQ(SET_VRING_BASE),
+    VHOST_REQ(GET_VRING_BASE),
+    VHOST_REQ(SET_VRING_KICK),
+    VHOST_REQ(SET_VRING_CALL),
+    VHOST_REQ(SET_VRING_ERR),
+    VHOST_REQ(GET_PROTOCOL_FEATURES),
+    VHOST_REQ(SET_PROTOCOL_FEATURES),
+    VHOST_REQ(GET_QUEUE_NUM),
+    VHOST_REQ(SET_VRING_ENABLE),
+    VHOST_REQ(SEND_RARP),
+    VHOST_REQ(NET_SET_MTU),
+    VHOST_REQ(SET_SLAVE_REQ_FD),
+    VHOST_REQ(IOTLB_MSG),
+    VHOST_REQ(SET_VRING_ENDIAN),
+    VHOST_REQ(GET_CONFIG),
+    VHOST_REQ(SET_CONFIG),
+    VHOST_REQ(CREATE_CRYPTO_SESSION),
+    VHOST_REQ(CLOSE_CRYPTO_SESSION),
+    VHOST_REQ(POSTCOPY_ADVISE),
+    VHOST_REQ(POSTCOPY_LISTEN),
+    VHOST_REQ(POSTCOPY_END),
+    VHOST_REQ(GET_INFLIGHT_FD),
+    VHOST_REQ(SET_INFLIGHT_FD),
+};
+#undef VHOST_REQ
+
+const char *vhost_req_name(uint32_t req)
+{
+    if (req >= sizeof(vhost_req_names) / sizeof(vhost_req_names[0]) ||
+        !vhost_req_names[req]) {
+        return "**UNKNOWN**";
+    }
+    return vhost_req_names[req];
+}
+
 static LIST_HEAD(, vhd_vdev) g_vdevs = LIST_HEAD_INITIALIZER(g_vdevs);
 
 static uint16_t vring_idx(struct vhd_vring *vring)
@@ -1336,7 +1382,7 @@ static int vhost_handle_msg(struct vhd_vdev *vdev, uint32_t req,
 
     if (req >= sizeof(vhost_msg_handlers) / sizeof(vhost_msg_handlers[0]) ||
         !vhost_msg_handlers[req]) {
-        VHD_OBJ_WARN(vdev, "VHOST_USER command %u not supported", req);
+        VHD_OBJ_WARN(vdev, "%s (%u) not supported", vhost_req_name(req), req);
         return -ENOTSUP;
     }
 
