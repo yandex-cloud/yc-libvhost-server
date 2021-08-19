@@ -482,16 +482,21 @@ static inline bool has_feature(uint64_t features_qword, size_t feature_bit)
     return features_qword & (1ull << feature_bit);
 }
 
-static void vdev_handle_start(struct vhd_vdev *vdev, bool ack_pending)
+static void vdev_handle_start(struct vhd_vdev *vdev, uint32_t req,
+                              bool ack_pending)
 {
     /* do not accept further messages until this one is fully handled */
     vhd_detach_io_handler(vdev->conn_handler);
 
     vdev->ack_pending = ack_pending;
+
+    VHD_OBJ_INFO(vdev, "%s (%u)", vhost_req_name(req), req);
 }
 
-static void vdev_handle_finish(struct vhd_vdev *vdev)
+static void vdev_handle_finish(struct vhd_vdev *vdev, uint32_t req)
 {
+    VHD_OBJ_INFO(vdev, "%s (%u)", vhost_req_name(req), req);
+
     vdev->ack_pending = false;
 
     /* resume accepting further messages if still connected */
@@ -514,7 +519,7 @@ static int vhost_send_fds(struct vhd_vdev *vdev,
     }
 
     if (handle_finish) {
-        vdev_handle_finish(vdev);
+        vdev_handle_finish(vdev, hdr->req);
     }
     return 0;
 }
@@ -564,7 +569,7 @@ static bool msg_ack_needed(struct vhd_vdev *vdev, uint32_t flags)
 static int vhost_ack(struct vhd_vdev *vdev, uint32_t req, int ret)
 {
     if (!vdev->ack_pending) {
-        vdev_handle_finish(vdev);
+        vdev_handle_finish(vdev, req);
         return 0;
     }
 
@@ -1378,8 +1383,6 @@ static int vhost_handle_msg(struct vhd_vdev *vdev, uint32_t req,
                             const void *payload, size_t size,
                             const int *fds, size_t num_fds)
 {
-    VHD_OBJ_DEBUG(vdev, "Handle command %u, size %zu", req, size);
-
     if (req >= sizeof(vhost_msg_handlers) / sizeof(vhost_msg_handlers[0]) ||
         !vhost_msg_handlers[req]) {
         VHD_OBJ_WARN(vdev, "%s (%u) not supported", vhost_req_name(req), req);
@@ -1505,7 +1508,7 @@ static int conn_read(void *opaque)
         goto recv_fail;
     }
 
-    vdev_handle_start(vdev, msg_ack_needed(vdev, hdr.flags));
+    vdev_handle_start(vdev, hdr.req, msg_ack_needed(vdev, hdr.flags));
 
     ret = vhost_handle_msg(vdev, hdr.req, &payload, hdr.size, fds, num_fds);
 
@@ -1519,7 +1522,7 @@ static int conn_read(void *opaque)
 
     return 0;
 handle_fail:
-    vdev_handle_finish(vdev);
+    vdev_handle_finish(vdev, hdr.req);
 recv_fail:
     vdev_disconnect(vdev);
     return 0;
