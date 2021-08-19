@@ -9,6 +9,7 @@
 #include <assert.h>
 #include <errno.h>
 #include <unistd.h>
+#include <stdarg.h>
 
 #define PAGE_SHIFT  12
 #define PAGE_SIZE   (1ul << PAGE_SHIFT)
@@ -148,4 +149,51 @@ static inline void *vhd_calloc(size_t nmemb, size_t size)
 static inline void vhd_free(void *p)
 {
     free(p);
+}
+
+static inline char *vhd_strdup(const char *s) __attribute__((malloc));
+static inline char *vhd_strdup(const char *s)
+{
+    size_t len;
+    char *t;
+
+    if (!s) {
+        return NULL;
+    }
+
+    len = strlen(s) + 1;
+    t = (char *)vhd_alloc(len);
+    memcpy(t, s, len);
+    return t;
+}
+
+static inline char *vhd_strdup_printf(const char *fmt, ...)
+    __attribute__((format(printf, 1, 2), malloc));
+static inline char *vhd_strdup_printf(const char *fmt, ...)
+{
+    int len;
+    size_t size;
+    char *ret;
+    va_list args;
+
+    va_start(args, fmt);
+    len = vsnprintf(NULL, 0, fmt, args);
+    va_end(args);
+
+    if (len < 0) {
+        return NULL;
+    }
+
+    size = (size_t)len + 1;
+    ret = (char *)vhd_alloc(size);
+
+    va_start(args, fmt);
+    len = vsnprintf(ret, size, fmt, args);
+    va_end(args);
+
+    if (len < 0) {
+        vhd_free(ret);
+        return NULL;
+    }
+    return ret;
 }
