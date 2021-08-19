@@ -1392,12 +1392,20 @@ static void vdev_cleanup(struct vhd_vdev *vdev)
 
 static void vhd_vdev_release(struct vhd_vdev *vdev)
 {
+    uint16_t i;
+
     LIST_REMOVE(vdev, vdev_list);
+
+    for (i = 0; i < vdev->num_queues; i++) {
+        vhd_free(vdev->vrings[i].log_tag);
+    }
     vhd_free(vdev->vrings);
 
     if (vdev->release_cb) {
         vdev->release_cb(vdev->release_arg);
     }
+
+    vhd_free(vdev->log_tag);
     vdev->type->free(vdev);
 }
 
@@ -1635,10 +1643,13 @@ int vhd_vdev_init_server(
         .num_queues = max_queues,
     };
 
+    vdev->log_tag = vhd_strdup(socket_path);
+
     vdev->vrings = vhd_calloc(vdev->num_queues, sizeof(vdev->vrings[0]));
     for (i = 0; i < vdev->num_queues; i++) {
         vdev->vrings[i] = (struct vhd_vring) {
             .vdev = vdev,
+            .log_tag = vhd_strdup_printf("%s[%u]", socket_path, i),
             .callfd = -1,
             .kickfd = -1,
             .errfd = -1,

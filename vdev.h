@@ -40,6 +40,8 @@ struct vhd_work;
  * Devices are polymorphic through their respective types.
  */
 struct vhd_vdev {
+    char *log_tag;
+
     /* Accosiated client private data */
     void *priv;
 
@@ -143,6 +145,7 @@ int vhd_vdev_stop_server(struct vhd_vdev *vdev,
  */
 struct vhd_vring {
     struct vhd_vdev *vdev;
+    char *log_tag;
 
     int kickfd;
     int callfd;
