@@ -60,7 +60,7 @@ static int add_buffer(struct virtio_virtq *vq, void *addr, size_t len,
          * We always reserve space beforehand, so this is a descriptor
          * loop
          */
-        VHD_LOG_ERROR("Descriptor loop found, vring is broken");
+        VHD_OBJ_ERROR(vq, "Descriptor loop found, vring is broken");
         return -ENOSPC;
     }
 
@@ -79,7 +79,7 @@ static int map_buffer(struct virtio_virtq *vq, uint64_t gpa, size_t len,
 {
     void *addr = gpa_range_to_ptr(vq->mm, gpa, len);
     if (!addr) {
-        VHD_LOG_ERROR("Failed to map GPA 0x%lx, vring is broken", gpa);
+        VHD_OBJ_ERROR(vq, "Failed to map GPA 0x%lx, vring is broken", gpa);
         return -EINVAL;
     }
 
@@ -238,7 +238,7 @@ static int virtq_inflight_resubmit(struct virtio_virtq *vq,
             inflight_resubmit_compare);
 
     res = 0;
-    VHD_LOG_DEBUG("cnt = %d inflight requests should be resubmitted", cnt);
+    VHD_OBJ_DEBUG(vq, "cnt = %d inflight requests should be resubmitted", cnt);
     for (i = 0; i < cnt; i++) {
         res = virtq_dequeue_one(vq, resubmit_array[i].head,
                                 handle_buffers_cb, arg, true);
@@ -272,7 +272,7 @@ static int walk_indirect_table(struct virtio_virtq *vq,
      */
 
     if (table_desc->len == 0 || table_desc->len % sizeof(desc)) {
-        VHD_LOG_ERROR("Bad indirect descriptor table length %d",
+        VHD_OBJ_ERROR(vq, "Bad indirect descriptor table length %d",
                       table_desc->len);
         return -EINVAL;
     }
@@ -280,7 +280,8 @@ static int walk_indirect_table(struct virtio_virtq *vq,
     void *mapped_table = gpa_range_to_ptr(vq->mm, table_desc->addr,
                                           table_desc->len);
     if (!mapped_table) {
-        VHD_LOG_ERROR("Bad guest address range on indirect descriptor table");
+        VHD_OBJ_ERROR(vq,
+                      "Bad guest address range on indirect descriptor table");
         return -EINVAL;
     }
 
@@ -294,7 +295,7 @@ static int walk_indirect_table(struct virtio_virtq *vq,
     do {
         /* Descriptor should point inside indirect table */
         if (pdesc < pdesc_first || pdesc > pdesc_last) {
-            VHD_LOG_ERROR("Indirect descriptor %p is out of table bounds",
+            VHD_OBJ_ERROR(vq, "Indirect descriptor %p is out of table bounds",
                           pdesc);
             return -EINVAL;
         }
@@ -318,7 +319,7 @@ static int walk_indirect_table(struct virtio_virtq *vq,
         res = map_buffer(vq, desc.addr, desc.len,
                          desc.flags & VIRTQ_DESC_F_WRITE);
         if (res != 0) {
-            VHD_LOG_ERROR("Descriptor loop found, vring is broken");
+            VHD_OBJ_ERROR(vq, "Descriptor loop found, vring is broken");
             return -EINVAL;
         }
 
@@ -333,8 +334,8 @@ static int walk_indirect_table(struct virtio_virtq *vq,
      * looks iffy.
      */
     if (chain_len != max_indirect_descs) {
-        VHD_LOG_INFO("Indirect chain length %d is not equal to table size %d, "
-                     "which looks strange", chain_len, max_indirect_descs);
+        VHD_OBJ_INFO(vq, "Indirect chain length %d is not equal to table size "
+                     "%d, which looks strange", chain_len, max_indirect_descs);
     }
 
     return 0;
@@ -351,13 +352,13 @@ int virtq_dequeue_many(struct virtio_virtq *vq,
     time_t now;
 
     if (virtq_is_broken(vq)) {
-        VHD_LOG_ERROR("virtqueue is broken, cannot process");
+        VHD_OBJ_ERROR(vq, "virtqueue is broken, cannot process");
         return -ENODEV;
     }
 
     if (vq->inflight_check) {
         /* Check for the inflight requests once at the start. */
-        VHD_LOG_DEBUG("resubmit inflight requests, if any");
+        VHD_OBJ_DEBUG(vq, "resubmit inflight requests, if any");
         res = virtq_inflight_resubmit(vq, handle_buffers_cb, arg);
         if (res) {
             goto queue_broken;
@@ -430,7 +431,7 @@ static int virtq_dequeue_one(struct virtio_virtq *vq, uint16_t head,
     do {
         /* Check that descriptor is in-bounds */
         if (descnum >= vq->qsz) {
-            VHD_LOG_ERROR("Descriptor num %d is out-of-bounds", descnum);
+            VHD_OBJ_ERROR(vq, "Descriptor num %d is out-of-bounds", descnum);
             return -EINVAL;
         }
 
@@ -439,7 +440,7 @@ static int virtq_dequeue_one(struct virtio_virtq *vq, uint16_t head,
          * problems.
          */
         memcpy(&desc, vq->desc + descnum, sizeof(desc));
-        VHD_LOG_DEBUG("head = %d: addr = 0x%llx, len = %d", head,
+        VHD_OBJ_DEBUG(vq, "head = %d: addr = 0x%llx, len = %d", head,
                       (unsigned long long) desc.addr, desc.len);
 
         if (desc.flags & VIRTQ_DESC_F_INDIRECT) {
@@ -448,8 +449,8 @@ static int virtq_dequeue_one(struct virtio_virtq *vq, uint16_t head,
              * VIRTQ_DESC_F_NEXT in flags
              */
             if (desc.flags & VIRTQ_DESC_F_NEXT) {
-                VHD_LOG_ERROR(
-                    "Can't handle indirect descriptors and next flag");
+                VHD_OBJ_ERROR(vq, "Can't handle indirect descriptors "
+                              "and next flag");
                 return -EINVAL;
             }
 
@@ -556,7 +557,7 @@ void virtq_commit_buffers(struct virtio_virtq *vq, struct virtio_iov *iov)
     vq->used->idx++;
 
     virtq_inflight_used_commit(vq, used->id);
-    VHD_LOG_DEBUG("head = %d", priv->used_head);
+    VHD_OBJ_DEBUG(vq, "head = %d", priv->used_head);
 
     /* use memmap the request was started with rather than the current one */
     if (vq->log) {

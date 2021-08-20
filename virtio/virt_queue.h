@@ -23,6 +23,8 @@ struct vhd_memory_map;
 struct vhd_memory_log;
 
 struct virtio_virtq {
+    const char *log_tag;
+
     uint32_t flags;
     struct virtq_desc *desc;
     struct virtq_avail *avail;
