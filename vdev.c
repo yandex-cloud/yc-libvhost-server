@@ -985,6 +985,7 @@ static int vhost_set_vring_kick(struct vhd_vdev *vdev, const void *payload,
     vring->kickfd = dup(fds[0]);
 
     vring_sync_to_virtq(vring);
+    vring->vq.log_tag = vring->log_tag;
     virtio_virtq_init(&vring->vq);
 
     vring->started_in_ctl = true;
