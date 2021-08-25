@@ -93,7 +93,11 @@ static void virtq_inflight_avail_update(struct virtio_virtq *vq, uint16_t head)
         return;
     }
 
-    VHD_ASSERT(!vq->inflight_region->desc[head].inflight);
+    if (vq->inflight_region->desc[head].inflight) {
+        VHD_OBJ_WARN(vq, "iflight[%u]=%u (expected 0)", head,
+                     vq->inflight_region->desc[head].inflight);
+    }
+
     vq->inflight_region->desc[head].counter = vq->req_cnt;
     vq->req_cnt++;
     vq->inflight_region->desc[head].inflight = 1;
@@ -117,7 +121,11 @@ static void virtq_inflight_used_commit(struct virtio_virtq *vq, uint16_t head)
         return;
     }
 
-    VHD_ASSERT(vq->inflight_region->desc[head].inflight);
+    if (vq->inflight_region->desc[head].inflight != 1) {
+        VHD_OBJ_WARN(vq, "iflight[%u]=%u (expected 1)", head,
+                     vq->inflight_region->desc[head].inflight);
+    }
+
     vq->inflight_region->desc[head].inflight = 0;
     /*
      * Make sure used_idx is stored after the desc content, so that the next
