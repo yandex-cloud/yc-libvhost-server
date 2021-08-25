@@ -87,6 +87,7 @@ static size_t vring_inflight_buf_size(uint16_t num)
 
 static int vring_kick(void *opaque)
 {
+    int ret;
     struct vhd_vring *vring = opaque;
     struct vhd_vdev *vdev = vring->vdev;
 
@@ -96,7 +97,19 @@ static int vring_kick(void *opaque)
      * signal eventfd again while we were processing
      */
     vhd_clear_eventfd(vring->kickfd);
-    return vdev->type->dispatch_requests(vdev, vring, vdev->rq);
+
+    ret = vdev->type->dispatch_requests(vdev, vring, vdev->rq);
+    if (ret < 0) {
+        /*
+         * seems like full-fledged vring stop may surprize the client, so just
+         * disable notifications and effectively suspend the vring
+         */
+        VHD_OBJ_ERROR(vring, "dispatch_requests: %s, suspending vring",
+                      strerror(-ret));
+        vhd_detach_io_handler(vring->kick_handler);
+    }
+
+    return 0;
 }
 
 static int vring_update_shadow_vq_addrs(struct vhd_vring *vring,
