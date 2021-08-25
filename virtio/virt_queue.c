@@ -466,15 +466,6 @@ static int virtq_dequeue_one(struct virtio_virtq *vq, uint16_t head,
             if (res != 0) {
                 return res;
             }
-
-            /*
-             * Descriptor chain should always terminate on indirect,
-             * which means we should not see NEXT flag anymore, and we have
-             * checked exactly that above.
-             * We document our assumption with an assert here.
-             */
-            VHD_ASSERT((desc.flags & VIRTQ_DESC_F_NEXT) == 0);
-
         } else {
             res = map_buffer(vq, desc.addr, desc.len,
                              desc.flags & VIRTQ_DESC_F_WRITE);
