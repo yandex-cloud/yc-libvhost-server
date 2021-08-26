@@ -291,19 +291,19 @@ static int handle_events(struct vhd_event_loop *evloop, int nevents)
 
 struct vhd_event_loop *vhd_create_event_loop(size_t max_events)
 {
-    int notifyfd = -1;
-    int epollfd = -1;
+    int notifyfd;
+    int epollfd;
 
     epollfd = epoll_create1(0);
     if (epollfd < 0) {
-        VHD_LOG_ERROR("Can't create epoll fd: %s", strerror(errno));
-        goto error_out;
+        VHD_LOG_ERROR("epoll_create1: %s", strerror(errno));
+        return NULL;
     }
 
     notifyfd = eventfd(0, EFD_NONBLOCK);
     if (notifyfd < 0) {
         VHD_LOG_ERROR("eventfd() failed: %s", strerror(errno));
-        goto error_out;
+        goto close_epoll;
     }
 
     /* Register notify eventfd, make sure it is level-triggered */
@@ -311,26 +311,27 @@ struct vhd_event_loop *vhd_create_event_loop(size_t max_events)
         .events = EPOLLIN,
     };
     if (epoll_ctl(epollfd, EPOLL_CTL_ADD, notifyfd, &ev) == -1) {
-        VHD_LOG_ERROR("Can't add event: %s", strerror(errno));
+        VHD_LOG_ERROR("epoll_ctl(EPOLL_CTL_ADD, notifyfd): %s",
+                      strerror(errno));
         goto error_out;
     }
 
     struct vhd_event_loop *evloop = vhd_alloc(sizeof(*evloop));
-    evloop->epollfd = epollfd;
-    evloop->notifyfd = notifyfd;
-    atomic_set(&evloop->notified, false);
-    evloop->is_terminated = false;
-    evloop->max_events = max_events + 1; /* +1 for notify eventfd */
-    evloop->events = vhd_calloc(sizeof(evloop->events[0]), evloop->max_events);
+    max_events++; /* +1 for notify eventfd */
+    *evloop = (struct vhd_event_loop) {
+        .epollfd = epollfd,
+        .notifyfd = notifyfd,
+        .max_events = max_events,
+        .events = vhd_calloc(sizeof(evloop->events[0]), max_events),
+    };
     SLIST_INIT(&evloop->bh_list);
-    evloop->num_events_attached = 0;
-    atomic_set(&evloop->has_home_thread, false);
     SLIST_INIT(&evloop->deleted_handlers);
 
     return evloop;
 
 error_out:
     close(notifyfd);
+close_epoll:
     close(epollfd);
     return NULL;
 }
