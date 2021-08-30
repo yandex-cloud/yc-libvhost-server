@@ -50,10 +50,12 @@ static void complete_io(struct vhd_bio *bio)
 {
     struct virtio_blk_io *vbio = containerof(bio, struct virtio_blk_io, bio);
 
-    set_status(vbio->iov, translate_status(bio->status));
+    if (likely(bio->status != VHD_BDEV_CANCELED)) {
+        set_status(vbio->iov, translate_status(bio->status));
 
-    virtq_commit_buffers(vbio->vq, vbio->iov);
-    virtq_notify(vbio->vq);
+        virtq_commit_buffers(vbio->vq, vbio->iov);
+        virtq_notify(vbio->vq);
+    }
 
     vhd_free(vbio);
 }

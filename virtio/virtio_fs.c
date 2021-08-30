@@ -42,8 +42,10 @@ static void complete_request(struct vhd_bio *bio)
 {
     struct virtio_fs_io *vbio = VIRTIO_VBIO_FROM_BIO(bio);
 
-    virtq_commit_buffers(vbio->vq, vbio->iov);
-    virtq_notify(vbio->vq);
+    if (likely(bio->status != VHD_BDEV_CANCELED)) {
+        virtq_commit_buffers(vbio->vq, vbio->iov);
+        virtq_notify(vbio->vq);
+    }
 
     vhd_free(vbio);
 }
