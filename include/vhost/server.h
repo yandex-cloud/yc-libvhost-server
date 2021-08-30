@@ -102,6 +102,7 @@ bool vhd_dequeue_request(struct vhd_request_queue *rq,
 enum vhd_bdev_io_result {
     VHD_BDEV_SUCCESS = 0,
     VHD_BDEV_IOERR,
+    VHD_BDEV_CANCELED,
 };
 
 /*
