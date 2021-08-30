@@ -111,6 +111,14 @@ void vhd_run_in_rq(struct vhd_request_queue *rq, void (*cb)(void *),
     vhd_bh_schedule_oneshot(rq->evloop, cb, opaque);
 }
 
+static void req_complete(struct vhd_bio *bio)
+{
+    /* completion_handler destroys bio. save vring for unref */
+    struct vhd_vring *vring = bio->vring;
+    bio->completion_handler(bio);
+    vhd_vring_dec_in_flight(vring);
+}
+
 static void rq_complete_bh(void *opaque)
 {
     struct vhd_request_queue *rq = opaque;
@@ -137,11 +145,7 @@ static void rq_complete_bh(void *opaque)
             break;
         }
         SLIST_REMOVE_HEAD(&bio_list, completion_link);
-
-        /* completion_handler destroys bio. save vring for unref */
-        struct vhd_vring *vring = bio->vring;
-        bio->completion_handler(bio);
-        vhd_vring_dec_in_flight(vring);
+        req_complete(bio);
     }
 }
 
