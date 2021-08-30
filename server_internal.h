@@ -15,12 +15,16 @@ struct vhd_io_handler *vhd_add_rq_io_handler(struct vhd_request_queue *rq,
 
 struct vhd_vdev;
 struct vhd_bio;
+struct vhd_vring;
 
 /**
  * Enqueue block IO request
  */
 int vhd_enqueue_block_request(struct vhd_request_queue *rq,
                               struct vhd_bio *bio);
+
+void vhd_cancel_queued_requests(struct vhd_request_queue *rq,
+                                const struct vhd_vring *vring);
 
 /**
  * Run callback in request queue

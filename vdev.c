@@ -299,6 +299,10 @@ static void vring_stop_bh(void *opaque)
     vring->kick_handler = NULL;
     vring->started_in_rq = false;
 
+    if (vring->disconnecting) {
+        vhd_cancel_queued_requests(vring->vdev->rq, vring);
+    }
+
     vhd_run_in_ctl(vring_mark_stopped_bh, vring);
     if (!vring->num_in_flight) {
         vhd_run_in_ctl(vring_mark_drained_bh, vring);

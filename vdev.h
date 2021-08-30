@@ -135,7 +135,9 @@ int vhd_vdev_init_server(
     int (*unmap_cb)(void *addr, size_t len, void *priv));
 
 /**
- * Stop vhost device
+ * Stop vhost device.  Once this returns no more new requests will reach the
+ * backend.  @release_cb(@release_arg) will be called once all requests are
+ * completed and the associated resources released.
  */
 int vhd_vdev_stop_server(struct vhd_vdev *vdev,
                          void (*release_cb)(void *), void *release_arg);
