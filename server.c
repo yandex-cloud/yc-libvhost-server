@@ -218,6 +218,22 @@ int vhd_enqueue_block_request(struct vhd_request_queue *rq, struct vhd_bio *bio)
     return 0;
 }
 
+void vhd_cancel_queued_requests(struct vhd_request_queue *rq,
+                                const struct vhd_vring *vring)
+{
+    struct vhd_bio *bio;
+
+    TAILQ_FOREACH(bio, &rq->submission, submission_link) {
+        if (unlikely(bio->vring == vring)) {
+            struct vhd_bio *next = TAILQ_NEXT(bio, submission_link);
+            TAILQ_REMOVE(&rq->submission, bio, submission_link);
+            bio->status = VHD_BDEV_CANCELED;
+            req_complete(bio);
+            bio = next;
+        }
+    }
+}
+
 /*
  * can be called from arbitrary thread; will schedule completion on the rq
  * event loop
