@@ -33,6 +33,11 @@
 #   define countof(a) (sizeof(a) / sizeof(*a))
 #endif
 
+#ifndef likely
+#define likely(x) __builtin_expect(!!(x), 1)
+#define unlikely(x) __builtin_expect(!!(x), 0)
+#endif
+
 #ifdef __cplusplus
 #   define VHD_STATIC_ASSERT(pred) static_assert((pred), __STRINGIFY(pred))
 #elif (__STDC_VERSION__ >= 201112L)
