@@ -112,6 +112,11 @@ static int vring_kick(void *opaque)
     return 0;
 }
 
+/*
+ * Resolve (and thus validate) the addresses used by the virtq, and record them
+ * in the shadow structure, in the control event loop, to be later propagated
+ * into the actual virtq in the dataplane.
+ */
 static int vring_update_shadow_vq_addrs(struct vhd_vring *vring,
                                         struct vhd_memory_map *mm)
 {
@@ -146,6 +151,26 @@ static void vring_sync_to_virtq(struct vhd_vring *vring)
     virtq_set_notify_fd(&vring->vq, vring->callfd);
 }
 
+/*
+ * There are several counters of vrings in particular state:
+ *
+ * ->num_vrings_handling_msg
+ *    counts vrings that are performing some state transitions in response to a
+ *    client message; once it drops to zero, the handling of this message is
+ *    finished, the reply is sent if necessary, and the device resumes
+ *    accepting further messages
+ *
+ * ->num_vrings_started
+ *    counts vrings that have been started and haven't acknowledged being
+ *    stopped yet; once it drops to zero, the device is safe to assume no more
+ *    requests will be submitted to the backend, and therefore release the
+ *    semaphore and let vhd_vdev_stop_server return
+ *
+ * ->num_vrings_in_flight
+ *    counts vrings that have any potential to have requests in flight: it's
+ *    incremented when a vring is started and decremented when a stopped vring
+ *    reports there are no requests remaining in flight
+ */
 static void vring_handle_msg(struct vhd_vring *vring,
                              void (*handler_bh)(void *))
 {
@@ -1516,6 +1541,11 @@ static void vdev_disconnect(struct vhd_vdev *vdev)
     vdev_maybe_drained(vdev);
 }
 
+/*
+ * Read a vhost-user message and begin handling it.  Suspend reading further
+ * messages until the current one is finished processing and the reply is sent
+ * back, if necessary.
+ */
 static int conn_read(void *opaque)
 {
     struct vhd_vdev *vdev = opaque;
@@ -1551,9 +1581,8 @@ recv_fail:
 }
 
 /*
- * Accept connection and add the client socket to the IO polling.
- * Will close server socket on first connection since we're only support
- * 1 active master.
+ * Accept a client connection and suspend accepting further connections until
+ * the current client is disconnected.
  */
 static int server_read(void *opaque)
 {
@@ -1604,6 +1633,9 @@ static void vdev_stop_listening(struct vhd_vdev *vdev)
     replace_fd(&vdev->listenfd, -1);
 }
 
+/*
+ * Action to perform when all vrings in the device acknowledged disconnection.
+ */
 static void vdev_vrings_stopped(struct vhd_vdev *vdev)
 {
     /* vdev is being shut down */
@@ -1613,6 +1645,11 @@ static void vdev_vrings_stopped(struct vhd_vdev *vdev)
     }
 }
 
+/*
+ * Action to perform when the device is fully drained, i.e. when it's finished
+ * handling all dataplane requests and all control messages and no longer
+ * connected to a client.
+ */
 static void vdev_drained(struct vhd_vdev *vdev)
 {
     vdev_cleanup(vdev);
@@ -1763,7 +1800,7 @@ static void vdev_stop(struct vhd_vdev *vdev, void *opaque)
    vdev->release_cb = work->release_cb;
    vdev->release_arg = work->release_arg;
 
-    vdev_stop_listening(vdev);
+   vdev_stop_listening(vdev);
 
     /*
      * If a client was connected initiate full-fledged disconnect with stopping
