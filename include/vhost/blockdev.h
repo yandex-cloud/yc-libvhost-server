@@ -33,6 +33,8 @@ struct vhd_bdev_info {
     /* Device size in blocks */
     uint64_t total_blocks;
 
+    bool readonly;
+
     /* Gets called after mapping guest memory region */
     int (*map_cb)(void *addr, size_t len, void *priv);
 

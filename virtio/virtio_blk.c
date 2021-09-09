@@ -162,6 +162,12 @@ static int handle_inout(struct virtio_blk_dev *dev,
         return -EINVAL;
     }
 
+    if (dev->bdev->readonly && req->type == VIRTIO_BLK_T_OUT) {
+        VHD_LOG_ERROR("Write request to readonly device");
+        fail_request(vq, iov);
+        return -EINVAL;
+    }
+
     struct virtio_blk_io *vbio = vhd_zalloc(sizeof(*vbio));
     vbio->vq = vq;
     vbio->iov = iov;
