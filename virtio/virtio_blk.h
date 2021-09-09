@@ -10,6 +10,7 @@ extern "C" {
     (1UL << VIRTIO_F_RING_INDIRECT_DESC) | \
     (1UL << VIRTIO_F_VERSION_1) | \
     (1UL << VIRTIO_BLK_F_SEG_MAX) | \
+    (1UL << VIRTIO_BLK_F_GEOMETRY) | \
     (1UL << VIRTIO_BLK_F_BLK_SIZE) | \
     (1UL << VIRTIO_BLK_F_TOPOLOGY) | \
     (1UL << VIRTIO_BLK_F_MQ)))

@@ -289,6 +289,17 @@ int virtio_blk_init_dev(
     struct vhd_bdev_info *bdev,
     virtio_blk_io_dispatch *dispatch)
 {
+    /*
+     * Here we use same max values like we did for blockstor-plugin.
+     * But it seems that the real world max values are:
+     */
+    /* 63 for sectors */
+    const uint8_t max_sectors = 255;
+    /* 16 for heads */
+    const uint8_t max_heads = 255;
+    /* 16383 for cylinders */
+    const uint16_t max_cylinders = 65535;
+
     /* block size should be a multiple of vblk sector size */
     if (!bdev->block_size ||
         (bdev->block_size & (VIRTIO_BLK_SECTOR_SIZE - 1))) {
@@ -323,6 +334,13 @@ int virtio_blk_init_dev(
      * and vhost-user-blk in both directions.
      */
      dev->config.seg_max = 128 - 2;
+
+    dev->config.geometry.sectors = MIN(dev->config.capacity, max_sectors);
+    dev->config.geometry.heads =
+        MIN(1 + (dev->config.capacity - 1) / max_sectors, max_heads);
+    dev->config.geometry.cylinders =
+        MIN(1 + (dev->config.capacity - 1) / (max_sectors * max_heads),
+            max_cylinders);
 
     return 0;
 }
