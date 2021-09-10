@@ -313,5 +313,16 @@ int virtio_blk_init_dev(
     dev->config.topology.min_io_size = 1;
     dev->config.topology.opt_io_size = 0;
 
+    /*
+     * Hardcode seg_max to 126. The same way like it's done for virtio-blk in
+     * qemu 2.12 which is used by blockstor-plugin.
+     * Although, this is an error prone approch which leads to the problems
+     * when queue size != 128
+     * (see https://www.mail-archive.com/qemu-devel@nongnu.org/msg668144.html)
+     * we have to use it to provide migration compatibility between virtio-blk
+     * and vhost-user-blk in both directions.
+     */
+     dev->config.seg_max = 128 - 2;
+
     return 0;
 }

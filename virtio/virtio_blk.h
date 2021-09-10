@@ -9,6 +9,7 @@ extern "C" {
 #define VIRTIO_BLK_DEFAULT_FEATURES ((uint64_t)( \
     (1UL << VIRTIO_F_RING_INDIRECT_DESC) | \
     (1UL << VIRTIO_F_VERSION_1) | \
+    (1UL << VIRTIO_BLK_F_SEG_MAX) | \
     (1UL << VIRTIO_BLK_F_BLK_SIZE) | \
     (1UL << VIRTIO_BLK_F_TOPOLOGY) | \
     (1UL << VIRTIO_BLK_F_MQ)))
@@ -16,7 +17,6 @@ extern "C" {
     /*
      * TODO: can implement size_max and seg_max to better control request limits
      * (1UL << VIRTIO_BLK_F_SIZE_MAX) | \
-     * (1UL << VIRTIO_BLK_F_SEG_MAX) | \
      */
 
 struct vhd_bdev_info;
