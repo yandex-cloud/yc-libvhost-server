@@ -333,7 +333,7 @@ int virtio_blk_init_dev(
      * we have to use it to provide migration compatibility between virtio-blk
      * and vhost-user-blk in both directions.
      */
-     dev->config.seg_max = 128 - 2;
+    dev->config.seg_max = 128 - 2;
 
     dev->config.geometry.sectors = MIN(dev->config.capacity, max_sectors);
     dev->config.geometry.heads =
