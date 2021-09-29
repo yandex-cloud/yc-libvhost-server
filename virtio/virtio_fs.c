@@ -44,7 +44,6 @@ static void complete_request(struct vhd_bio *bio)
 
     if (likely(bio->status != VHD_BDEV_CANCELED)) {
         virtq_commit_buffers(vbio->vq, vbio->iov);
-        virtq_notify(vbio->vq);
     }
 
     vhd_free(vbio);

@@ -540,6 +540,14 @@ static void vhd_log_modified(struct virtio_virtq *vq,
     }
 }
 
+static void virtq_notify(struct virtio_virtq *vq)
+{
+    /* TODO: check for notification mask! */
+    if (vq->notify_fd != -1) {
+        eventfd_write(vq->notify_fd, 1);
+    }
+}
+
 void virtq_commit_buffers(struct virtio_virtq *vq, struct virtio_iov *iov)
 {
     /* Put buffer head index and len into used ring */
@@ -566,14 +574,8 @@ void virtq_commit_buffers(struct virtio_virtq *vq, struct virtio_iov *iov)
     /* matched with ref in virtq_dequeue_one */
     vhd_memmap_unref(priv->mm);
     vhd_free(priv);
-}
 
-void virtq_notify(struct virtio_virtq *vq)
-{
-    /* TODO: check for notification mask! */
-    if (vq->notify_fd != -1) {
-        eventfd_write(vq->notify_fd, 1);
-    }
+    virtq_notify(vq);
 }
 
 void virtq_set_notify_fd(struct virtio_virtq *vq, int fd)
