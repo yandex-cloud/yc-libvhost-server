@@ -540,12 +540,17 @@ static void vhd_log_modified(struct virtio_virtq *vq,
     }
 }
 
-static void virtq_notify(struct virtio_virtq *vq)
+static void virtq_do_notify(struct virtio_virtq *vq)
 {
     /* TODO: check for notification mask! */
     if (vq->notify_fd != -1) {
         eventfd_write(vq->notify_fd, 1);
     }
+}
+
+void virtq_notify(struct virtio_virtq *vq)
+{
+    virtq_do_notify(vq);
 }
 
 void virtq_commit_buffers(struct virtio_virtq *vq, struct virtio_iov *iov)
@@ -589,7 +594,7 @@ void virtq_set_notify_fd(struct virtio_virtq *vq, int fd)
      * And on reconnect connection may have been lost before the server has
      * had a chance to signal guest.
      */
-    virtq_notify(vq);
+    virtq_do_notify(vq);
 }
 
 void virtio_virtq_get_stat(struct virtio_virtq *vq,
