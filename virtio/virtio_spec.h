@@ -42,6 +42,7 @@ struct virtq_avail {
     le16 flags;
     le16 idx;
     le16 ring[]; /* Queue Size */
+    /* le16 used_event; Only if VIRTIO_F_EVENT_IDX */
 };
 VHD_STATIC_ASSERT(sizeof(struct virtq_avail) == 4);
 
@@ -59,6 +60,7 @@ struct virtq_used {
     le16 flags;
     le16 idx;
     struct virtq_used_elem ring[]; /* Queue Size */
+    /* le16 avail_event; Only if VIRTIO_F_EVENT_IDX */
 };
 VHD_STATIC_ASSERT(sizeof(struct virtq_used) == 4);
 

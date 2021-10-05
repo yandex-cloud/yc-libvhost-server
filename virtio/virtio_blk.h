@@ -8,6 +8,7 @@ extern "C" {
 
 #define VIRTIO_BLK_DEFAULT_FEATURES ((uint64_t)( \
     (1UL << VIRTIO_F_RING_INDIRECT_DESC) | \
+    (1UL << VIRTIO_F_RING_EVENT_IDX) | \
     (1UL << VIRTIO_F_VERSION_1) | \
     (1UL << VIRTIO_BLK_F_SEG_MAX) | \
     (1UL << VIRTIO_BLK_F_GEOMETRY) | \
