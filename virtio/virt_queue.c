@@ -542,7 +542,6 @@ static void vhd_log_modified(struct virtio_virtq *vq,
 
 static void virtq_do_notify(struct virtio_virtq *vq)
 {
-    /* TODO: check for notification mask! */
     if (vq->notify_fd != -1) {
         eventfd_write(vq->notify_fd, 1);
     }
@@ -550,7 +549,16 @@ static void virtq_do_notify(struct virtio_virtq *vq)
 
 void virtq_notify(struct virtio_virtq *vq)
 {
-    virtq_do_notify(vq);
+    /*
+     * Virtio specification v1.0, 5.1.6.2.3:
+     * Often a driver will suppress transmission interrupts using the
+     * VIRTQ_AVAIL_F_NO_INTERRUPT flag (see 3.2.2 Receiving Used Buffers
+     * From The Device) and check for used packets in the transmit path
+     * of following packets.
+     */
+    if (!(vq->avail->flags & VIRTQ_AVAIL_F_NO_INTERRUPT)) {
+        virtq_do_notify(vq);
+    }
 }
 
 void virtq_commit_buffers(struct virtio_virtq *vq, struct virtio_iov *iov)
