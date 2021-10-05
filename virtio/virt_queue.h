@@ -53,6 +53,13 @@ struct virtio_virtq {
      */
     bool broken;
 
+
+    /*
+     * If set, VIRTIO_F_RING_EVENT_IDX is negotiated for this queue and
+     * avail/used_event fields must be used for notification.
+     */
+    bool has_event_idx;
+
     /*
      * eventfd for used buffers notification.
      * can be reset after virtq is started.

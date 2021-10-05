@@ -678,6 +678,7 @@ static int vhost_set_features(struct vhd_vdev *vdev, const void *payload,
 {
     uint16_t i;
     const uint64_t *features = payload;
+    bool has_event_idx = has_feature(*features, VIRTIO_F_RING_EVENT_IDX);
 
     /*
      * VHOST_USER_F_PROTOCOL_FEATURES normally doesn't need negotiation: it's just
@@ -710,6 +711,9 @@ static int vhost_set_features(struct vhd_vdev *vdev, const void *payload,
 
     if (!vdev->num_vrings_in_flight) {
         vdev->negotiated_features = *features;
+        for (i = 0; i < vdev->num_queues; i++) {
+            vdev->vrings[i].vq.has_event_idx = has_event_idx;
+        }
         return set_features_complete(vdev);
     }
 

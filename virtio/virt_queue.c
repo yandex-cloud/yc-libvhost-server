@@ -24,6 +24,17 @@ struct virtq_iov_private {
     struct virtio_iov iov;
 };
 
+static inline uint16_t virtq_get_used_event(struct virtio_virtq *vq)
+{
+    return vq->avail->ring[vq->qsz];
+}
+
+static inline void virtq_set_avail_event(struct virtio_virtq *vq,
+                                         uint16_t avail_idx)
+{
+    *(le16 *)&vq->used->ring[vq->qsz] = avail_idx;
+}
+
 static int virtq_dequeue_one(struct virtio_virtq *vq, uint16_t head,
                              virtq_handle_buffers_cb handle_buffers_cb,
                              void *arg, bool resubmit);
@@ -357,6 +368,7 @@ int virtq_dequeue_many(struct virtio_virtq *vq,
     uint16_t head;
     uint16_t i;
     uint16_t num_avail;
+    uint16_t avail, avail2;
     time_t now;
 
     if (virtq_is_broken(vq)) {
@@ -387,7 +399,23 @@ int virtq_dequeue_many(struct virtio_virtq *vq,
      * Limit this run to initial number of advertised descriptors.
      * TODO: limit it better in client
      */
-    num_avail = vq->avail->idx - vq->last_avail;
+    avail = vq->avail->idx;
+    smp_mb(); /* avail->idx read followed by avail_event write */
+    if (vq->has_event_idx) {
+        while (true) {
+            virtq_set_avail_event(vq, avail);
+            smp_mb(); /* avail_event write followed by avail->idx read */
+            avail2 = vq->avail->idx;
+            if (avail2 == avail) {
+                break;
+            }
+            smp_mb(); /* avail->idx read followed by avail_event write */
+            avail = avail2;
+        }
+    }
+
+    num_avail = avail - vq->last_avail;
+
     if (!num_avail) {
         vq->stat.metrics.dispatch_empty++;
         return 0;
@@ -549,14 +577,34 @@ static void virtq_do_notify(struct virtio_virtq *vq)
 
 void virtq_notify(struct virtio_virtq *vq)
 {
+    if (!vq->has_event_idx) {
+        /*
+         * Virtio specification v1.0, 5.1.6.2.3:
+         * Often a driver will suppress transmission interrupts using the
+         * VIRTQ_AVAIL_F_NO_INTERRUPT flag (see 3.2.2 Receiving Used Buffers
+         * From The Device) and check for used packets in the transmit path
+         * of following packets.
+         */
+        if (!(vq->avail->flags & VIRTQ_AVAIL_F_NO_INTERRUPT)) {
+            virtq_do_notify(vq);
+        }
+
+        return;
+    }
+
+    smp_mb(); /* used->idx write followed by used_event read */
+
     /*
-     * Virtio specification v1.0, 5.1.6.2.3:
-     * Often a driver will suppress transmission interrupts using the
-     * VIRTQ_AVAIL_F_NO_INTERRUPT flag (see 3.2.2 Receiving Used Buffers
-     * From The Device) and check for used packets in the transmit path
-     * of following packets.
+     * Virtio specification v1.0, 2.4.7.2:
+     * if the VIRTIO_F_EVENT_IDX feature bit is negotiated:
+     * The device MUST ignore the lower bit of flags.
+     * If the idx field in the used ring was
+     * equal to used_event, the device MUST send an interrupt.
+     * --------------------------------------------------------
+     * Note: code below assumes that virtq_notify is always called
+     * per one completion, and never per batch.
      */
-    if (!(vq->avail->flags & VIRTQ_AVAIL_F_NO_INTERRUPT)) {
+    if (virtq_get_used_event(vq) == (uint16_t)(vq->used->idx - 1)) {
         virtq_do_notify(vq);
     }
 }
