@@ -14,16 +14,14 @@ extern "C" {
 
 struct vhd_vring;
 
-struct vhd_bio {
-    struct vhd_bdev_io bdev_io;
-
+struct vhd_io {
     enum vhd_bdev_io_result status;
     struct vhd_vring *vring;
 
-    void (*completion_handler)(struct vhd_bio *bio);
+    void (*completion_handler)(struct vhd_io *io);
 
-    TAILQ_ENTRY(vhd_bio) submission_link;
-    SLIST_ENTRY(vhd_bio) completion_link;
+    TAILQ_ENTRY(vhd_io) submission_link;
+    SLIST_ENTRY(vhd_io) completion_link;
 };
 
 #ifdef __cplusplus

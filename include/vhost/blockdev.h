@@ -8,6 +8,7 @@
 extern "C" {
 #endif
 
+struct vhd_io;
 struct vhd_request_queue;
 struct vhd_vdev;
 
@@ -41,6 +42,27 @@ struct vhd_bdev_info {
     /* Gets called before unmapping guest memory region */
     int (*unmap_cb)(void *addr, size_t len, void *priv);
 };
+
+/**
+ * Block io request type
+ */
+enum vhd_bdev_io_type {
+    VHD_BDEV_READ,
+    VHD_BDEV_WRITE
+};
+
+/**
+ * In-flight blockdev io request
+ */
+struct vhd_bdev_io {
+    enum vhd_bdev_io_type type;
+
+    uint64_t first_sector;
+    uint64_t total_sectors;
+    struct vhd_sglist sglist;
+};
+
+struct vhd_bdev_io *vhd_get_bdev_io(struct vhd_io *io);
 
 /**
  * Register a vhost block device.

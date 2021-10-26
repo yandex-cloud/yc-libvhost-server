@@ -22,7 +22,7 @@ extern "C" {
      */
 
 struct vhd_bdev_info;
-struct vhd_bio;
+struct vhd_io;
 
 struct virtio_virtq;
 struct virtio_blk_dev;
@@ -33,7 +33,7 @@ struct virtio_blk_dev;
  */
 __attribute__((weak))
 int virtio_blk_handle_request(struct virtio_virtq *vq,
-                              struct vhd_bio *bio);
+                              struct vhd_io *io);
 
 /**
  * Virtio block device context
