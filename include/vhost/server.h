@@ -11,7 +11,7 @@ extern "C" {
 #define VHD_MAX_REQUEST_QUEUES 256
 
 struct vhd_vdev;
-struct vhd_bdev_io;
+struct vhd_io;
 
 /**
  * Logging support
@@ -51,8 +51,8 @@ struct vhd_request {
     /* Device that generated this request */
     struct vhd_vdev *vdev;
 
-    /* TODO: this should be device type-specific */
-    struct vhd_bdev_io *bio;
+    /* Device type-specific request data */
+    struct vhd_io *io;
 };
 
 /**
@@ -112,7 +112,7 @@ enum vhd_bdev_io_result {
  * that it's done with the request and the library may signal completion to the
  * guest driver and dispose of the request.
  */
-void vhd_complete_bio(struct vhd_bdev_io *bio, enum vhd_bdev_io_result status);
+void vhd_complete_bio(struct vhd_io *io, enum vhd_bdev_io_result status);
 
 /**
  * Get private data associated with vdev.

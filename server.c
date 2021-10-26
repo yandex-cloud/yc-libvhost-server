@@ -3,7 +3,6 @@
 #include "platform.h"
 #include "server_internal.h"
 #include "queue.h"
-#include "vhost/blockdev.h"
 #include "bio.h"
 #include "logging.h"
 #include "vdev.h"
@@ -93,15 +92,15 @@ int vhd_submit_ctl_work_and_wait(void (*func)(struct vhd_work *, void *),
  * Request queues
  */
 
-typedef SLIST_HEAD(, vhd_bio) vhd_bio_list;
+typedef SLIST_HEAD(, vhd_io) vhd_io_list;
 
 /* TODO: bounded queue */
 struct vhd_request_queue {
     struct vhd_event_loop *evloop;
 
-    TAILQ_HEAD(, vhd_bio) submission;
+    TAILQ_HEAD(, vhd_io) submission;
 
-    vhd_bio_list completion;
+    vhd_io_list completion;
     struct vhd_bh *completion_bh;
 };
 
@@ -111,41 +110,41 @@ void vhd_run_in_rq(struct vhd_request_queue *rq, void (*cb)(void *),
     vhd_bh_schedule_oneshot(rq->evloop, cb, opaque);
 }
 
-static void req_complete(struct vhd_bio *bio)
+static void req_complete(struct vhd_io *io)
 {
     /* completion_handler destroys bio. save vring for unref */
-    struct vhd_vring *vring = bio->vring;
-    bio->completion_handler(bio);
+    struct vhd_vring *vring = io->vring;
+    io->completion_handler(io);
     vhd_vring_dec_in_flight(vring);
 }
 
 static void rq_complete_bh(void *opaque)
 {
     struct vhd_request_queue *rq = opaque;
-    vhd_bio_list bio_list, bio_list_reverse;
+    vhd_io_list io_list, io_list_reverse;
 
-    SLIST_INIT(&bio_list);
-    SLIST_INIT(&bio_list_reverse);
+    SLIST_INIT(&io_list);
+    SLIST_INIT(&io_list_reverse);
     /* steal completion list from rq, swap for a fresh one */
-    SLIST_MOVE_ATOMIC(&bio_list_reverse, &rq->completion);
+    SLIST_MOVE_ATOMIC(&io_list_reverse, &rq->completion);
 
     /* the list was filled LIFO, we want the completions FIFO */
     for (;;) {
-        struct vhd_bio *bio = SLIST_FIRST(&bio_list_reverse);
-        if (!bio) {
+        struct vhd_io *io = SLIST_FIRST(&io_list_reverse);
+        if (!io) {
             break;
         }
-        SLIST_REMOVE_HEAD(&bio_list_reverse, completion_link);
-        SLIST_INSERT_HEAD(&bio_list, bio, completion_link);
+        SLIST_REMOVE_HEAD(&io_list_reverse, completion_link);
+        SLIST_INSERT_HEAD(&io_list, io, completion_link);
     }
 
     for (;;) {
-        struct vhd_bio *bio = SLIST_FIRST(&bio_list);
-        if (!bio) {
+        struct vhd_io *io = SLIST_FIRST(&io_list);
+        if (!io) {
             break;
         }
-        SLIST_REMOVE_HEAD(&bio_list, completion_link);
-        req_complete(bio);
+        SLIST_REMOVE_HEAD(&io_list, completion_link);
+        req_complete(io);
     }
 }
 
@@ -195,42 +194,41 @@ void vhd_stop_queue(struct vhd_request_queue *rq)
 bool vhd_dequeue_request(struct vhd_request_queue *rq,
                          struct vhd_request *out_req)
 {
-    struct vhd_bio *bio = TAILQ_FIRST(&rq->submission);
+    struct vhd_io *io = TAILQ_FIRST(&rq->submission);
 
-    if (!bio) {
+    if (!io) {
         return false;
     }
 
-    TAILQ_REMOVE(&rq->submission, bio, submission_link);
+    TAILQ_REMOVE(&rq->submission, io, submission_link);
 
-    out_req->vdev = bio->vring->vdev;
-    out_req->bio = &bio->bdev_io;
+    out_req->vdev = io->vring->vdev;
+    out_req->io = io;
 
     return true;
 }
 
-
-int vhd_enqueue_block_request(struct vhd_request_queue *rq, struct vhd_bio *bio)
+int vhd_enqueue_block_request(struct vhd_request_queue *rq, struct vhd_io *io)
 {
-    vhd_vring_inc_in_flight(bio->vring);
+    vhd_vring_inc_in_flight(io->vring);
 
-    TAILQ_INSERT_TAIL(&rq->submission, bio, submission_link);
+    TAILQ_INSERT_TAIL(&rq->submission, io, submission_link);
     return 0;
 }
 
 void vhd_cancel_queued_requests(struct vhd_request_queue *rq,
                                 const struct vhd_vring *vring)
 {
-    struct vhd_bio *bio = TAILQ_FIRST(&rq->submission);
+    struct vhd_io *io = TAILQ_FIRST(&rq->submission);
 
-    while (bio) {
-        struct vhd_bio *next = TAILQ_NEXT(bio, submission_link);
-        if (unlikely(bio->vring == vring)) {
-            TAILQ_REMOVE(&rq->submission, bio, submission_link);
-            bio->status = VHD_BDEV_CANCELED;
-            req_complete(bio);
+    while (io) {
+        struct vhd_io *next = TAILQ_NEXT(io, submission_link);
+        if (unlikely(io->vring == vring)) {
+            TAILQ_REMOVE(&rq->submission, io, submission_link);
+            io->status = VHD_BDEV_CANCELED;
+            req_complete(io);
         }
-        bio = next;
+        io = next;
     }
 }
 
@@ -238,20 +236,18 @@ void vhd_cancel_queued_requests(struct vhd_request_queue *rq,
  * can be called from arbitrary thread; will schedule completion on the rq
  * event loop
  */
-void vhd_complete_bio(struct vhd_bdev_io *bdev_io,
-                      enum vhd_bdev_io_result status)
+void vhd_complete_bio(struct vhd_io *io, enum vhd_bdev_io_result status)
 {
-    struct vhd_bio *bio = containerof(bdev_io, struct vhd_bio, bdev_io);
     struct vhd_request_queue *rq;
 
-    bio->status = status;
-    rq = vhd_get_rq_for_vring(bio->vring);
+    io->status = status;
+    rq = vhd_get_rq_for_vring(io->vring);
 
     /*
      * if this is not the first completion on the list scheduling the bh can be
      * skipped because the first one must have done so
      */
-    if (!SLIST_INSERT_HEAD_ATOMIC(&rq->completion, bio, completion_link)) {
+    if (!SLIST_INSERT_HEAD_ATOMIC(&rq->completion, io, completion_link)) {
         vhd_bh_schedule(rq->completion_bh);
     }
 }

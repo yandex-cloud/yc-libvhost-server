@@ -16,7 +16,9 @@
 struct virtio_blk_io {
     struct virtio_virtq *vq;
     struct virtio_iov *iov;
-    struct vhd_bio bio;
+
+    struct vhd_io io;
+    struct vhd_bdev_io bdev_io;
 };
 
 static size_t iov_size(const struct vhd_buffer *iov, unsigned niov)
@@ -71,17 +73,17 @@ static void complete_req(struct virtio_virtq *vq, struct virtio_iov *iov,
     virtio_free_iov(iov);
 }
 
-static void complete_io(struct vhd_bio *bio)
+static void complete_io(struct vhd_io *io)
 {
-    struct virtio_blk_io *vbio = containerof(bio, struct virtio_blk_io, bio);
+    struct virtio_blk_io *bio = containerof(io, struct virtio_blk_io, io);
 
-    if (likely(bio->status != VHD_BDEV_CANCELED)) {
-        complete_req(vbio->vq, vbio->iov, translate_status(bio->status));
+    if (likely(bio->io.status != VHD_BDEV_CANCELED)) {
+        complete_req(bio->vq, bio->iov, translate_status(bio->io.status));
     } else {
-        virtio_free_iov(vbio->iov);
+        virtio_free_iov(bio->iov);
     }
 
-    vhd_free(vbio);
+    vhd_free(bio);
 }
 
 static bool is_valid_req(uint64_t sector, size_t len, uint64_t capacity)
@@ -138,20 +140,22 @@ static void handle_inout(struct virtio_blk_dev *dev,
         goto complete;
     }
 
-    struct virtio_blk_io *vbio = vhd_zalloc(sizeof(*vbio));
-    vbio->vq = vq;
-    vbio->iov = iov;
-    vbio->bio.bdev_io.type = io_type;
-    vbio->bio.bdev_io.first_sector = req->sector;
-    vbio->bio.bdev_io.total_sectors = len / VIRTIO_BLK_SECTOR_SIZE;
-    vbio->bio.bdev_io.sglist.nbuffers = ndatabufs;
-    vbio->bio.bdev_io.sglist.buffers = pdata;
-    vbio->bio.completion_handler = complete_io;
+    struct virtio_blk_io *bio = vhd_zalloc(sizeof(*bio));
+    bio->vq = vq;
+    bio->iov = iov;
+    bio->io.completion_handler = complete_io;
 
-    int res = virtio_blk_handle_request(vbio->vq, &vbio->bio);
+    bio->bdev_io.type =
+        (req->type == VIRTIO_BLK_T_IN ? VHD_BDEV_READ : VHD_BDEV_WRITE);
+    bio->bdev_io.first_sector = req->sector;
+    bio->bdev_io.total_sectors = len / VIRTIO_BLK_SECTOR_SIZE;
+    bio->bdev_io.sglist.nbuffers = ndatabufs;
+    bio->bdev_io.sglist.buffers = pdata;
+
+    int res = virtio_blk_handle_request(bio->vq, &bio->io);
     if (res != 0) {
         VHD_LOG_ERROR("bdev request submission failed with %d", res);
-        vhd_free(vbio);
+        vhd_free(bio);
         goto complete;
     }
 
@@ -241,10 +245,11 @@ int virtio_blk_dispatch_requests(struct virtio_blk_dev *dev,
 }
 
 __attribute__((weak))
-int virtio_blk_handle_request(struct virtio_virtq *vq, struct vhd_bio *bio)
+int virtio_blk_handle_request(struct virtio_virtq *vq, struct vhd_io *io)
 {
-    bio->vring = VHD_VRING_FROM_VQ(vq);
-    return vhd_enqueue_block_request(vhd_get_rq_for_vring(bio->vring), bio);
+
+    io->vring = VHD_VRING_FROM_VQ(vq);
+    return vhd_enqueue_block_request(vhd_get_rq_for_vring(io->vring), io);
 }
 
 int virtio_blk_init_dev(
@@ -301,4 +306,10 @@ int virtio_blk_init_dev(
             max_cylinders);
 
     return 0;
+}
+
+struct vhd_bdev_io *vhd_get_bdev_io(struct vhd_io *io)
+{
+    struct virtio_blk_io *bio = containerof(io, struct virtio_blk_io, io);
+    return &bio->bdev_io;
 }

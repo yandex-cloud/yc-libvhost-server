@@ -17,11 +17,9 @@ struct virtio_fs_io {
     struct virtio_virtq *vq;
     struct virtio_iov *iov;
 
-    /* TODO: this should be device type-specific */
-    struct vhd_bio bio;
+    struct vhd_io io;
+    struct vhd_fs_io fs_io;
 };
-
-#define VIRTIO_VBIO_FROM_BIO(ptr) containerof(ptr, struct virtio_fs_io, bio)
 
 /******************************************************************************/
 
@@ -31,16 +29,16 @@ static inline void abort_request(struct virtio_virtq *vq, struct virtio_iov *iov
     virtio_free_iov(iov);
 }
 
-static void complete_request(struct vhd_bio *bio)
+static void complete_request(struct vhd_io *io)
 {
-    struct virtio_fs_io *vbio = VIRTIO_VBIO_FROM_BIO(bio);
+    struct virtio_fs_io *vbio = containerof(io, struct virtio_fs_io, io);
     struct virtio_iov *viov = vbio->iov;
     /* if IN iov has at least one buffer it accomodates fuse_out_header */
     struct virtio_fs_out_header *out =
                         viov->niov_in ? viov->iov_in[0].base : NULL;
     uint32_t len = out ? out->len : 0;
 
-    if (likely(bio->status != VHD_BDEV_CANCELED)) {
+    if (likely(io->status != VHD_BDEV_CANCELED)) {
         virtq_push(vbio->vq, vbio->iov, len);
     }
 
@@ -49,10 +47,10 @@ static void complete_request(struct vhd_bio *bio)
 }
 
 static int virtio_fs_handle_request(struct virtio_virtq *vq,
-                                    struct vhd_bio *bio)
+                                    struct vhd_io *io)
 {
-    bio->vring = VHD_VRING_FROM_VQ(vq);
-    return vhd_enqueue_block_request(vhd_get_rq_for_vring(bio->vring), bio);
+    io->vring = VHD_VRING_FROM_VQ(vq);
+    return vhd_enqueue_block_request(vhd_get_rq_for_vring(io->vring), io);
 }
 
 static void handle_buffers(void *arg, struct virtio_virtq *vq, struct virtio_iov *iov)
@@ -87,14 +85,15 @@ static void handle_buffers(void *arg, struct virtio_virtq *vq, struct virtio_iov
     in = iov->iov_out[0].base;
     out = iov->niov_in ? iov->iov_in[0].base : NULL;
 
-    struct virtio_fs_io *vbio = vhd_zalloc(sizeof(*vbio));
-    vbio->vq = vq;
-    vbio->iov = iov;
-    vbio->bio.bdev_io.sglist.nbuffers = niov;
-    vbio->bio.bdev_io.sglist.buffers = iov->buffers;
-    vbio->bio.completion_handler = complete_request;
+    struct virtio_fs_io *bio = vhd_zalloc(sizeof(*bio));
+    bio->vq = vq;
+    bio->iov = iov;
+    bio->io.completion_handler = complete_request;
 
-    int res = virtio_fs_handle_request(vbio->vq, &vbio->bio);
+    bio->fs_io.sglist.nbuffers = niov;
+    bio->fs_io.sglist.buffers = iov->buffers;
+
+    int res = virtio_fs_handle_request(bio->vq, &bio->io);
     if (res != 0) {
         VHD_LOG_ERROR("request submission failed with %d", res);
 
@@ -104,7 +103,7 @@ static void handle_buffers(void *arg, struct virtio_virtq *vq, struct virtio_iov
             out->unique = in->unique;
         }
 
-        complete_request(&vbio->bio);
+        complete_request(&bio->io);
         return;
     }
 }
@@ -138,4 +137,10 @@ int virtio_fs_dispatch_requests(struct virtio_fs_dev *dev,
     VHD_VERIFY(vq);
 
     return virtq_dequeue_many(vq, handle_buffers, dev);
+}
+
+struct vhd_fs_io *vhd_get_fs_io(struct vhd_io *io)
+{
+    struct virtio_fs_io *bio = containerof(io, struct virtio_fs_io, io);
+    return &bio->fs_io;
 }

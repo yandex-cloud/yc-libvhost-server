@@ -6,8 +6,9 @@
 extern "C" {
 #endif
 
-struct vhd_vdev;
+struct vhd_io;
 struct vhd_request_queue;
+struct vhd_vdev;
 
 /**
  * Client-supplied file system definition.
@@ -22,6 +23,15 @@ struct vhd_fsdev_info {
     /* Total number of backend queues this device supports */
     uint32_t num_queues;
 };
+
+/**
+ * In-flight file system io request
+ */
+struct vhd_fs_io {
+    struct vhd_sglist sglist;
+};
+
+struct vhd_fs_io *vhd_get_fs_io(struct vhd_io *io);
 
 /**
  * Register vhost file system.
