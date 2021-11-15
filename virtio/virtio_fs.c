@@ -109,9 +109,7 @@ static void handle_buffers(void *arg, struct virtio_virtq *vq, struct virtio_iov
 
         out = (struct virtio_fs_out_header *) buf->base;
 
-        size_t out_len = 0;
         while (buf != buf_end && vhd_buffer_is_write_only(buf)) {
-            out_len += buf->len;
             ++buf;
         }
 
