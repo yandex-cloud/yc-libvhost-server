@@ -285,11 +285,6 @@ static int walk_indirect_table(struct virtio_virtq *vq,
     int res;
     struct virtq_desc desc;
 
-    /*
-     * TODO: we need to validate that descriptor table memory, addressed
-     * by table_desc, is a valid mapping for this device/guest.
-     */
-
     if (table_desc->len == 0 || table_desc->len % sizeof(desc)) {
         VHD_OBJ_ERROR(vq, "Bad indirect descriptor table length %d",
                       table_desc->len);
