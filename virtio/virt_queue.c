@@ -300,7 +300,6 @@ static int walk_indirect_table(struct virtio_virtq *vq,
     }
 
     int max_indirect_descs = table_desc->len / sizeof(desc);
-    int chain_len = 0;
 
     struct virtq_desc *pdesc = (struct virtq_desc *) mapped_table;
     struct virtq_desc *pdesc_first = (struct virtq_desc *) mapped_table;
@@ -339,18 +338,7 @@ static int walk_indirect_table(struct virtio_virtq *vq,
 
         /* Indirect descriptors are still chained by next pointer */
         pdesc = pdesc_first + pdesc->next;
-        ++chain_len;
-
     } while (desc.flags & VIRTQ_DESC_F_NEXT);
-
-    /*
-     * Looks like it is valid when chain len is not equal to table size, but it
-     * looks iffy.
-     */
-    if (chain_len != max_indirect_descs) {
-        VHD_OBJ_INFO(vq, "Indirect chain length %d is not equal to table size "
-                     "%d, which looks strange", chain_len, max_indirect_descs);
-    }
 
     return 0;
 }
