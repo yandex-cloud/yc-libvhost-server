@@ -383,8 +383,8 @@ int virtq_dequeue_many(struct virtio_virtq *vq,
      * TODO: limit it better in client
      */
     avail = vq->avail->idx;
-    smp_mb(); /* avail->idx read followed by avail_event write */
     if (vq->has_event_idx) {
+        smp_mb(); /* avail->idx read followed by avail_event write */
         while (true) {
             virtq_set_avail_event(vq, avail);
             smp_mb(); /* avail_event write followed by avail->idx read */
