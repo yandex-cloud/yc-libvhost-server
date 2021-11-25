@@ -67,12 +67,8 @@ static int add_buffer(struct virtio_virtq *vq, void *addr, size_t len,
                       bool write_only)
 {
     if (vq->next_buffer == vq->qsz) {
-        /*
-         * We always reserve space beforehand, so this is a descriptor
-         * loop
-         */
-        VHD_OBJ_ERROR(vq, "Descriptor loop found, vring is broken");
-        return -ENOSPC;
+        VHD_OBJ_ERROR(vq, "descriptor chain exceeds queue size");
+        return -ENOBUFS;
     }
 
     vq->buffers[vq->next_buffer] = (struct vhd_buffer) {
@@ -323,17 +319,10 @@ static int walk_indirect_table(struct virtio_virtq *vq,
             return -EINVAL;
         }
 
-        /*
-         * 2.4.5.3.1: "A driver MUST NOT create a descriptor chain longer than
-         * the Queue Size of the device"
-         * Indirect descriptors are part of the chain and should abide by this
-         * requirement
-         */
         res = map_buffer(vq, desc.addr, desc.len,
                          desc.flags & VIRTQ_DESC_F_WRITE);
         if (res != 0) {
-            VHD_OBJ_ERROR(vq, "Descriptor loop found, vring is broken");
-            return -EINVAL;
+            return res;
         }
 
         /* Indirect descriptors are still chained by next pointer */
