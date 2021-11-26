@@ -4,6 +4,7 @@
 #include <alloca.h>
 #include <sys/eventfd.h>
 #include <time.h>
+#include <inttypes.h>
 
 #include "catomic.h"
 #include "virt_queue.h"
@@ -86,8 +87,8 @@ static int map_buffer(struct virtio_virtq *vq, uint64_t gpa, size_t len,
 {
     void *addr = gpa_range_to_ptr(vq->mm, gpa, len);
     if (!addr) {
-        VHD_OBJ_ERROR(vq, "Failed to map GPA 0x%lx, vring is broken", gpa);
-        return -EINVAL;
+        VHD_OBJ_ERROR(vq, "Failed to map GPA 0x%" PRIx64 ", +0x%zx", gpa, len);
+        return -EFAULT;
     }
 
     return add_buffer(vq, addr, len, write_only);
@@ -281,6 +282,11 @@ static void mark_broken(struct virtio_virtq *vq)
     vq->broken = true;
 }
 
+#define DESCRIPTOR_ERROR(vq, idx, desc, fmt, ...)                       \
+    VHD_OBJ_ERROR(vq, "[%u]{0x%" PRIx64 ", +0x%x, 0x%x, %u}: " fmt,     \
+                  (idx), (desc)->addr, (desc)->len,                     \
+                  (desc)->flags, (desc)->next, ##__VA_ARGS__)
+
 static int walk_indirect_table(struct virtio_virtq *vq,
                                const struct virtq_desc *table_desc)
 {
@@ -298,8 +304,9 @@ static int walk_indirect_table(struct virtio_virtq *vq,
 
     desc_table = gpa_range_to_ptr(vq->mm, table_desc->addr, table_desc->len);
     if (!desc_table) {
-        VHD_OBJ_ERROR(vq,
-                      "Bad guest address range on indirect descriptor table");
+        VHD_OBJ_ERROR(vq, "Failed to map indirect descriptor table "
+                      "GPA 0x%" PRIx64 ", +0x%x",
+                      table_desc->addr, table_desc->len);
         return -EFAULT;
     }
 
@@ -307,14 +314,15 @@ static int walk_indirect_table(struct virtio_virtq *vq,
         desc = desc_table[idx];
 
         if (desc.flags & VIRTQ_DESC_F_INDIRECT) {
-            VHD_OBJ_ERROR(vq, "indirect descriptor %u within indirect table",
-                          idx);
+            DESCRIPTOR_ERROR(vq, idx, &desc, "nested indirect descriptor");
             return -EMLINK;
         }
 
         res = map_buffer(vq, desc.addr, desc.len,
                          desc.flags & VIRTQ_DESC_F_WRITE);
         if (res != 0) {
+            DESCRIPTOR_ERROR(vq, idx, &desc,
+                             "failed to map descriptor in indirect table");
             return res;
         }
 
@@ -323,9 +331,9 @@ static int walk_indirect_table(struct virtio_virtq *vq,
         }
 
         if (desc.next >= table_len) {
-            VHD_OBJ_ERROR(vq, "descriptor %u next %u points past "
-                          "indirect table size %u",
-                          idx, desc.next, table_len);
+            DESCRIPTOR_ERROR(vq, idx, &desc,
+                             "next points past indirect table size %u",
+                             table_len);
             return -ERANGE;
         }
     }
@@ -352,12 +360,15 @@ static int walk_chain(struct virtio_virtq *vq, uint16_t head)
 
         if (desc.flags & VIRTQ_DESC_F_INDIRECT) {
             if (desc.flags & VIRTQ_DESC_F_NEXT) {
-                VHD_OBJ_ERROR(vq, "indirect descriptor may have no next");
+                DESCRIPTOR_ERROR(vq, idx, &desc,
+                                 "indirect descriptor must have no next");
                 return -EINVAL;
             }
 
             res = walk_indirect_table(vq, &desc);
             if (res != 0) {
+                DESCRIPTOR_ERROR(vq, idx, &desc,
+                                 "failed to walk indirect descriptor table");
                 return res;
             }
 
@@ -367,6 +378,7 @@ static int walk_chain(struct virtio_virtq *vq, uint16_t head)
         res = map_buffer(vq, desc.addr, desc.len,
                          desc.flags & VIRTQ_DESC_F_WRITE);
         if (res != 0) {
+            DESCRIPTOR_ERROR(vq, idx, &desc, "failed to map");
             return res;
         }
 
@@ -375,8 +387,8 @@ static int walk_chain(struct virtio_virtq *vq, uint16_t head)
         }
 
         if (desc.next >= vq->qsz) {
-            VHD_OBJ_ERROR(vq, "descriptor next %u past queue size %u",
-                          desc.next, vq->qsz);
+            DESCRIPTOR_ERROR(vq, idx, &desc,
+                             "next points past queue size %u", vq->qsz);
             return -ERANGE;
         }
     }
