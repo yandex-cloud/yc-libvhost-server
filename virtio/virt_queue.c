@@ -286,43 +286,30 @@ static int walk_indirect_table(struct virtio_virtq *vq,
 {
     int res;
     struct virtq_desc desc;
+    struct virtq_desc *desc_table;
+    uint16_t table_len = table_desc->len / sizeof(desc);
+    uint16_t idx;
 
     if (table_desc->len == 0 || table_desc->len % sizeof(desc)) {
-        VHD_OBJ_ERROR(vq, "Bad indirect descriptor table length %d",
+        VHD_OBJ_ERROR(vq, "Bad indirect descriptor table length %u",
                       table_desc->len);
         return -EINVAL;
     }
 
-    void *mapped_table = gpa_range_to_ptr(vq->mm, table_desc->addr,
-                                          table_desc->len);
-    if (!mapped_table) {
+    desc_table = gpa_range_to_ptr(vq->mm, table_desc->addr, table_desc->len);
+    if (!desc_table) {
         VHD_OBJ_ERROR(vq,
                       "Bad guest address range on indirect descriptor table");
-        return -EINVAL;
+        return -EFAULT;
     }
 
-    int max_indirect_descs = table_desc->len / sizeof(desc);
+    for (idx = 0; ; idx = desc.next) {
+        desc = desc_table[idx];
 
-    struct virtq_desc *pdesc = (struct virtq_desc *) mapped_table;
-    struct virtq_desc *pdesc_first = (struct virtq_desc *) mapped_table;
-    struct virtq_desc *pdesc_last = (pdesc_first + max_indirect_descs - 1);
-
-    do {
-        /* Descriptor should point inside indirect table */
-        if (pdesc < pdesc_first || pdesc > pdesc_last) {
-            VHD_OBJ_ERROR(vq, "Indirect descriptor %p is out of table bounds",
-                          pdesc);
-            return -EINVAL;
-        }
-
-        memcpy(&desc, pdesc, sizeof(desc));
-
-        /*
-         * 2.4.5.3.1: "The driver MUST NOT set the VIRTQ_DESC_F_INDIRECT flag
-         * within an indirect descriptor"
-         */
         if (desc.flags & VIRTQ_DESC_F_INDIRECT) {
-            return -EINVAL;
+            VHD_OBJ_ERROR(vq, "indirect descriptor %u within indirect table",
+                          idx);
+            return -EMLINK;
         }
 
         res = map_buffer(vq, desc.addr, desc.len,
@@ -331,9 +318,17 @@ static int walk_indirect_table(struct virtio_virtq *vq,
             return res;
         }
 
-        /* Indirect descriptors are still chained by next pointer */
-        pdesc = pdesc_first + pdesc->next;
-    } while (desc.flags & VIRTQ_DESC_F_NEXT);
+        if (!(desc.flags & VIRTQ_DESC_F_NEXT)) {
+            break;
+        }
+
+        if (desc.next >= table_len) {
+            VHD_OBJ_ERROR(vq, "descriptor %u next %u points past "
+                          "indirect table size %u",
+                          idx, desc.next, table_len);
+            return -ERANGE;
+        }
+    }
 
     return 0;
 }
