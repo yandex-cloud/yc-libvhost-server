@@ -332,6 +332,69 @@ static int walk_indirect_table(struct virtio_virtq *vq,
     return 0;
 }
 
+/*
+ * Traverse a descriptor chain starting at @head, mapping the descriptors found
+ * and pushing them onto @vq->buffers.
+ * Return the number of descriptors consumed, or -errno.
+ */
+static int walk_chain(struct virtio_virtq *vq, uint16_t head)
+{
+    uint16_t descnum;
+    uint16_t chain_len = 0;
+    struct virtq_desc desc;
+    int res;
+
+    /* Reset stored vectors position */
+    vq->next_buffer = 0;
+
+    descnum = head;
+    /* Walk descriptor chain */
+    do {
+        /* Check that descriptor is in-bounds */
+        if (descnum >= vq->qsz) {
+            VHD_OBJ_ERROR(vq, "Descriptor num %d is out-of-bounds", descnum);
+            return -EINVAL;
+        }
+
+        /*
+         * We explicitly make a local copy here to avoid any possible TOCTOU
+         * problems.
+         */
+        memcpy(&desc, vq->desc + descnum, sizeof(desc));
+        VHD_OBJ_DEBUG(vq, "head = %d: addr = 0x%llx, len = %d", head,
+                      (unsigned long long) desc.addr, desc.len);
+
+        if (desc.flags & VIRTQ_DESC_F_INDIRECT) {
+            /*
+             * 2.4.5.3.1: A driver MUST NOT set both VIRTQ_DESC_F_INDIRECT and
+             * VIRTQ_DESC_F_NEXT in flags
+             */
+            if (desc.flags & VIRTQ_DESC_F_NEXT) {
+                VHD_OBJ_ERROR(vq, "Can't handle indirect descriptors "
+                              "and next flag");
+                return -EINVAL;
+            }
+
+            res = walk_indirect_table(vq, &desc);
+            if (res != 0) {
+                return res;
+            }
+        } else {
+            res = map_buffer(vq, desc.addr, desc.len,
+                             desc.flags & VIRTQ_DESC_F_WRITE);
+            if (res != 0) {
+                return res;
+            }
+        }
+
+        /* next desc is not touched if loop terminated */
+        descnum = desc.next;
+        chain_len++;
+    } while (desc.flags & VIRTQ_DESC_F_NEXT);
+
+    return chain_len;
+}
+
 int virtq_dequeue_many(struct virtio_virtq *vq,
                        virtq_handle_buffers_cb handle_buffers_cb,
                        void *arg)
@@ -426,65 +489,19 @@ static int virtq_dequeue_one(struct virtio_virtq *vq, uint16_t head,
                              virtq_handle_buffers_cb handle_buffers_cb,
                              void *arg, bool resubmit)
 {
-    uint16_t descnum;
-    uint16_t chain_len = 0;
-    struct virtq_desc desc;
-    int res;
+    int ret;
 
-    /* Reset stored vectors position */
-    vq->next_buffer = 0;
-
-    descnum = head;
-    /* Walk descriptor chain */
-    do {
-        /* Check that descriptor is in-bounds */
-        if (descnum >= vq->qsz) {
-            VHD_OBJ_ERROR(vq, "Descriptor num %d is out-of-bounds", descnum);
-            return -EINVAL;
-        }
-
-        /*
-         * We explicitly make a local copy here to avoid any possible TOCTOU
-         * problems.
-         */
-        memcpy(&desc, vq->desc + descnum, sizeof(desc));
-        VHD_OBJ_DEBUG(vq, "head = %d: addr = 0x%llx, len = %d", head,
-                      (unsigned long long) desc.addr, desc.len);
-
-        if (desc.flags & VIRTQ_DESC_F_INDIRECT) {
-            /*
-             * 2.4.5.3.1: A driver MUST NOT set both VIRTQ_DESC_F_INDIRECT and
-             * VIRTQ_DESC_F_NEXT in flags
-             */
-            if (desc.flags & VIRTQ_DESC_F_NEXT) {
-                VHD_OBJ_ERROR(vq, "Can't handle indirect descriptors "
-                              "and next flag");
-                return -EINVAL;
-            }
-
-            res = walk_indirect_table(vq, &desc);
-            if (res != 0) {
-                return res;
-            }
-        } else {
-            res = map_buffer(vq, desc.addr, desc.len,
-                             desc.flags & VIRTQ_DESC_F_WRITE);
-            if (res != 0) {
-                return res;
-            }
-        }
-
-        /* next desc is not touched if loop terminated */
-        descnum = desc.next;
-        chain_len++;
-    } while (desc.flags & VIRTQ_DESC_F_NEXT);
+    ret = walk_chain(vq, head);
+    if (ret < 0) {
+        return ret;
+    }
 
     /* Create iov copy from stored buffer for client handling */
     struct virtq_iov_private *priv = alloc_iov(vq->next_buffer);
     memcpy(priv->iov.buffers, vq->buffers,
            priv->iov.nvecs * sizeof(vq->buffers[0]));
     priv->used_head = head;
-    priv->used_len = chain_len;
+    priv->used_len = ret;
     priv->mm = vq->mm;
     /* matched with unref in virtq_commit_buffers */
     vhd_memmap_ref(priv->mm);
