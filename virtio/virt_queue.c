@@ -255,8 +255,14 @@ static int virtq_inflight_resubmit(struct virtio_virtq *vq,
     res = 0;
     VHD_OBJ_DEBUG(vq, "cnt = %d inflight requests should be resubmitted", cnt);
     for (i = 0; i < cnt; i++) {
-        res = virtq_dequeue_one(vq, resubmit_array[i].head,
-                                handle_buffers_cb, arg, true);
+        uint16_t head = resubmit_array[i].head;
+        if (head >= vq->qsz) {
+            VHD_OBJ_ERROR(vq, "resubmit desc %u: head %u past queue size %u",
+                          i, head, vq->qsz);
+            return -ERANGE;
+        }
+
+        res = virtq_dequeue_one(vq, head, handle_buffers_cb, arg, true);
         if (res) {
             break;
         }
@@ -339,39 +345,19 @@ static int walk_indirect_table(struct virtio_virtq *vq,
  */
 static int walk_chain(struct virtio_virtq *vq, uint16_t head)
 {
-    uint16_t descnum;
-    uint16_t chain_len = 0;
+    uint16_t idx;
+    uint16_t chain_len;
     struct virtq_desc desc;
     int res;
 
-    /* Reset stored vectors position */
     vq->next_buffer = 0;
 
-    descnum = head;
-    /* Walk descriptor chain */
-    do {
-        /* Check that descriptor is in-bounds */
-        if (descnum >= vq->qsz) {
-            VHD_OBJ_ERROR(vq, "Descriptor num %d is out-of-bounds", descnum);
-            return -EINVAL;
-        }
-
-        /*
-         * We explicitly make a local copy here to avoid any possible TOCTOU
-         * problems.
-         */
-        memcpy(&desc, vq->desc + descnum, sizeof(desc));
-        VHD_OBJ_DEBUG(vq, "head = %d: addr = 0x%llx, len = %d", head,
-                      (unsigned long long) desc.addr, desc.len);
+    for (idx = head, chain_len = 1; ; idx = desc.next, chain_len++) {
+        desc = vq->desc[idx];
 
         if (desc.flags & VIRTQ_DESC_F_INDIRECT) {
-            /*
-             * 2.4.5.3.1: A driver MUST NOT set both VIRTQ_DESC_F_INDIRECT and
-             * VIRTQ_DESC_F_NEXT in flags
-             */
             if (desc.flags & VIRTQ_DESC_F_NEXT) {
-                VHD_OBJ_ERROR(vq, "Can't handle indirect descriptors "
-                              "and next flag");
+                VHD_OBJ_ERROR(vq, "indirect descriptor may have no next");
                 return -EINVAL;
             }
 
@@ -379,18 +365,26 @@ static int walk_chain(struct virtio_virtq *vq, uint16_t head)
             if (res != 0) {
                 return res;
             }
-        } else {
-            res = map_buffer(vq, desc.addr, desc.len,
-                             desc.flags & VIRTQ_DESC_F_WRITE);
-            if (res != 0) {
-                return res;
-            }
+
+            break;
         }
 
-        /* next desc is not touched if loop terminated */
-        descnum = desc.next;
-        chain_len++;
-    } while (desc.flags & VIRTQ_DESC_F_NEXT);
+        res = map_buffer(vq, desc.addr, desc.len,
+                         desc.flags & VIRTQ_DESC_F_WRITE);
+        if (res != 0) {
+            return res;
+        }
+
+        if (!(desc.flags & VIRTQ_DESC_F_NEXT)) {
+            break;
+        }
+
+        if (desc.next >= vq->qsz) {
+            VHD_OBJ_ERROR(vq, "descriptor next %u past queue size %u",
+                          desc.next, vq->qsz);
+            return -ERANGE;
+        }
+    }
 
     return chain_len;
 }
@@ -400,7 +394,6 @@ int virtq_dequeue_many(struct virtio_virtq *vq,
                        void *arg)
 {
     int res;
-    uint16_t head;
     uint16_t i;
     uint16_t num_avail;
     uint16_t avail, avail2;
@@ -468,7 +461,13 @@ int virtq_dequeue_many(struct virtio_virtq *vq,
 
     for (i = 0; i < num_avail; ++i) {
         /* Grab next descriptor head */
-        head = vq->avail->ring[vq->last_avail % vq->qsz];
+        uint16_t head = vq->avail->ring[vq->last_avail % vq->qsz];
+        if (head >= vq->qsz) {
+            VHD_OBJ_ERROR(vq, "avail %u: head %u past queue size %u",
+                          vq->last_avail, head, vq->qsz);
+            return -ERANGE;
+        }
+
         res = virtq_dequeue_one(vq, head, handle_buffers_cb, arg, false);
         if (res) {
             goto queue_broken;
