@@ -450,6 +450,11 @@ int virtq_dequeue_many(struct virtio_virtq *vq,
     }
 
     num_avail = avail - vq->last_avail;
+    if (num_avail > vq->qsz) {
+        VHD_OBJ_ERROR(vq, "num_avail %u (%u - %u) exceeds queue size %u",
+                      num_avail, avail, vq->last_avail, vq->qsz);
+        return -EOVERFLOW;
+    }
 
     if (!num_avail) {
         vq->stat.metrics.dispatch_empty++;
