@@ -430,10 +430,6 @@ int virtq_dequeue_many(struct virtio_virtq *vq,
 
     vq->stat.metrics.dispatch_total++;
 
-    /*
-     * Limit this run to initial number of advertised descriptors.
-     * TODO: limit it better in client
-     */
     avail = vq->avail->idx;
     if (vq->has_event_idx) {
         smp_mb(); /* avail->idx read followed by avail_event write */
