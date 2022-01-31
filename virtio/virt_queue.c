@@ -243,7 +243,7 @@ static int virtq_inflight_resubmit(struct virtio_virtq *vq,
     uint16_t desc_num;
     uint16_t cnt;
     struct inflight_resubmit *resubmit_array;
-    int i;
+    uint16_t i;
     int res;
 
     if (!vq->inflight_region) {
@@ -539,8 +539,8 @@ static void vhd_log_buffers(struct vhd_memory_log *log,
                             struct vhd_memory_map *mm,
                             struct virtio_iov *iov)
 {
-    int nvecs = iov->nvecs;
-    int i;
+    uint16_t nvecs = iov->nvecs;
+    uint16_t i;
     for (i = 0; i < nvecs; ++i) {
         if (iov->buffers[i].write_only) {
             vhd_mark_range_dirty(log, mm, iov->buffers[i].base,
