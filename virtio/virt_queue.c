@@ -152,7 +152,7 @@ static void virtq_inflight_used_commit(struct virtio_virtq *vq, uint16_t head)
  */
 static void virtq_inflight_reconnect_update(struct virtio_virtq *vq)
 {
-    int batch_size;
+    uint16_t batch_size;
     uint16_t idx;
 
     vq->req_cnt = 0;
@@ -177,6 +177,9 @@ static void virtq_inflight_reconnect_update(struct virtio_virtq *vq)
         /* Last batch was sent successfully. Nothing to update. */
         goto out;
     }
+
+    /* we don't do batching for now */
+    VHD_ASSERT(batch_size == 1);
 
     idx = vq->inflight_region->last_batch_head;
     while (batch_size) {
