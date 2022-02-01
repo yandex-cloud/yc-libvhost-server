@@ -166,12 +166,16 @@ static void virtq_inflight_reconnect_update(struct virtio_virtq *vq)
             vq->req_cnt = vq->inflight_region->desc[idx].counter;
         }
     }
-    vq->req_cnt++;
+
+    /* fresh inflight region (not a reconnect) */
+    if (!vq->req_cnt) {
+        goto out;
+    }
 
     batch_size = vq->used->idx - vq->inflight_region->used_idx;
     if (!batch_size) {
         /* Last batch was sent successfully. Nothing to update. */
-        return;
+        goto out;
     }
 
     idx = vq->inflight_region->last_batch_head;
@@ -180,6 +184,9 @@ static void virtq_inflight_reconnect_update(struct virtio_virtq *vq)
         idx = vq->inflight_region->desc[idx].next;
         batch_size--;
     }
+
+out:
+    vq->req_cnt++;
     vq->inflight_region->used_idx = vq->used->idx;
 }
 
