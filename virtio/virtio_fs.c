@@ -35,7 +35,8 @@ static inline bool vhd_buffer_is_write_only(const struct vhd_buffer *buf)
 
 static inline void abort_request(struct virtio_virtq *vq, struct virtio_iov *iov)
 {
-    virtq_commit_buffers(vq, iov);
+    virtq_push(vq, iov);
+    virtio_free_iov(iov);
 }
 
 static void complete_request(struct vhd_bio *bio)
@@ -43,9 +44,10 @@ static void complete_request(struct vhd_bio *bio)
     struct virtio_fs_io *vbio = VIRTIO_VBIO_FROM_BIO(bio);
 
     if (likely(bio->status != VHD_BDEV_CANCELED)) {
-        virtq_commit_buffers(vbio->vq, vbio->iov);
+        virtq_push(vbio->vq, vbio->iov);
     }
 
+    virtio_free_iov(vbio->iov);
     vhd_free(vbio);
 }
 

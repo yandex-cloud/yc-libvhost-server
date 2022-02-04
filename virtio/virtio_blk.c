@@ -40,14 +40,16 @@ static void abort_request(struct virtio_virtq *vq, struct virtio_iov *iov)
      * broken
      */
     VHD_LOG_ERROR("no valid virtio-blk request found, aborting queue %p", vq);
-    virtq_commit_buffers(vq, iov);
+    virtq_push(vq, iov);
+    virtio_free_iov(iov);
 }
 
 static void complete_req(struct virtio_virtq *vq, struct virtio_iov *iov,
                          uint8_t status)
 {
     set_status(iov, status);
-    virtq_commit_buffers(vq, iov);
+    virtq_push(vq, iov);
+    virtio_free_iov(iov);
 }
 
 static void complete_io(struct vhd_bio *bio)
@@ -56,6 +58,8 @@ static void complete_io(struct vhd_bio *bio)
 
     if (likely(bio->status != VHD_BDEV_CANCELED)) {
         complete_req(vbio->vq, vbio->iov, translate_status(bio->status));
+    } else {
+        virtio_free_iov(vbio->iov);
     }
 
     vhd_free(vbio);

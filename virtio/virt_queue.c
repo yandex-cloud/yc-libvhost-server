@@ -618,7 +618,7 @@ void virtq_notify(struct virtio_virtq *vq)
     }
 }
 
-void virtq_commit_buffers(struct virtio_virtq *vq, struct virtio_iov *iov)
+void virtq_push(struct virtio_virtq *vq, struct virtio_iov *iov)
 {
     /* Put buffer head index and len into used ring */
     struct virtq_iov_private *priv = containerof(iov, struct virtq_iov_private,
@@ -640,8 +640,6 @@ void virtq_commit_buffers(struct virtio_virtq *vq, struct virtio_iov *iov)
     if (vq->log) {
         vhd_log_modified(vq, priv->mm, &priv->iov, used_idx);
     }
-
-    virtio_free_iov(iov);
 
     virtq_notify(vq);
 }
