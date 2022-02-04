@@ -54,6 +54,9 @@ void virtio_free_iov(struct virtio_iov *iov)
 {
     struct virtq_iov_private *priv =
         containerof(iov, struct virtq_iov_private, iov);
+
+    /* matched with ref in virtq_dequeue_one */
+    vhd_memmap_unref(priv->mm);
     vhd_free(priv);
 }
 
@@ -520,7 +523,7 @@ static int virtq_dequeue_one(struct virtio_virtq *vq, uint16_t head,
     priv->used_head = head;
     priv->used_len = ret;
     priv->mm = vq->mm;
-    /* matched with unref in virtq_commit_buffers */
+    /* matched with unref in virtio_free_iov */
     vhd_memmap_ref(priv->mm);
 
     if (!resubmit) {
@@ -638,9 +641,7 @@ void virtq_commit_buffers(struct virtio_virtq *vq, struct virtio_iov *iov)
         vhd_log_modified(vq, priv->mm, &priv->iov, used_idx);
     }
 
-    /* matched with ref in virtq_dequeue_one */
-    vhd_memmap_unref(priv->mm);
-    vhd_free(priv);
+    virtio_free_iov(iov);
 
     virtq_notify(vq);
 }
