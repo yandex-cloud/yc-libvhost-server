@@ -21,7 +21,7 @@ struct vhd_fsdev {
     LIST_ENTRY(vhd_fsdev) fsdevs;
 };
 
-LIST_HEAD(, vhd_fsdev) g_fsdev_list = LIST_HEAD_INITIALIZER(g_fsdev_list);
+static LIST_HEAD(, vhd_fsdev) g_fsdev_list = LIST_HEAD_INITIALIZER(g_fsdev_list);
 
 #define VHD_FSDEV_FROM_VDEV(ptr) containerof(ptr, struct vhd_fsdev, vdev)
 #define VHD_VRING_FROM_VQ(ptr) containerof(ptr, struct vhd_vring, vq)
