@@ -584,7 +584,7 @@ static void virtq_do_notify(struct virtio_virtq *vq)
     }
 }
 
-void virtq_notify(struct virtio_virtq *vq)
+static void virtq_notify(struct virtio_virtq *vq)
 {
     if (!vq->has_event_idx) {
         /*

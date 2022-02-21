@@ -377,7 +377,7 @@ int vhd_run_event_loop(struct vhd_event_loop *evloop, int timeout_ms)
     return -EAGAIN;
 }
 
-void evloop_stop_bh(void *opaque)
+static void evloop_stop_bh(void *opaque)
 {
     struct vhd_event_loop *evloop = opaque;
     evloop->is_terminated = true;

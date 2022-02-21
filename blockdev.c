@@ -22,7 +22,7 @@ struct vhd_bdev {
     LIST_ENTRY(vhd_bdev) blockdevs;
 };
 
-LIST_HEAD(, vhd_bdev) g_bdev_list = LIST_HEAD_INITIALIZER(g_bdev_list);
+static LIST_HEAD(, vhd_bdev) g_bdev_list = LIST_HEAD_INITIALIZER(g_bdev_list);
 
 #define VHD_BLOCKDEV_FROM_VDEV(ptr) containerof(ptr, struct vhd_bdev, vdev)
 #define VHD_VRING_FROM_VQ(ptr) containerof(ptr, struct vhd_vring, vq)
@@ -76,7 +76,7 @@ static void vblk_free(struct vhd_vdev *vdev)
     vhd_free(bdev);
 }
 
-const struct vhd_vdev_type g_virtio_blk_vdev_type = {
+static const struct vhd_vdev_type g_virtio_blk_vdev_type = {
     .desc               = "virtio-blk",
     .get_features       = vblk_get_features,
     .set_features       = vblk_set_features,

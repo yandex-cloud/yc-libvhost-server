@@ -54,7 +54,7 @@ static const char *const vhost_req_names[] = {
 };
 #undef VHOST_REQ
 
-const char *vhost_req_name(uint32_t req)
+static const char *vhost_req_name(uint32_t req)
 {
     if (req >= sizeof(vhost_req_names) / sizeof(vhost_req_names[0]) ||
         !vhost_req_names[req]) {
