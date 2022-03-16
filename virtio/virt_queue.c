@@ -105,7 +105,7 @@ static void virtq_inflight_avail_update(struct virtio_virtq *vq, uint16_t head)
     }
 
     if (vq->inflight_region->desc[head].inflight) {
-        VHD_OBJ_WARN(vq, "iflight[%u]=%u (expected 0)", head,
+        VHD_OBJ_WARN(vq, "inflight[%u]=%u (expected 0)", head,
                      vq->inflight_region->desc[head].inflight);
     }
 
@@ -147,7 +147,7 @@ static void virtq_inflight_used_commit(struct virtio_virtq *vq, uint16_t head)
     }
 
     if (vq->inflight_region->desc[head].inflight != 1) {
-        VHD_OBJ_WARN(vq, "iflight[%u]=%u (expected 1)", head,
+        VHD_OBJ_WARN(vq, "inflight[%u]=%u (expected 1)", head,
                      vq->inflight_region->desc[head].inflight);
     }
 
