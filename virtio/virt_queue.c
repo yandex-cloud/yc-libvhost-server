@@ -110,8 +110,15 @@ static void virtq_inflight_avail_update(struct virtio_virtq *vq, uint16_t head)
     }
 
     vq->inflight_region->desc[head].counter = vq->req_cnt;
-    vq->req_cnt++;
+    /*
+     * Ensure the inflight region fields are updated in the expected order, so
+     * that the next incarnation of the vhost backend can recover the state
+     * regardless of where the current one dies.  There's no concurrent access
+     * to the inflight region so only a compiler barrier is necessary.
+     */
+    barrier();
     vq->inflight_region->desc[head].inflight = 1;
+    vq->req_cnt++;
 }
 
 /* Prepare the inflight descriptor for commit. */
@@ -122,6 +129,13 @@ static void virtq_inflight_used_update(struct virtio_virtq *vq, uint16_t head)
     }
 
     vq->inflight_region->desc[head].next = vq->inflight_region->last_batch_head;
+    /*
+     * Ensure the inflight region fields are updated in the expected order, so
+     * that the next incarnation of the vhost backend can recover the state
+     * regardless of where the current one dies.  There's no concurrent access
+     * to the inflight region so only a compiler barrier is necessary.
+     */
+    barrier();
     vq->inflight_region->last_batch_head = head;
 }
 
