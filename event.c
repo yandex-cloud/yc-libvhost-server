@@ -586,6 +586,9 @@ int vhd_submit_work_and_wait(struct vhd_event_loop *evloop,
 
     if (ret < 0) {
         ret = -errno;
+    }
+    sem_destroy(&work.wait);
+    if (ret < 0) {
         VHD_LOG_ERROR("sem_wait: %s", strerror(-ret));
         return ret;
     }
