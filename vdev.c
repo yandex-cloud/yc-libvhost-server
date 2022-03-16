@@ -924,6 +924,8 @@ static struct vhd_vring *msg_u64_get_vring(struct vhd_vdev *vdev,
 
 static int set_vring_call_complete(struct vhd_vdev *vdev)
 {
+    replace_fd(&vdev->keep_fd, -1);
+
     return vhost_ack(vdev, VHOST_USER_SET_VRING_CALL, 0);
 }
 
@@ -936,7 +938,13 @@ static int vhost_set_vring_call(struct vhd_vdev *vdev, const void *payload,
         return -EINVAL;
     }
 
-    replace_fd(&vring->callfd, num_fds > 0 ? dup(fds[0]) : -1);
+    /*
+     * The current callfd may still be in use in the dataplane so we have to
+     * keep it open until it's synced to the dataplane copy.
+     */
+    VHD_ASSERT(vdev->keep_fd == -1);
+    vdev->keep_fd = vring->callfd;
+    vring->callfd = num_fds > 0 ? dup(fds[0]) : -1;
 
     if (!vring->started_in_ctl) {
         int ret = set_vring_call_complete(vdev);
@@ -1045,6 +1053,8 @@ static int vhost_set_vring_kick(struct vhd_vdev *vdev, const void *payload,
 
 static int set_vring_err_complete(struct vhd_vdev *vdev)
 {
+    replace_fd(&vdev->keep_fd, -1);
+
     return vhost_ack(vdev, VHOST_USER_SET_VRING_ERR, 0);
 }
 
@@ -1057,7 +1067,13 @@ static int vhost_set_vring_err(struct vhd_vdev *vdev, const void *payload,
         return -EINVAL;
     }
 
-    replace_fd(&vring->errfd, num_fds > 0 ? dup(fds[0]) : -1);
+    /*
+     * The current errfd may still be in use in the dataplane so we have to
+     * keep it open until it's synced to the dataplane copy.
+     */
+    VHD_ASSERT(vdev->keep_fd == -1);
+    vdev->keep_fd = vring->errfd;
+    vring->errfd = num_fds > 0 ? dup(fds[0]) : -1;
 
     if (!vring->started_in_ctl) {
         int ret = set_vring_err_complete(vdev);
@@ -1484,6 +1500,7 @@ static void vdev_cleanup(struct vhd_vdev *vdev)
     VHD_ASSERT(!vdev->num_vrings_handling_msg);
     VHD_ASSERT(!vdev->old_memmap);
     VHD_ASSERT(!vdev->old_memlog);
+    VHD_ASSERT(vdev->keep_fd == -1);
 
     inflight_mem_cleanup(vdev);
 
@@ -1768,6 +1785,7 @@ int vhd_vdev_init_server(
         .unmap_cb = unmap_cb,
         .supported_protocol_features = g_default_protocol_features,
         .num_queues = max_queues,
+        .keep_fd = -1,
     };
 
     vdev->log_tag = vhd_strdup(socket_path);
