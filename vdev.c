@@ -1485,8 +1485,6 @@ static void vdev_cleanup(struct vhd_vdev *vdev)
     VHD_ASSERT(!vdev->old_memmap);
     VHD_ASSERT(!vdev->old_memlog);
 
-    replace_fd(&vdev->connfd, -1);
-
     inflight_mem_cleanup(vdev);
 
     if (vdev->memmap) {
@@ -1498,6 +1496,13 @@ static void vdev_cleanup(struct vhd_vdev *vdev)
         vhd_memlog_free(vdev->memlog);
         vdev->memlog = NULL;
     }
+
+    /*
+     * Closing the connection should go last, so that the client doesn't see
+     * the need to reconnect until the server detaches from the client's
+     * mappings.
+     */
+     replace_fd(&vdev->connfd, -1);
 }
 
 static void vhd_vdev_release(struct vhd_vdev *vdev)
