@@ -110,6 +110,9 @@ struct vhd_vdev {
     /* whether an ACK should be sent once the message is handled  */
     bool ack_pending;
 
+    /* fd to keep open until handle_complete and to close there */
+    int keep_fd;
+
     struct vhd_work *work;
 };
 
