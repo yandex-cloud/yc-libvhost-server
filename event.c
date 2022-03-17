@@ -294,13 +294,13 @@ struct vhd_event_loop *vhd_create_event_loop(size_t max_events)
     int notifyfd;
     int epollfd;
 
-    epollfd = epoll_create1(0);
+    epollfd = epoll_create1(EPOLL_CLOEXEC);
     if (epollfd < 0) {
         VHD_LOG_ERROR("epoll_create1: %s", strerror(errno));
         return NULL;
     }
 
-    notifyfd = eventfd(0, EFD_NONBLOCK);
+    notifyfd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
     if (notifyfd < 0) {
         VHD_LOG_ERROR("eventfd() failed: %s", strerror(errno));
         goto close_epoll;
