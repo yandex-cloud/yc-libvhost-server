@@ -380,7 +380,7 @@ static ssize_t net_recv_msg(int fd, struct vhost_user_msg_hdr *hdr,
     };
 
     do {
-        ret = recvmsg(fd, &msgh, 0);
+        ret = recvmsg(fd, &msgh, MSG_CMSG_CLOEXEC);
     } while (ret < 0 && errno == EINTR);
 
     if (ret == 0) {
@@ -940,10 +940,10 @@ static int vhost_set_vring_call(struct vhd_vdev *vdev, const void *payload,
     }
 
     if (num_fds > 0) {
-        callfd = dup(fds[0]);
+        callfd = fcntl(fds[0], F_DUPFD_CLOEXEC, 0);
         if (callfd < 0) {
             int ret = -errno;
-            VHD_OBJ_ERROR(vring, "dup(): %s", strerror(-ret));
+            VHD_OBJ_ERROR(vring, "fcntl(F_DUPFD_CLOEXEC): %s", strerror(-ret));
             return ret;
         }
     }
@@ -1046,10 +1046,10 @@ static int vhost_set_vring_kick(struct vhd_vdev *vdev, const void *payload,
         return ret;
     }
 
-    kickfd = dup(fds[0]);
+    kickfd = fcntl(fds[0], F_DUPFD_CLOEXEC, 0);
     if (kickfd < 0) {
         ret = -errno;
-        VHD_OBJ_ERROR(vring, "dup(): %s", strerror(-ret));
+        VHD_OBJ_ERROR(vring, "fcntl(F_DUPFD_CLOEXEC): %s", strerror(-ret));
         return ret;
     }
 
@@ -1087,10 +1087,10 @@ static int vhost_set_vring_err(struct vhd_vdev *vdev, const void *payload,
     }
 
     if (num_fds > 0) {
-        errfd = dup(fds[0]);
+        errfd = fcntl(fds[0], F_DUPFD_CLOEXEC, 0);
         if (errfd < 0) {
             int ret = -errno;
-            VHD_OBJ_ERROR(vring, "dup(): %s", strerror(-ret));
+            VHD_OBJ_ERROR(vring, "fcntl(F_DUPFD_CLOEXEC): %s", strerror(-ret));
             return ret;
         }
     }
@@ -1641,7 +1641,7 @@ static int server_read(void *opaque)
 
     VHD_ASSERT(vdev->connfd < 0);
 
-    connfd = accept4(vdev->listenfd, NULL, NULL, SOCK_NONBLOCK);
+    connfd = accept4(vdev->listenfd, NULL, NULL, SOCK_NONBLOCK | SOCK_CLOEXEC);
     if (connfd == -1) {
         VHD_OBJ_ERROR(vdev, "accept: %s", strerror(errno));
         return 0;
@@ -1738,7 +1738,7 @@ static int sock_create_server(const char *path)
         return ret;
     }
 
-    fd = socket(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK, 0);
+    fd = socket(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
     if (fd < 0) {
         ret = -errno;
         VHD_LOG_ERROR("socket: %s", strerror(-ret));
