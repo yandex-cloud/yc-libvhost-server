@@ -933,9 +933,19 @@ static int vhost_set_vring_call(struct vhd_vdev *vdev, const void *payload,
                                 size_t size, const int *fds, size_t num_fds)
 {
     struct vhd_vring *vring = msg_u64_get_vring(vdev, payload, size, num_fds);
+    int callfd = -1;
 
     if (!vring) {
         return -EINVAL;
+    }
+
+    if (num_fds > 0) {
+        callfd = dup(fds[0]);
+        if (callfd < 0) {
+            int ret = -errno;
+            VHD_OBJ_ERROR(vring, "dup(): %s", strerror(-ret));
+            return ret;
+        }
     }
 
     /*
@@ -944,7 +954,7 @@ static int vhost_set_vring_call(struct vhd_vdev *vdev, const void *payload,
      */
     VHD_ASSERT(vdev->keep_fd == -1);
     vdev->keep_fd = vring->callfd;
-    vring->callfd = num_fds > 0 ? dup(fds[0]) : -1;
+    vring->callfd = callfd;
 
     if (!vring->started_in_ctl) {
         int ret = set_vring_call_complete(vdev);
@@ -1017,6 +1027,7 @@ static int vhost_set_vring_kick(struct vhd_vdev *vdev, const void *payload,
 {
     struct vhd_vring *vring = msg_u64_get_vring(vdev, payload, size, num_fds);
     int ret;
+    int kickfd;
 
     if (!vring) {
         return -EINVAL;
@@ -1035,8 +1046,15 @@ static int vhost_set_vring_kick(struct vhd_vdev *vdev, const void *payload,
         return ret;
     }
 
+    kickfd = dup(fds[0]);
+    if (kickfd < 0) {
+        ret = -errno;
+        VHD_OBJ_ERROR(vring, "dup(): %s", strerror(-ret));
+        return ret;
+    }
+
     VHD_ASSERT(vring->kickfd < 0);
-    vring->kickfd = dup(fds[0]);
+    vring->kickfd = kickfd;
 
     vring_sync_to_virtq(vring);
     vring->vq.log_tag = vring->log_tag;
@@ -1062,9 +1080,19 @@ static int vhost_set_vring_err(struct vhd_vdev *vdev, const void *payload,
                                size_t size, const int *fds, size_t num_fds)
 {
     struct vhd_vring *vring = msg_u64_get_vring(vdev, payload, size, num_fds);
+    int errfd = -1;
 
     if (!vring) {
         return -EINVAL;
+    }
+
+    if (num_fds > 0) {
+        errfd = dup(fds[0]);
+        if (errfd < 0) {
+            int ret = -errno;
+            VHD_OBJ_ERROR(vring, "dup(): %s", strerror(-ret));
+            return ret;
+        }
     }
 
     /*
@@ -1073,7 +1101,7 @@ static int vhost_set_vring_err(struct vhd_vdev *vdev, const void *payload,
      */
     VHD_ASSERT(vdev->keep_fd == -1);
     vdev->keep_fd = vring->errfd;
-    vring->errfd = num_fds > 0 ? dup(fds[0]) : -1;
+    vring->errfd = errfd;
 
     if (!vring->started_in_ctl) {
         int ret = set_vring_err_complete(vdev);
