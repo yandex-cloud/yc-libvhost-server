@@ -1573,6 +1573,11 @@ static void vdev_disconnect(struct vhd_vdev *vdev)
 {
     uint16_t i;
 
+    /* prevent double disconnect on error paths */
+    if (!vdev->conn_handler) {
+        return;
+    }
+
     VHD_OBJ_INFO(vdev, "Close connection with client, sock = %d", vdev->connfd);
 
     /*
