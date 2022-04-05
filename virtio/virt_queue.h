@@ -34,6 +34,9 @@ struct virtio_virtq {
     /* Size of queue in number of descriptors it can hold */
     uint16_t qsz;
 
+    /* Max chain length (for bug compatibility with non-compliant drivers) */
+    uint16_t max_chain_len;
+
     /* Shadow avail ring index */
     uint16_t  last_avail;
 

@@ -70,8 +70,9 @@ uint16_t virtio_iov_get_head(struct virtio_iov *iov)
 static int add_buffer(struct virtio_virtq *vq, void *addr, size_t len,
                       bool write_only)
 {
-    if (vq->next_buffer == vq->qsz) {
-        VHD_OBJ_ERROR(vq, "descriptor chain exceeds queue size");
+    if (vq->next_buffer == vq->max_chain_len) {
+        VHD_OBJ_ERROR(vq, "descriptor chain exceeds max length %u",
+                      vq->max_chain_len);
         return -ENOBUFS;
     }
 
@@ -215,10 +216,19 @@ static void virtio_virtq_reset_stat(struct virtio_virtq *vq)
     memset(&vq->stat, 0, sizeof(vq->stat));
 }
 
+/*
+ * Windows drivers violate the spec and create descriptor chains up to this
+ * long, regardless of the queue size.
+ */
+#define WINDOWS_CHAIN_LEN_MAX   (512 + 3)
+
 void virtio_virtq_init(struct virtio_virtq *vq)
 {
     VHD_ASSERT(!vq->buffers);
-    vq->buffers = vhd_calloc(vq->qsz, sizeof(vq->buffers[0]));
+
+    vq->max_chain_len = MAX(vq->qsz, WINDOWS_CHAIN_LEN_MAX);
+
+    vq->buffers = vhd_calloc(vq->max_chain_len, sizeof(vq->buffers[0]));
 
     /* Make check on the first virtq dequeue. */
     vq->inflight_check = true;
