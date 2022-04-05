@@ -71,9 +71,22 @@ static inline int vhd_find_first_bit64(uint64_t val)
 #   error Implement me
 #endif
 
-#if !defined(MIN)
-#   define MIN(num1, num2) ((num1) < (num2) ? (num1) : (num2))
-#endif
+/*
+ * MIN/MAX implementations with intuitive behavior:
+ * - type safety
+ * - exactly-once evaluation of both arguments
+ * Note: unsuitable in constant expressions
+ */
+#define __safe_cmp(a, op, b)                             \
+    ({                                                  \
+        typeof(1 ? (a) : (b)) _a = (a), _b = (b);       \
+        _a op _b ? _a : _b;                              \
+    })
+
+#undef MIN
+#define MIN(a, b)       __safe_cmp(a, <, b)
+#undef MAX
+#define MAX(a, b)       __safe_cmp(a, >, b)
 
 /*////////////////////////////////////////////////////////////////////////////*/
 
