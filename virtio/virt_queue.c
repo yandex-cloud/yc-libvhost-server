@@ -608,7 +608,7 @@ static void virtq_do_notify(struct virtio_virtq *vq)
     }
 }
 
-static void virtq_notify(struct virtio_virtq *vq)
+static bool virtq_need_notify(struct virtio_virtq *vq)
 {
     if (!vq->has_event_idx) {
         /*
@@ -618,14 +618,8 @@ static void virtq_notify(struct virtio_virtq *vq)
          * From The Device) and check for used packets in the transmit path
          * of following packets.
          */
-        if (!(vq->avail->flags & VIRTQ_AVAIL_F_NO_INTERRUPT)) {
-            virtq_do_notify(vq);
-        }
-
-        return;
+        return !(vq->avail->flags & VIRTQ_AVAIL_F_NO_INTERRUPT);
     }
-
-    smp_mb(); /* used->idx write followed by used_event read */
 
     /*
      * Virtio specification v1.0, 2.4.7.2:
@@ -637,7 +631,15 @@ static void virtq_notify(struct virtio_virtq *vq)
      * Note: code below assumes that virtq_notify is always called
      * per one completion, and never per batch.
      */
-    if (virtq_get_used_event(vq) == (uint16_t)(vq->used->idx - 1)) {
+    return virtq_get_used_event(vq) == (uint16_t)(vq->used->idx - 1);
+}
+
+static void virtq_notify(struct virtio_virtq *vq)
+{
+    /* expose used ring entries before checking used event */
+    smp_mb();
+
+    if (virtq_need_notify(vq)) {
         virtq_do_notify(vq);
     }
 }
