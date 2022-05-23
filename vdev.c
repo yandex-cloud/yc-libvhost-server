@@ -1304,6 +1304,16 @@ static void inflight_mem_init(void *buf, size_t queue_region_size,
     }
 }
 
+static void inflight_mem_cleanup(struct vhd_vdev *vdev)
+{
+    if (!vdev->inflight_mem) {
+        return;
+    }
+
+    munmap(vdev->inflight_mem, vdev->inflight_size);
+    vdev->inflight_mem = NULL;
+}
+
 static int inflight_mmap_region(struct vhd_vdev *vdev, int fd,
                                 size_t queue_region_size, uint16_t num_queues)
 {
@@ -1311,6 +1321,8 @@ static int inflight_mmap_region(struct vhd_vdev *vdev, int fd,
     int ret;
     void *buf;
     uint16_t i;
+
+    inflight_mem_cleanup(vdev);
 
     buf = mmap(NULL, mmap_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if (buf == MAP_FAILED) {
@@ -1332,16 +1344,6 @@ static int inflight_mmap_region(struct vhd_vdev *vdev, int fd,
     vdev->inflight_size = mmap_size;
 
     return 0;
-}
-
-static void inflight_mem_cleanup(struct vhd_vdev *vdev)
-{
-    if (!vdev->inflight_mem) {
-        return;
-    }
-
-    munmap(vdev->inflight_mem, vdev->inflight_size);
-    vdev->inflight_mem = NULL;
 }
 
 /* memfd_create is only present since glibc-2.27 */
@@ -1437,7 +1439,6 @@ static int vhost_set_inflight_fd(struct vhd_vdev *vdev, const void *payload,
         return -EINVAL;
     }
 
-    inflight_mem_cleanup(vdev);
     ret = inflight_mmap_region(vdev, fds[0], queue_region_size,
                                idesc->num_queues);
     if (ret < 0) {
