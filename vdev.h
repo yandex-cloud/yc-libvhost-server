@@ -63,6 +63,8 @@ struct vhd_vdev {
 
     /* Timing for message handling */
     struct timespec msg_handling_started;
+    int timerfd;
+    struct vhd_io_handler *timer_handler;
 
     /* Attached request queue */
     struct vhd_request_queue *rq;
