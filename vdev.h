@@ -199,6 +199,8 @@ struct vhd_vring {
     bool started_in_rq;
     /* #requests pending completion */
     uint16_t num_in_flight;
+    /* #requests pending completion when the queue is requested to stop */
+    uint16_t num_in_flight_at_stop;
 };
 
 void vhd_vring_inc_in_flight(struct vhd_vring *vring);

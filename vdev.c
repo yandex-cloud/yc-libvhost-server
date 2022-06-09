@@ -241,6 +241,8 @@ static void vring_mark_stopped(struct vhd_vring *vring)
 {
     struct vhd_vdev *vdev = vring->vdev;
 
+    VHD_OBJ_INFO(vring, "stopped vring with %u in-flight requests",
+                 vring->num_in_flight_at_stop);
     VHD_ASSERT(vdev->num_vrings_started);
     vdev->num_vrings_started--;
     vdev_maybe_vrings_stopped(vdev);
@@ -266,6 +268,8 @@ static void vring_reset(struct vhd_vring *vring)
 
     memset(&vring->shadow_vq, 0, sizeof(vring->shadow_vq));
     memset(&vring->addr_cache, 0, sizeof(vring->addr_cache));
+
+    vring->num_in_flight_at_stop = 0;
 
     vring->disconnecting = false;
 }
@@ -328,6 +332,7 @@ static void vring_stop_bh(void *opaque)
         vhd_cancel_queued_requests(vring->vdev->rq, vring);
     }
 
+    vring->num_in_flight_at_stop = vring->num_in_flight;
     vhd_run_in_ctl(vring_mark_stopped_bh, vring);
     if (!vring->num_in_flight) {
         vhd_run_in_ctl(vring_mark_drained_bh, vring);
