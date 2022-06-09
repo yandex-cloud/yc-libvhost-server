@@ -529,6 +529,21 @@ static inline bool has_feature(uint64_t features_qword, size_t feature_bit)
     return features_qword & (1ull << feature_bit);
 }
 
+#define NSEC_PER_SEC 1000000000
+#define NSEC_PER_MSEC 1000000
+
+static void elapsed_time(struct vhd_vdev *vdev, struct timespec *et)
+{
+    clock_gettime(CLOCK_MONOTONIC, et);
+
+    if (et->tv_nsec < vdev->msg_handling_started.tv_nsec) {
+        et->tv_sec -= 1;
+        et->tv_nsec += NSEC_PER_SEC;
+    }
+    et->tv_sec -= vdev->msg_handling_started.tv_sec;
+    et->tv_nsec -= vdev->msg_handling_started.tv_nsec;
+}
+
 static void vdev_handle_start(struct vhd_vdev *vdev, uint32_t req,
                               bool ack_pending)
 {
@@ -537,13 +552,20 @@ static void vdev_handle_start(struct vhd_vdev *vdev, uint32_t req,
 
     vdev->req = req;
     vdev->ack_pending = ack_pending;
+    clock_gettime(CLOCK_MONOTONIC, &vdev->msg_handling_started);
 
     VHD_OBJ_INFO(vdev, "%s (%u)", vhost_req_name(req), req);
 }
 
 static void vdev_handle_finish(struct vhd_vdev *vdev)
 {
-    VHD_OBJ_INFO(vdev, "%s (%u)", vhost_req_name(vdev->req), vdev->req);
+    struct timespec elapsed;
+
+    elapsed_time(vdev, &elapsed);
+
+    VHD_OBJ_INFO(vdev, "%s (%u): elapsed %jd.%03lds",
+                 vhost_req_name(vdev->req), vdev->req,
+                 (intmax_t)elapsed.tv_sec, elapsed.tv_nsec / NSEC_PER_MSEC);
 
     vdev->ack_pending = false;
     vdev->req = VHOST_USER_NONE;

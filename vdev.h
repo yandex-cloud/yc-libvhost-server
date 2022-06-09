@@ -1,5 +1,7 @@
 #pragma once
 
+#include <time.h>
+
 #include "event.h"
 #include "queue.h"
 
@@ -58,6 +60,9 @@ struct vhd_vdev {
 
     /* Message currently being handled */
     uint32_t req;
+
+    /* Timing for message handling */
+    struct timespec msg_handling_started;
 
     /* Attached request queue */
     struct vhd_request_queue *rq;
