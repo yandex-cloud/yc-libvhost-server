@@ -535,16 +535,18 @@ static void vdev_handle_start(struct vhd_vdev *vdev, uint32_t req,
     /* do not accept further messages until this one is fully handled */
     vhd_detach_io_handler(vdev->conn_handler);
 
+    vdev->req = req;
     vdev->ack_pending = ack_pending;
 
     VHD_OBJ_INFO(vdev, "%s (%u)", vhost_req_name(req), req);
 }
 
-static void vdev_handle_finish(struct vhd_vdev *vdev, uint32_t req)
+static void vdev_handle_finish(struct vhd_vdev *vdev)
 {
-    VHD_OBJ_INFO(vdev, "%s (%u)", vhost_req_name(req), req);
+    VHD_OBJ_INFO(vdev, "%s (%u)", vhost_req_name(vdev->req), vdev->req);
 
     vdev->ack_pending = false;
+    vdev->req = VHOST_USER_NONE;
 
     /* resume accepting further messages if still connected */
     if (vdev->conn_handler) {
@@ -566,17 +568,17 @@ static int vhost_send_fds(struct vhd_vdev *vdev,
     }
 
     if (handle_finish) {
-        vdev_handle_finish(vdev, hdr->req);
+        vdev_handle_finish(vdev);
     }
     return 0;
 }
 
-static int vhost_reply_fds(struct vhd_vdev *vdev, uint32_t req,
+static int vhost_reply_fds(struct vhd_vdev *vdev,
                            const void *payload, uint32_t len,
                            int *fds, size_t num_fds)
 {
     struct vhost_user_msg_hdr hdr = {
-        .req = req,
+        .req = vdev->req,
         .size = len,
         .flags = VHOST_USER_MSG_FLAGS_REPLY,
     };
@@ -584,15 +586,15 @@ static int vhost_reply_fds(struct vhd_vdev *vdev, uint32_t req,
     return vhost_send_fds(vdev, &hdr, payload, fds, num_fds, true);
 }
 
-static int vhost_reply(struct vhd_vdev *vdev, uint32_t req,
+static int vhost_reply(struct vhd_vdev *vdev,
                        const void *payload, uint32_t len)
 {
-    return vhost_reply_fds(vdev, req, payload, len, NULL, 0);
+    return vhost_reply_fds(vdev, payload, len, NULL, 0);
 }
 
-static int vhost_reply_u64(struct vhd_vdev *vdev, uint32_t req, uint64_t u64)
+static int vhost_reply_u64(struct vhd_vdev *vdev, uint64_t u64)
 {
-    return vhost_reply(vdev, req, &u64, sizeof(u64));
+    return vhost_reply(vdev, &u64, sizeof(u64));
 }
 
 static int vhost_send_vring_base(struct vhd_vring *vring)
@@ -602,8 +604,7 @@ static int vhost_send_vring_base(struct vhd_vring *vring)
         .num = vring->vq.last_avail,
     };
 
-    return vhost_reply(vring->vdev, VHOST_USER_GET_VRING_BASE,
-                       &vrstate, sizeof(vrstate));
+    return vhost_reply(vring->vdev, &vrstate, sizeof(vrstate));
 }
 
 static bool msg_ack_needed(struct vhd_vdev *vdev, uint32_t flags)
@@ -613,14 +614,14 @@ static bool msg_ack_needed(struct vhd_vdev *vdev, uint32_t flags)
         (flags & VHOST_USER_MSG_FLAGS_REPLY_ACK);
 }
 
-static int vhost_ack(struct vhd_vdev *vdev, uint32_t req, int ret)
+static int vhost_ack(struct vhd_vdev *vdev, int ret)
 {
     if (!vdev->ack_pending) {
-        vdev_handle_finish(vdev, req);
+        vdev_handle_finish(vdev);
         return 0;
     }
 
-    return vhost_reply_u64(vdev, req, ret);
+    return vhost_reply_u64(vdev, ret);
 }
 
 static int vhost_get_protocol_features(struct vhd_vdev *vdev,
@@ -632,8 +633,7 @@ static int vhost_get_protocol_features(struct vhd_vdev *vdev,
         return -EINVAL;
     }
 
-    return vhost_reply_u64(vdev, VHOST_USER_GET_PROTOCOL_FEATURES,
-                           vdev->supported_protocol_features);
+    return vhost_reply_u64(vdev, vdev->supported_protocol_features);
 }
 
 static int vhost_set_protocol_features(struct vhd_vdev *vdev,
@@ -661,7 +661,7 @@ static int vhost_set_protocol_features(struct vhd_vdev *vdev,
 
     vdev->negotiated_protocol_features = *features;
 
-    return vhost_ack(vdev, VHOST_USER_SET_PROTOCOL_FEATURES, 0);
+    return vhost_ack(vdev, 0);
 }
 
 static int vhost_get_features(struct vhd_vdev *vdev, const void *payload,
@@ -675,8 +675,7 @@ static int vhost_get_features(struct vhd_vdev *vdev, const void *payload,
     vdev->supported_features = g_default_features |
                                vdev->type->get_features(vdev);
 
-    return vhost_reply_u64(vdev, VHOST_USER_GET_FEATURES,
-                           vdev->supported_features);
+    return vhost_reply_u64(vdev, vdev->supported_features);
 }
 
 static void update_shadow_vq_memlog(struct vhd_vdev *vdev)
@@ -700,7 +699,7 @@ static void vring_sync_to_virtq_bh(void *opaque)
 
 static int set_features_complete(struct vhd_vdev *vdev)
 {
-    return vhost_ack(vdev, VHOST_USER_SET_FEATURES, 0);
+    return vhost_ack(vdev, 0);
 }
 
 static int vhost_set_features(struct vhd_vdev *vdev, const void *payload,
@@ -777,7 +776,7 @@ static int vhost_set_owner(struct vhd_vdev *vdev, const void *payload,
         return -EINVAL;
     }
 
-    return vhost_ack(vdev, VHOST_USER_SET_OWNER, 0);
+    return vhost_ack(vdev, 0);
 }
 
 static int set_mem_table_complete(struct vhd_vdev *vdev)
@@ -787,7 +786,7 @@ static int set_mem_table_complete(struct vhd_vdev *vdev)
         vdev->old_memmap = NULL;
     }
 
-    return vhost_ack(vdev, VHOST_USER_SET_MEM_TABLE, 0);
+    return vhost_ack(vdev, 0);
 }
 
 static int vhost_set_mem_table(struct vhd_vdev *vdev, const void *payload,
@@ -877,7 +876,7 @@ static int vhost_get_config(struct vhd_vdev *vdev, const void *payload,
     reply.size = vdev->type->get_config(vdev, &reply.payload, reply.size,
                                         reply.offset);
 
-    return vhost_reply(vdev, VHOST_USER_GET_CONFIG, &reply, size);
+    return vhost_reply(vdev, &reply, size);
 }
 
 static int vhost_get_queue_num(struct vhd_vdev *vdev, const void *payload,
@@ -888,7 +887,7 @@ static int vhost_get_queue_num(struct vhd_vdev *vdev, const void *payload,
         return -EINVAL;
     }
 
-    return vhost_reply_u64(vdev, VHOST_USER_GET_QUEUE_NUM, vdev->num_queues);
+    return vhost_reply_u64(vdev, vdev->num_queues);
 }
 
 static struct vhd_vring *get_vring(struct vhd_vdev *vdev, uint16_t index)
@@ -931,7 +930,7 @@ static int set_vring_call_complete(struct vhd_vdev *vdev)
 {
     replace_fd(&vdev->keep_fd, -1);
 
-    return vhost_ack(vdev, VHOST_USER_SET_VRING_CALL, 0);
+    return vhost_ack(vdev, 0);
 }
 
 static int vhost_set_vring_call(struct vhd_vdev *vdev, const void *payload,
@@ -976,12 +975,12 @@ static int vhost_set_vring_call(struct vhd_vdev *vdev, const void *payload,
 
 static int set_vring_kick_complete(struct vhd_vdev *vdev)
 {
-    return vhost_ack(vdev, VHOST_USER_SET_VRING_KICK, 0);
+    return vhost_ack(vdev, 0);
 }
 
 static int set_vring_kick_fail_complete(struct vhd_vdev *vdev)
 {
-    return vhost_ack(vdev, VHOST_USER_SET_VRING_KICK, -EIO);
+    return vhost_ack(vdev, -EIO);
 }
 
 static void vring_start_failed_bh(void *opaque)
@@ -1078,7 +1077,7 @@ static int set_vring_err_complete(struct vhd_vdev *vdev)
 {
     replace_fd(&vdev->keep_fd, -1);
 
-    return vhost_ack(vdev, VHOST_USER_SET_VRING_ERR, 0);
+    return vhost_ack(vdev, 0);
 }
 
 static int vhost_set_vring_err(struct vhd_vdev *vdev, const void *payload,
@@ -1144,7 +1143,7 @@ static int vhost_set_vring_num(struct vhd_vdev *vdev, const void *payload,
     }
 
     vring->vq.qsz = vrstate->num;
-    return vhost_ack(vdev, VHOST_USER_SET_VRING_NUM, 0);
+    return vhost_ack(vdev, 0);
 }
 
 static int vhost_set_vring_base(struct vhd_vdev *vdev, const void *payload,
@@ -1170,7 +1169,7 @@ static int vhost_set_vring_base(struct vhd_vdev *vdev, const void *payload,
     }
 
     vring->vq.last_avail = vrstate->num;
-    return vhost_ack(vdev, VHOST_USER_SET_VRING_BASE, 0);
+    return vhost_ack(vdev, 0);
 }
 
 static int vhost_get_vring_base(struct vhd_vdev *vdev, const void *payload,
@@ -1206,7 +1205,7 @@ static int vhost_get_vring_base(struct vhd_vdev *vdev, const void *payload,
 
 static int set_vring_addr_complete(struct vhd_vdev *vdev)
 {
-    return vhost_ack(vdev, VHOST_USER_SET_VRING_ADDR, 0);
+    return vhost_ack(vdev, 0);
 }
 
 static int vhost_set_vring_addr(struct vhd_vdev *vdev, const void *payload,
@@ -1258,7 +1257,7 @@ static int set_log_base_complete(struct vhd_vdev *vdev)
         vdev->old_memlog = NULL;
     }
 
-    return vhost_reply_u64(vdev, VHOST_USER_SET_LOG_BASE, 0);
+    return vhost_reply_u64(vdev, 0);
 }
 
 static int vhost_set_log_base(struct vhd_vdev *vdev, const void *payload,
@@ -1406,8 +1405,7 @@ static int vhost_get_inflight_fd(struct vhd_vdev *vdev, const void *payload,
     /* Prepare reply to the master side. */
     reply.mmap_size = vdev->inflight_size;
 
-    ret = vhost_reply_fds(vdev, VHOST_USER_GET_INFLIGHT_FD,
-                          &reply, sizeof(reply), &fd, 1);
+    ret = vhost_reply_fds(vdev, &reply, sizeof(reply), &fd, 1);
 out:
     close(fd);
     return ret;
@@ -1450,7 +1448,7 @@ static int vhost_set_inflight_fd(struct vhd_vdev *vdev, const void *payload,
         return ret;
     }
 
-    return vhost_ack(vdev, VHOST_USER_SET_INFLIGHT_FD, 0);
+    return vhost_ack(vdev, 0);
 }
 
 static int (*vhost_msg_handlers[])(struct vhd_vdev *vdev,
@@ -1532,6 +1530,7 @@ static int vdev_submit_work_and_wait(struct vhd_vdev *vdev,
 static void vdev_cleanup(struct vhd_vdev *vdev)
 {
     VHD_ASSERT(!vdev->num_vrings_handling_msg);
+    VHD_ASSERT(vdev->req == VHOST_USER_NONE);
     VHD_ASSERT(!vdev->old_memmap);
     VHD_ASSERT(!vdev->old_memlog);
     VHD_ASSERT(vdev->keep_fd == -1);
@@ -1635,7 +1634,7 @@ static int conn_read(void *opaque)
 
     return 0;
 handle_fail:
-    vdev_handle_finish(vdev, hdr.req);
+    vdev_handle_finish(vdev);
 recv_fail:
     vdev_disconnect(vdev);
     return 0;
@@ -1819,6 +1818,7 @@ int vhd_vdev_init_server(
         .type = type,
         .listenfd = listenfd,
         .connfd = -1,
+        .req = VHOST_USER_NONE,
         .rq = rq,
         .map_cb = map_cb,
         .unmap_cb = unmap_cb,
