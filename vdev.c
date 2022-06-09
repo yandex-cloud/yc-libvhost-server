@@ -6,6 +6,7 @@
 #include <sys/socket.h>
 #include <sys/syscall.h>
 #include <sys/stat.h>
+#include <sys/timerfd.h>
 #include <sys/un.h>
 #include <sys/mman.h>
 #include <pthread.h>
@@ -544,6 +545,19 @@ static void elapsed_time(struct vhd_vdev *vdev, struct timespec *et)
     et->tv_nsec -= vdev->msg_handling_started.tv_nsec;
 }
 
+static void arm_msg_handling_timer(struct vhd_vdev *vdev, int secs)
+{
+    struct itimerspec itimer = {
+        .it_interval.tv_sec = secs,
+        .it_value.tv_sec = secs,
+    };
+
+    timerfd_settime(vdev->timerfd, 0, &itimer, NULL);
+}
+
+/* Every so many seconds report if the message is still being handled */
+#define MSG_HANDLING_LOG_INTERVAL 30
+
 static void vdev_handle_start(struct vhd_vdev *vdev, uint32_t req,
                               bool ack_pending)
 {
@@ -555,11 +569,17 @@ static void vdev_handle_start(struct vhd_vdev *vdev, uint32_t req,
     clock_gettime(CLOCK_MONOTONIC, &vdev->msg_handling_started);
 
     VHD_OBJ_INFO(vdev, "%s (%u)", vhost_req_name(req), req);
+
+    vhd_attach_io_handler(vdev->timer_handler);
+    arm_msg_handling_timer(vdev, MSG_HANDLING_LOG_INTERVAL);
 }
 
 static void vdev_handle_finish(struct vhd_vdev *vdev)
 {
     struct timespec elapsed;
+
+    vhd_detach_io_handler(vdev->timer_handler);
+    arm_msg_handling_timer(vdev, 0);
 
     elapsed_time(vdev, &elapsed);
 
@@ -1569,6 +1589,12 @@ static void vdev_cleanup(struct vhd_vdev *vdev)
         vdev->memlog = NULL;
     }
 
+    if (vdev->timer_handler) {
+        vhd_del_io_handler(vdev->timer_handler);
+        vdev->timer_handler = NULL;
+        replace_fd(&vdev->timerfd, -1);
+    }
+
     /*
      * Closing the connection should go last, so that the client doesn't see
      * the need to reconnect until the server detaches from the client's
@@ -1663,13 +1689,35 @@ recv_fail:
 }
 
 /*
+ * Timer handler to log excessively long message handling.
+ */
+static int timer_read(void *opaque)
+{
+    struct vhd_vdev *vdev = opaque;
+    struct timespec elapsed;
+    uint64_t count;
+
+    /* Read the count to rearm the periodic timer, but ignore the result */
+    (void)read(vdev->timerfd, &count, sizeof(count));
+
+    elapsed_time(vdev, &elapsed);
+
+    VHD_OBJ_WARN(vdev, "long processing %s (%u): elapsed %jd.%03lds",
+                 vhost_req_name(vdev->req), vdev->req,
+                 (intmax_t)elapsed.tv_sec, elapsed.tv_nsec / NSEC_PER_MSEC);
+
+    return 0;
+}
+
+/*
  * Accept a client connection and suspend accepting further connections until
  * the current client is disconnected.
  */
 static int server_read(void *opaque)
 {
     struct vhd_vdev *vdev = opaque;
-    int connfd;
+    int connfd, timerfd;
+    struct vhd_io_handler *conn_handler, *timer_handler;
 
     VHD_ASSERT(vdev->connfd < 0);
 
@@ -1679,19 +1727,39 @@ static int server_read(void *opaque)
         return 0;
     }
 
-    vdev->conn_handler = vhd_add_vhost_io_handler(connfd, conn_read, vdev);
-    if (!vdev->conn_handler) {
+    conn_handler = vhd_add_vhost_io_handler(connfd, conn_read, vdev);
+    if (!conn_handler) {
         goto close_client;
     }
+
+    timerfd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC);
+    if (timerfd == -1) {
+        VHD_OBJ_ERROR(vdev, "timerfd_create: %s", strerror(errno));
+        goto del_conn_handler;
+    }
+
+    timer_handler = vhd_add_vhost_io_handler(timerfd, timer_read, vdev);
+    if (!timer_handler) {
+        goto close_timer;
+    }
+    /* it only needs to be attached during message handling */
+    vhd_detach_io_handler(timer_handler);
 
     vhd_detach_io_handler(vdev->listen_handler);
 
     vdev->connfd = connfd;
+    vdev->conn_handler = conn_handler;
+    vdev->timerfd = timerfd;
+    vdev->timer_handler = timer_handler;
     vdev->negotiated_features = 0;
     vdev->negotiated_protocol_features = 0;
     VHD_OBJ_INFO(vdev, "Connection established, sock = %d", connfd);
     return 0;
 
+close_timer:
+    close(timerfd);
+del_conn_handler:
+    vhd_del_io_handler(conn_handler);
 close_client:
     close(connfd);
     return 0;
