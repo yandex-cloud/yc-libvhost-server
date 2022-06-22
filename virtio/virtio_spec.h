@@ -50,7 +50,10 @@ VHD_STATIC_ASSERT(sizeof(struct virtq_avail) == 4);
 struct virtq_used_elem {
     /* Index of start of used descriptor chain. */
     le32 id;
-    /* Total length of the descriptor chain which was used (written to) */
+    /*
+     * The number of bytes written into the device writable portion of
+     * the buffer described by the descriptor chain.
+     */
     le32 len;
 };
 VHD_STATIC_ASSERT(sizeof(struct virtq_used_elem) == 8);
