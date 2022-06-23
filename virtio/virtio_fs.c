@@ -91,16 +91,8 @@ static void handle_buffers(void *arg, struct virtio_virtq *vq, struct virtio_iov
 
     in = (struct virtio_fs_in_header *) buf->base;
 
-    size_t in_len = 0;
     while (buf != buf_end && vhd_buffer_is_read_only(buf)) {
-        in_len += buf->len;
         ++buf;
-    }
-
-    if (in->len != in_len) {
-        VHD_LOG_ERROR("invalid request size %u", in->len);
-        abort_request(vq, iov);
-        return;
     }
 
     /* parse OUT buffers */
