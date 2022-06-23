@@ -40,7 +40,7 @@ static void abort_request(struct virtio_virtq *vq, struct virtio_iov *iov)
      * broken
      */
     VHD_LOG_ERROR("no valid virtio-blk request found, aborting queue %p", vq);
-    virtq_push(vq, iov);
+    virtq_push(vq, iov, 0);
     virtio_free_iov(iov);
 }
 
@@ -48,7 +48,13 @@ static void complete_req(struct virtio_virtq *vq, struct virtio_iov *iov,
                          uint8_t status)
 {
     set_status(iov, status);
-    virtq_push(vq, iov);
+    /*
+     * FIXME: since the last byte in the IN buffer is always written (for
+     * status), the total length of the IN buffer should always be passed to
+     * virtq_push().  However, it's too awkward to do before proper OUT/IN
+     * buffer split is done, and no actual driver cares, so pass 0 for now.
+     */
+    virtq_push(vq, iov, 0);
     virtio_free_iov(iov);
 }
 

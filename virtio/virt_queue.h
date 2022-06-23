@@ -105,7 +105,7 @@ int virtq_dequeue_many(struct virtio_virtq *vq,
                        virtq_handle_buffers_cb handle_buffers_cb,
                        void *arg);
 
-void virtq_push(struct virtio_virtq *vq, struct virtio_iov *iov);
+void virtq_push(struct virtio_virtq *vq, struct virtio_iov *iov, uint32_t len);
 
 void virtq_set_notify_fd(struct virtio_virtq *vq, int fd);
 
