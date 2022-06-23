@@ -18,7 +18,6 @@
 struct virtq_iov_private {
     /* Private virtq fields */
     uint16_t used_head;
-    uint16_t used_len;
     struct vhd_memory_map *mm;
 
     /* Iov we show to caller */
@@ -545,7 +544,6 @@ static int virtq_dequeue_one(struct virtio_virtq *vq, uint16_t head,
     memcpy(priv->iov.buffers, vq->buffers,
            priv->iov.nvecs * sizeof(vq->buffers[0]));
     priv->used_head = head;
-    priv->used_len = ret;
     priv->mm = vq->mm;
     /* matched with unref in virtio_free_iov */
     vhd_memmap_ref(priv->mm);
@@ -644,7 +642,7 @@ static void virtq_notify(struct virtio_virtq *vq)
     }
 }
 
-void virtq_push(struct virtio_virtq *vq, struct virtio_iov *iov)
+void virtq_push(struct virtio_virtq *vq, struct virtio_iov *iov, uint32_t len)
 {
     /* Put buffer head index and len into used ring */
     struct virtq_iov_private *priv = containerof(iov, struct virtq_iov_private,
@@ -652,7 +650,7 @@ void virtq_push(struct virtio_virtq *vq, struct virtio_iov *iov)
     uint16_t used_idx = vq->used->idx % vq->qsz;
     struct virtq_used_elem *used = &vq->used->ring[used_idx];
     used->id = priv->used_head;
-    used->len = priv->used_len;
+    used->len = len;
 
     virtq_inflight_used_update(vq, used->id);
 
