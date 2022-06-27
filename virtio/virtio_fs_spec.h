@@ -23,6 +23,8 @@ struct VHD_PACKED virtio_fs_config {
 
 /*
  * Generic FUSE request in/out headers.
+ * FIXME: these are duplicates of fuse_in_header/fuse_out_header, and should be
+ * removed in favor of the latter.
  */
 struct virtio_fs_in_header {
     le32 len;
