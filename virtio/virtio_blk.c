@@ -62,12 +62,10 @@ static void complete_req(struct virtio_virtq *vq, struct virtio_iov *iov,
 {
     set_status(iov, status);
     /*
-     * FIXME: since the last byte in the IN buffer is always written (for
-     * status), the total length of the IN buffer should always be passed to
-     * virtq_push().  However, it's too awkward to do before proper OUT/IN
-     * buffer split is done, and no actual driver cares, so pass 0 for now.
+     * the last byte in the IN buffer is always written (for status), so pass
+     * the total length of the IN buffer to virtq_push()
      */
-    virtq_push(vq, iov, 0);
+    virtq_push(vq, iov, iov_size(iov->iov_in, iov->niov_in));
     virtio_free_iov(iov);
 }
 
