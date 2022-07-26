@@ -17,9 +17,6 @@ struct virtio_fs_io {
 
     /* TODO: this should be device type-specific */
     struct vhd_bio bio;
-
-    /* FIXME: once OUT/IN buffer split is done properly this won't be needed */
-    struct virtio_fs_out_header *out_hdr;
 };
 
 #define VIRTIO_VBIO_FROM_BIO(ptr) containerof(ptr, struct virtio_fs_io, bio)
@@ -35,13 +32,17 @@ static inline void abort_request(struct virtio_virtq *vq, struct virtio_iov *iov
 static void complete_request(struct vhd_bio *bio)
 {
     struct virtio_fs_io *vbio = VIRTIO_VBIO_FROM_BIO(bio);
-    uint32_t len = vbio->out_hdr ? vbio->out_hdr->len : 0;
+    struct virtio_iov *viov = vbio->iov;
+    /* if IN iov has at least one buffer it accomodates fuse_out_header */
+    struct virtio_fs_out_header *out =
+                        viov->niov_in ? viov->iov_in[0].base : NULL;
+    uint32_t len = out ? out->len : 0;
 
     if (likely(bio->status != VHD_BDEV_CANCELED)) {
         virtq_push(vbio->vq, vbio->iov, len);
     }
 
-    virtio_free_iov(vbio->iov);
+    virtio_free_iov(viov);
     vhd_free(vbio);
 }
 
@@ -80,7 +81,6 @@ static void handle_buffers(void *arg, struct virtio_virtq *vq, struct virtio_iov
     struct virtio_fs_io *vbio = vhd_zalloc(sizeof(*vbio));
     vbio->vq = vq;
     vbio->iov = iov;
-    vbio->out_hdr = out;
     vbio->bio.bdev_io.sglist.nbuffers = niov;
     vbio->bio.bdev_io.sglist.buffers = iov->buffers;
     vbio->bio.completion_handler = complete_request;
