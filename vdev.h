@@ -177,25 +177,19 @@ struct vhd_vring {
     /* called in control plane once vring is drained */
     int (*on_drain_cb)(struct vhd_vring *);
 
-   /*
-    * ring addresses cache
-    * used to update actual ring addresses when mapping is changed
-    */
-    struct {
-        uint64_t avail;
-        uint64_t desc;
-        uint64_t used;
-    } addr_cache;
-
     /*
      * vq attributes that may change while vring is started; these are updated
      * in the control event loop and propagated via BH into vq
      */
     struct {
+        uint64_t desc_addr;
+        uint64_t used_addr;
+        uint64_t avail_addr;
         uint32_t flags;
+        uint64_t used_gpa_base;
         void *desc;
-        void *avail;
         void *used;
+        void *avail;
         struct vhd_memory_map *mm;
         struct vhd_memory_log *log;
     } shadow_vq;
