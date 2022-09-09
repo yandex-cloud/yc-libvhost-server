@@ -121,15 +121,15 @@ static int vring_kick(void *opaque)
 static int vring_update_shadow_vq_addrs(struct vhd_vring *vring,
                                         struct vhd_memory_map *mm)
 {
-    void *desc = uva_to_ptr(mm, vring->addr_cache.desc);
-    void *used = uva_to_ptr(mm, vring->addr_cache.used);
-    void *avail = uva_to_ptr(mm, vring->addr_cache.avail);
+    void *desc = uva_to_ptr(mm, vring->shadow_vq.desc_addr);
+    void *used = uva_to_ptr(mm, vring->shadow_vq.used_addr);
+    void *avail = uva_to_ptr(mm, vring->shadow_vq.avail_addr);
 
     if (!desc || !used || !avail) {
         VHD_OBJ_ERROR(vring, "failed to resolve vring addresses "
                       "(0x%" PRIx64 ", 0x%" PRIx64 ", 0x%" PRIx64 ")",
-                      vring->addr_cache.desc, vring->addr_cache.used,
-                      vring->addr_cache.avail);
+                      vring->shadow_vq.desc_addr, vring->shadow_vq.used_addr,
+                      vring->shadow_vq.avail_addr);
         return -EINVAL;
     }
 
@@ -147,6 +147,7 @@ static void vring_sync_to_virtq(struct vhd_vring *vring)
     vring->vq.desc = vring->shadow_vq.desc;
     vring->vq.used = vring->shadow_vq.used;
     vring->vq.avail = vring->shadow_vq.avail;
+    vring->vq.used_gpa_base = vring->shadow_vq.used_gpa_base;
     vring->vq.mm = vring->shadow_vq.mm;
     vring->vq.log = vring->shadow_vq.log;
     virtq_set_notify_fd(&vring->vq, vring->callfd);
@@ -268,7 +269,6 @@ static void vring_reset(struct vhd_vring *vring)
     replace_fd(&vring->errfd, -1);
 
     memset(&vring->shadow_vq, 0, sizeof(vring->shadow_vq));
-    memset(&vring->addr_cache, 0, sizeof(vring->addr_cache));
 
     vring->num_in_flight_at_stop = 0;
 
@@ -1268,19 +1268,19 @@ static int vhost_set_vring_addr(struct vhd_vdev *vdev, const void *payload,
     }
 
     if (!vring->started_in_ctl) {
-        vring->addr_cache.desc = vraddr->desc_addr;
-        vring->addr_cache.used = vraddr->used_addr;
-        vring->addr_cache.avail = vraddr->avail_addr;
+        vring->shadow_vq.desc_addr = vraddr->desc_addr;
+        vring->shadow_vq.used_addr = vraddr->used_addr;
+        vring->shadow_vq.avail_addr = vraddr->avail_addr;
         vring->shadow_vq.flags = vraddr->flags;
-        vring->vq.used_gpa_base = vraddr->used_gpa_base;
+        vring->shadow_vq.used_gpa_base = vraddr->used_gpa_base;
 
         return set_vring_addr_complete(vdev);
     }
 
-    if (vring->addr_cache.desc != vraddr->desc_addr ||
-        vring->addr_cache.used != vraddr->used_addr ||
-        vring->addr_cache.avail != vraddr->avail_addr ||
-        vring->vq.used_gpa_base != vraddr->used_gpa_base) {
+    if (vring->shadow_vq.desc_addr != vraddr->desc_addr ||
+        vring->shadow_vq.used_addr != vraddr->used_addr ||
+        vring->shadow_vq.avail_addr != vraddr->avail_addr ||
+        vring->shadow_vq.used_gpa_base != vraddr->used_gpa_base) {
         VHD_OBJ_ERROR(vring, "changing started vring addresses not allowed");
         return -EISCONN;
     }
