@@ -245,6 +245,9 @@ static void vring_mark_stopped(struct vhd_vring *vring)
 
     VHD_OBJ_INFO(vring, "stopped vring with %u in-flight requests",
                  vring->num_in_flight_at_stop);
+
+    replace_fd(&vring->kickfd, -1);
+
     VHD_ASSERT(vdev->num_vrings_started);
     vdev->num_vrings_started--;
     vdev_maybe_vrings_stopped(vdev);
@@ -291,7 +294,6 @@ static void vring_mark_drained(struct vhd_vring *vring)
     }
 
     virtio_virtq_release(&vring->vq);
-    vring_reset(vring);
 
     VHD_ASSERT(vdev->num_vrings_in_flight);
     vdev->num_vrings_in_flight--;
@@ -350,8 +352,6 @@ static void vring_disconnect(struct vhd_vring *vring)
         vring->disconnecting = true;
 
         vhd_run_in_rq(vring->vdev->rq, vring_stop_bh, vring);
-    } else {
-        vring_reset(vring);
     }
 }
 
@@ -1571,11 +1571,17 @@ static int vdev_submit_work_and_wait(struct vhd_vdev *vdev,
 
 static void vdev_cleanup(struct vhd_vdev *vdev)
 {
+    uint16_t i;
+
     VHD_ASSERT(!vdev->num_vrings_handling_msg);
     VHD_ASSERT(vdev->req == VHOST_USER_NONE);
     VHD_ASSERT(!vdev->old_memmap);
     VHD_ASSERT(!vdev->old_memlog);
     VHD_ASSERT(vdev->keep_fd == -1);
+
+    for (i = 0; i < vdev->num_queues; i++) {
+        vring_reset(&vdev->vrings[i]);
+    }
 
     inflight_mem_cleanup(vdev);
 
