@@ -213,29 +213,20 @@ static void vring_mark_msg_handled_bh(void *opaque)
 static void vdev_vrings_stopped(struct vhd_vdev *vdev);
 static void vdev_drained(struct vhd_vdev *vdev);
 
-static void vdev_maybe_vrings_stopped(struct vhd_vdev *vdev)
+static bool vdev_in_use(struct vhd_vdev *vdev)
+{
+    return vdev->num_vrings_in_flight || vdev->num_vrings_handling_msg ||
+           vdev->num_vrings_started || vdev->conn_handler;
+}
+
+static void vdev_maybe_finished(struct vhd_vdev *vdev)
 {
     if (!vdev->num_vrings_started) {
         vdev_vrings_stopped(vdev);
     }
-}
 
-static bool vdev_in_use(struct vhd_vdev *vdev)
-{
-    return vdev->num_vrings_in_flight || vdev->num_vrings_handling_msg ||
-        vdev->conn_handler;
-}
-
-static void vdev_maybe_drained(struct vhd_vdev *vdev)
-{
     if (!vdev_in_use(vdev)) {
-        /*
-         * If vring_mark_stopped_bh hasn't run yet due to BH reordering,
-         * postpone calling vdev_drained.
-         */
-        if (!vdev->num_vrings_started) {
-            vdev_drained(vdev);
-        }
+        vdev_drained(vdev);
     }
 }
 
@@ -250,14 +241,8 @@ static void vring_mark_stopped(struct vhd_vring *vring)
 
     VHD_ASSERT(vdev->num_vrings_started);
     vdev->num_vrings_started--;
-    vdev_maybe_vrings_stopped(vdev);
 
-    /*
-     * If vring_mark_drained_bh has run earlier due to BH reordering, it must
-     * have noticed that not all vrings were stopped, and must have postponed
-     * calling vdev_drained.  Do it now.
-     */
-    vdev_maybe_drained(vdev);
+    vdev_maybe_finished(vdev);
 }
 
 static void vring_mark_stopped_bh(void *opaque)
@@ -298,7 +283,7 @@ static void vring_mark_drained(struct vhd_vring *vring)
     VHD_ASSERT(vdev->num_vrings_in_flight);
     vdev->num_vrings_in_flight--;
 
-    vdev_maybe_drained(vdev);
+    vdev_maybe_finished(vdev);
 }
 
 static void vring_mark_drained_bh(void *opaque)
@@ -1537,8 +1522,10 @@ struct vdev_work {
 
 static void vdev_complete_work(struct vhd_vdev *vdev, int ret)
 {
-    vhd_complete_work(vdev->work, ret);
-    vdev->work = NULL;
+    if (vdev->work) {
+        vhd_complete_work(vdev->work, ret);
+        vdev->work = NULL;
+    }
 }
 
 static void vdev_work_fn(struct vhd_work *work, void *opaque)
@@ -1651,8 +1638,7 @@ static void vdev_disconnect(struct vhd_vdev *vdev)
         vring_disconnect(&vdev->vrings[i]);
     }
 
-    vdev_maybe_vrings_stopped(vdev);
-    vdev_maybe_drained(vdev);
+    vdev_maybe_finished(vdev);
 }
 
 /*
@@ -1971,8 +1957,7 @@ static void vdev_stop(struct vhd_vdev *vdev, void *opaque)
         return;
     }
 
-    vdev_maybe_vrings_stopped(vdev);
-    vdev_maybe_drained(vdev);
+    vdev_maybe_finished(vdev);
 }
 
 int vhd_vdev_stop_server(struct vhd_vdev *vdev,
