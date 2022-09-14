@@ -315,6 +315,14 @@ static void vring_stop_bh(void *opaque)
     vhd_del_io_handler(vring->kick_handler);
     vring->kick_handler = NULL;
 
+    /*
+     * FIXME: if the vring is stopped on request from the client via
+     * GET_VRING_BASE message (as opposed to a disconnect), the requests have
+     * to run through the backend because inflight requests aren't migrated by
+     * QEMU yet.  Once this is fixed (with the help of the inflight region
+     * migration), the requests should be canceled here unconditionally,
+     * speeding up vm migration and shutdown.
+     */
     if (vring->disconnecting) {
         vhd_cancel_queued_requests(vring->vdev->rq, vring);
     }
