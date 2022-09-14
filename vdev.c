@@ -314,11 +314,12 @@ static void vring_stop_bh(void *opaque)
 
     vhd_del_io_handler(vring->kick_handler);
     vring->kick_handler = NULL;
-    vring->started_in_rq = false;
 
     if (vring->disconnecting) {
         vhd_cancel_queued_requests(vring->vdev->rq, vring);
     }
+
+    vring->started_in_rq = false;
 
     vring->num_in_flight_at_stop = vring->num_in_flight;
     vhd_run_in_ctl(vring_mark_stopped_bh, vring);
