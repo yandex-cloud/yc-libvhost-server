@@ -40,7 +40,7 @@ void vhd_memlog_free(struct vhd_memory_log *log)
 static void atomic_or_le_ulong(unsigned long *ptr, unsigned long mask)
 {
     VHD_STATIC_ASSERT(sizeof(*ptr) == sizeof(uint64_t));
-    atomic_or(ptr, htole64(mask));
+    catomic_or(ptr, htole64(mask));
 }
 
 static void bitmap_set_atomic(unsigned long *map, size_t start, size_t end)
@@ -61,7 +61,7 @@ static void bitmap_set_atomic(unsigned long *map, size_t start, size_t end)
 
     /* full words: no RMW so relaxed atomic; no endianness */
     for (i = start_idx; i < end_idx; i++) {
-        atomic_set(&map[i], ~0UL);
+        catomic_set(&map[i], ~0UL);
     }
 
     /* last partial word */
@@ -71,8 +71,8 @@ static void bitmap_set_atomic(unsigned long *map, size_t start, size_t end)
                            (~0UL >> nr_clear_bits) << start_in_word);
     } else if (start_idx < end_idx) {
         /*
-         * if there were any relaxed atomic_set's not followed by an implicit
-         * full memory barrier in atomic_or, do an explicit one
+         * if there were any relaxed catomic_set's not followed by an implicit
+         * full memory barrier in catomic_or, do an explicit one
          */
         smp_mb();
     }

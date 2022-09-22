@@ -32,12 +32,12 @@ static inline void objref_init(struct objref *objref,
                                void (*release)(struct objref *objref))
 {
     objref->release = release;
-    atomic_set(&objref->refcount, 1);
+    catomic_set(&objref->refcount, 1);
 }
 
 static inline unsigned int objref_read(struct objref *objref)
 {
-    return atomic_read(&objref->refcount);
+    return catomic_read(&objref->refcount);
 }
 
 static inline void refcount_inc(unsigned long *ptr)

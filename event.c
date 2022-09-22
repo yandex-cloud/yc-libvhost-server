@@ -85,16 +85,16 @@ struct vhd_event_loop {
 
 static void evloop_notify(struct vhd_event_loop *evloop)
 {
-    if (!atomic_xchg(&evloop->notified, true)) {
+    if (!catomic_xchg(&evloop->notified, true)) {
         vhd_set_eventfd(evloop->notifyfd);
     }
 }
 
 static void notify_accept(struct vhd_event_loop *evloop)
 {
-    if (atomic_read(&evloop->notified)) {
+    if (catomic_read(&evloop->notified)) {
         vhd_clear_eventfd(evloop->notifyfd);
-        atomic_xchg(&evloop->notified, false);
+        catomic_xchg(&evloop->notified, false);
     }
 }
 
@@ -105,14 +105,14 @@ static void bh_enqueue(struct vhd_bh *bh, unsigned new_flags)
     unsigned old_flags;
 
     /*
-     * The memory barrier implicit in atomic_fetch_or makes sure that:
+     * The memory barrier implicit in catomic_fetch_or makes sure that:
      * 1. any writes needed by the callback are done before the locations are
      *    read in the bh_poll.
      * 2. ctx is loaded before the callback has a chance to execute and bh
      *    could be freed.
      * Paired with bh_dequeue().
      */
-    old_flags = atomic_fetch_or(&bh->flags, BH_PENDING | new_flags);
+    old_flags = catomic_fetch_or(&bh->flags, BH_PENDING | new_flags);
     if (!(old_flags & BH_PENDING)) {
         SLIST_INSERT_HEAD_ATOMIC(&ctx->bh_list, bh, next);
     }
@@ -132,12 +132,12 @@ static struct vhd_bh *bh_dequeue(vhd_bh_list *head, unsigned *flags)
     SLIST_REMOVE_HEAD(head, next);
 
     /*
-     * The atomic_and is paired with bh_enqueue().  The implicit memory barrier
+     * The catomic_and is paired with bh_enqueue().  The implicit memory barrier
      * ensures that the callback sees all writes done by the scheduling thread.
      * It also ensures that the scheduling thread sees the cleared flag before
      * bh->cb has run, and thus will call evloop_notify again if necessary.
      */
-    *flags = atomic_fetch_and(&bh->flags, ~(BH_PENDING | BH_SCHEDULED));
+    *flags = catomic_fetch_and(&bh->flags, ~(BH_PENDING | BH_SCHEDULED));
     return bh;
 }
 
@@ -168,7 +168,7 @@ void vhd_bh_schedule(struct vhd_bh *bh)
 /* this is async and doesn't interfere with already running bh */
 void vhd_bh_cancel(struct vhd_bh *bh)
 {
-    atomic_and(&bh->flags, ~BH_SCHEDULED);
+    catomic_and(&bh->flags, ~BH_SCHEDULED);
 }
 
 /* this is async; deletion only happens in bh_poll, so need to enqueue first */
@@ -341,7 +341,7 @@ static __thread struct vhd_event_loop *home_evloop;
 int vhd_run_event_loop(struct vhd_event_loop *evloop, int timeout_ms)
 {
     if (!home_evloop) {
-        bool had_home_thread = atomic_xchg(&evloop->has_home_thread, true);
+        bool had_home_thread = catomic_xchg(&evloop->has_home_thread, true);
         VHD_VERIFY(!had_home_thread);
         home_evloop = evloop;
     }
