@@ -26,7 +26,7 @@
 #include "catomic.h"
 
 struct objref {
-    atomic_ulong refcount;
+    unsigned long refcount;
     void (*release)(struct objref *objref);
 };
 
@@ -42,9 +42,9 @@ static inline unsigned int objref_read(struct objref *objref)
     return atomic_read(&objref->refcount);
 }
 
-static inline void refcount_inc(atomic_ulong *ptr)
+static inline void refcount_inc(unsigned long *ptr)
 {
-    atomic_fetch_add_explicit(ptr, 1, memory_order_relaxed);
+    __atomic_fetch_add(ptr, 1, __ATOMIC_RELAXED);
 }
 
 static inline void objref_get(struct objref *objref)
@@ -52,9 +52,9 @@ static inline void objref_get(struct objref *objref)
     refcount_inc(&objref->refcount);
 }
 
-static inline bool refcount_dec_and_test(atomic_ulong *ptr)
+static inline bool refcount_dec_and_test(unsigned long *ptr)
 {
-    atomic_ulong old = atomic_fetch_sub_explicit(ptr, 1, memory_order_release);
+    unsigned long old = __atomic_fetch_sub(ptr, 1, __ATOMIC_RELEASE);
 
     if (old == 1) {
         smp_mb_acquire();

@@ -93,7 +93,7 @@ int vhd_submit_ctl_work_and_wait(void (*func)(struct vhd_work *, void *),
  * Request queues
  */
 
-typedef SLIST_HEAD_ATOMIC(, vhd_bio) vhd_bio_list;
+typedef SLIST_HEAD(, vhd_bio) vhd_bio_list;
 
 /* TODO: bounded queue */
 struct vhd_request_queue {

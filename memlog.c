@@ -1,4 +1,3 @@
-#include <stdatomic.h>
 #include <string.h>
 #include <endian.h>
 
@@ -8,7 +7,7 @@
 #include "memmap.h"
 
 struct vhd_memory_log {
-    atomic_ulong *base;
+    unsigned long *base;
     size_t size;
 };
 
@@ -38,13 +37,13 @@ void vhd_memlog_free(struct vhd_memory_log *log)
     vhd_free(log);
 }
 
-static void atomic_or_le_ulong(atomic_ulong *ptr, unsigned long mask)
+static void atomic_or_le_ulong(unsigned long *ptr, unsigned long mask)
 {
     VHD_STATIC_ASSERT(sizeof(*ptr) == sizeof(uint64_t));
     atomic_or(ptr, htole64(mask));
 }
 
-static void bitmap_set_atomic(atomic_ulong *map, size_t start, size_t end)
+static void bitmap_set_atomic(unsigned long *map, size_t start, size_t end)
 {
     static const unsigned bits_per_word = sizeof(*map) * 8;
     size_t start_idx = start / bits_per_word;
