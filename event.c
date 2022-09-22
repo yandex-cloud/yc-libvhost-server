@@ -54,17 +54,17 @@ struct vhd_bh {
     vhd_bh_cb *cb;
     void *opaque;
     SLIST_ENTRY(vhd_bh) next;
-    atomic_uint flags;
+    unsigned flags;
 };
 
-typedef SLIST_HEAD_ATOMIC(, vhd_bh) vhd_bh_list;
+typedef SLIST_HEAD(, vhd_bh) vhd_bh_list;
 
 struct vhd_event_loop {
     int epollfd;
 
     /* eventfd we use to cancel epoll_wait if needed */
     int notifyfd;
-    atomic_bool notified;
+    bool notified;
 
     /* vhd_terminate_event_loop has been completed */
     bool is_terminated;
@@ -78,7 +78,7 @@ struct vhd_event_loop {
 
     vhd_bh_list bh_list;
 
-    atomic_bool has_home_thread;
+    bool has_home_thread;
 
     SLIST_HEAD(, vhd_io_handler) deleted_handlers;
 };

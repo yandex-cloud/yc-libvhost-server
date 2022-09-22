@@ -11,17 +11,6 @@
 #include "catomic.h"
 
 /*
- * Cater to the strict _Atomic-qual checking of clang and define a version of
- * SLIST_HEAD usable with the below atomic ops.  Aside from the _Atomic
- * qualifier it's identical to the original SLIST_HEAD, so all other SLIST_*
- * ops work fine on it.
- */
-#define SLIST_HEAD_ATOMIC(name, type)                           \
-    struct name {                                               \
-        struct type *_Atomic slh_first; /* first element */     \
-    }
-
-/*
  * Atomically insert a new list head
  */
 #define SLIST_INSERT_HEAD_ATOMIC(head, elm, field)      ({                        \
