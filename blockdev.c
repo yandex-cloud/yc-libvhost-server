@@ -61,8 +61,7 @@ static size_t vblk_get_config(struct vhd_vdev *vdev, void *cfgbuf,
     return data_size;
 }
 
-static int vblk_dispatch(struct vhd_vdev *vdev, struct vhd_vring *vring,
-                         struct vhd_request_queue *rq)
+static int vblk_dispatch(struct vhd_vdev *vdev, struct vhd_vring *vring)
 {
     struct vhd_bdev *dev = VHD_BLOCKDEV_FROM_VDEV(vdev);
     return virtio_blk_dispatch_requests(&dev->vblk, &vring->vq);

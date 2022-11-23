@@ -55,8 +55,7 @@ static size_t vfs_get_config(struct vhd_vdev *vdev, void *cfgbuf,
 }
 
 static int vfs_dispatch_requests(struct vhd_vdev *vdev,
-                                 struct vhd_vring *vring,
-                                 struct vhd_request_queue *rq)
+                                 struct vhd_vring *vring)
 {
     struct vhd_fsdev *dev = VHD_FSDEV_FROM_VDEV(vdev);
     return virtio_fs_dispatch_requests(&dev->vfs, &vring->vq);
