@@ -8,6 +8,8 @@
 extern "C" {
 #endif
 
+#define VHD_MAX_REQUEST_QUEUES 256
+
 struct vhd_vdev;
 struct vhd_bdev_io;
 

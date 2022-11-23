@@ -43,21 +43,24 @@ struct vhd_bdev_info {
 };
 
 /**
- * Register vhost block device.
+ * Register a vhost block device.
  *
- * After registering device will be accessible through vhost socket to client.
- * All requests are submitted to attacher request queue for caller to process.
+ * After registering a device, it will be accessible to clients through a vhost
+ * socket.
+ * All requests are submitted to attacher request queues for caller to process.
  *
  * @bdev        Caller block device info.
- * @rq          Request queue to use for dispatch device I/O requests.
+ * @rqs         An array of request queues to use for dispatching device I/O
+ *              requests.
+ * @num_rqs     Number of request queues in the @rqs array.
  * @priv        Caller private data to associate with resulting vdev.
  */
 struct vhd_vdev *vhd_register_blockdev(struct vhd_bdev_info *bdev,
-                                       struct vhd_request_queue *rq,
-                                       void *priv);
+                                       struct vhd_request_queue **rqs,
+                                       int num_rqs, void *priv);
 
 /**
- * Unregister vhost block device.
+ * Unregister a vhost block device.
  */
 void vhd_unregister_blockdev(struct vhd_vdev *vdev,
                              void (*unregister_complete)(void *), void *arg);
