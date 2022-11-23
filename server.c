@@ -242,8 +242,10 @@ void vhd_complete_bio(struct vhd_bdev_io *bdev_io,
                       enum vhd_bdev_io_result status)
 {
     struct vhd_bio *bio = containerof(bdev_io, struct vhd_bio, bdev_io);
-    struct vhd_request_queue *rq = bio->vring->vdev->rq;
+    struct vhd_request_queue *rq;
+
     bio->status = status;
+    rq = vhd_get_rq_for_vring(bio->vring);
 
     /*
      * if this is not the first completion on the list scheduling the bh can be

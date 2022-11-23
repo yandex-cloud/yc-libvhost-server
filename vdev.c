@@ -71,6 +71,12 @@ static uint16_t vring_idx(struct vhd_vring *vring)
     return vring - vring->vdev->vrings;
 }
 
+struct vhd_request_queue *vhd_get_rq_for_vring(struct vhd_vring *vring)
+{
+    struct vhd_vdev *vdev = vring->vdev;
+    return vdev->rqs[vring_idx(vring) % vdev->num_rqs];
+}
+
 static void replace_fd(int *fd, int newfd)
 {
     if (*fd >= 0) {
@@ -184,7 +190,7 @@ static void vring_handle_msg(struct vhd_vring *vring,
 
     vdev->num_vrings_handling_msg++;
 
-    vhd_run_in_rq(vdev->rq, handler_bh, vring);
+    vhd_run_in_rq(vhd_get_rq_for_vring(vring), handler_bh, vring);
 }
 
 static void vdev_disconnect(struct vhd_vdev *vdev);
@@ -324,7 +330,7 @@ static void vring_stop_bh(void *opaque)
      * speeding up vm migration and shutdown.
      */
     if (vring->disconnecting) {
-        vhd_cancel_queued_requests(vring->vdev->rq, vring);
+        vhd_cancel_queued_requests(vhd_get_rq_for_vring(vring), vring);
     }
 
     vring->started_in_rq = false;
@@ -345,7 +351,7 @@ static void vring_disconnect(struct vhd_vring *vring)
          */
         vring->disconnecting = true;
 
-        vhd_run_in_rq(vring->vdev->rq, vring_stop_bh, vring);
+        vhd_run_in_rq(vhd_get_rq_for_vring(vring), vring_stop_bh, vring);
     }
 }
 
@@ -1034,8 +1040,6 @@ static void vring_start_failed_bh(void *opaque)
 static void vring_start_bh(void *opaque)
 {
     struct vhd_vring *vring = opaque;
-    struct vhd_vdev *vdev = vring->vdev;
-
     VHD_ASSERT(!vring->started_in_rq);
 
     /*
@@ -1046,7 +1050,8 @@ static void vring_start_bh(void *opaque)
         goto fail;
     }
 
-    vring->kick_handler = vhd_add_rq_io_handler(vdev->rq, vring->kickfd,
+    vring->kick_handler = vhd_add_rq_io_handler(vhd_get_rq_for_vring(vring),
+                                                vring->kickfd,
                                                 vring_kick, vring);
     if (!vring->kick_handler) {
         VHD_OBJ_ERROR(vring, "Could not attach kick handler");
@@ -1235,7 +1240,7 @@ static int vhost_get_vring_base(struct vhd_vdev *vdev, const void *payload,
      * vring_stop_bh() instead of going through vring_handle_msg().
      */
     vring->on_drain_cb = vhost_send_vring_base;
-    vhd_run_in_rq(vring->vdev->rq, vring_stop_bh, vring);
+    vhd_run_in_rq(vhd_get_rq_for_vring(vring), vring_stop_bh, vring);
     return 0;
 }
 
@@ -1615,6 +1620,7 @@ static void vhd_vdev_release(struct vhd_vdev *vdev)
         vhd_free(vdev->vrings[i].log_tag);
     }
     vhd_free(vdev->vrings);
+    vhd_free(vdev->rqs);
 
     if (vdev->release_cb) {
         vdev->release_cb(vdev->release_arg);
@@ -1879,7 +1885,8 @@ int vhd_vdev_init_server(
     const char *socket_path,
     const struct vhd_vdev_type *type,
     int max_queues,
-    struct vhd_request_queue *rq,
+    struct vhd_request_queue **rqs,
+    int num_rqs,
     void *priv,
     int (*map_cb)(void *addr, size_t len, void *priv),
     int (*unmap_cb)(void *addr, size_t len, void *priv))
@@ -1887,6 +1894,7 @@ int vhd_vdev_init_server(
     int ret;
     int listenfd;
     uint16_t i;
+    struct vhd_request_queue **vhd_rqs;
 
     /*
      * The spec is unclear about the maximum number of queues allowed, using
@@ -1899,10 +1907,26 @@ int vhd_vdev_init_server(
         return -1;
     }
 
+    if (num_rqs < 1 || num_rqs > VHD_MAX_REQUEST_QUEUES ||
+        num_rqs > max_queues) {
+        VHD_LOG_ERROR("%s: invalid number of requests queues: %d",
+                      socket_path, num_rqs);
+        return -1;
+    }
+    if ((max_queues % num_rqs) != 0) {
+        VHD_LOG_WARN("%s: max_queues %d is not aligned to num_rqs %d, "
+                     "expect uneven request distribution", socket_path,
+                     max_queues, num_rqs);
+    }
+    VHD_ASSERT(rqs);
+
     listenfd = sock_create_server(socket_path);
     if (listenfd < 0) {
         return -1;
     }
+
+    vhd_rqs = vhd_alloc(num_rqs * sizeof(*rqs));
+    memcpy(vhd_rqs, rqs, num_rqs * sizeof(*rqs));
 
     *vdev = (struct vhd_vdev) {
         .priv = priv,
@@ -1910,7 +1934,8 @@ int vhd_vdev_init_server(
         .listenfd = listenfd,
         .connfd = -1,
         .req = VHOST_USER_NONE,
-        .rq = rq,
+        .rqs = vhd_rqs,
+        .num_rqs = num_rqs,
         .map_cb = map_cb,
         .unmap_cb = unmap_cb,
         .supported_protocol_features = g_default_protocol_features,

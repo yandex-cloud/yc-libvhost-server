@@ -65,8 +65,9 @@ struct vhd_vdev {
     int timerfd;
     struct vhd_io_handler *timer_handler;
 
-    /* Attached request queue */
-    struct vhd_request_queue *rq;
+    /* Attached request queues */
+    struct vhd_request_queue **rqs;
+    int num_rqs;
 
     /*
      * Vhost protocol features which can be supported for this vdev and
@@ -131,7 +132,8 @@ struct vhd_vdev {
  * @type            Device type description
  * @vdev            vdev instance to initialize
  * @max_queues      Maximum number of queues this device can support
- * @rq              Associated request queue
+ * @rqs             Associated request queues
+ * @num_rqs         Number of request queues
  * @priv            User private data
  * @map_cb          User function to call after mapping guest memory
  * @unmap_cb        User function to call before unmapping guest memory
@@ -141,7 +143,7 @@ int vhd_vdev_init_server(
     const char *socket_path,
     const struct vhd_vdev_type *type,
     int max_queues,
-    struct vhd_request_queue *rq,
+    struct vhd_request_queue **rqs, int num_rqs,
     void *priv,
     int (*map_cb)(void *addr, size_t len, void *priv),
     int (*unmap_cb)(void *addr, size_t len, void *priv));
@@ -205,6 +207,8 @@ struct vhd_vring {
     /* #requests pending completion when the queue is requested to stop */
     uint16_t num_in_flight_at_stop;
 };
+
+struct vhd_request_queue *vhd_get_rq_for_vring(struct vhd_vring *vring);
 
 void vhd_vring_inc_in_flight(struct vhd_vring *vring);
 void vhd_vring_dec_in_flight(struct vhd_vring *vring);
