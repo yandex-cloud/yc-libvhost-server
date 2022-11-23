@@ -27,8 +27,7 @@ struct vhd_vdev_type {
     int (*set_features)(struct vhd_vdev *vdev, uint64_t features);
     size_t (*get_config)(struct vhd_vdev *vdev, void *cfgbuf,
                          size_t bufsize, size_t offset);
-    int (*dispatch_requests)(struct vhd_vdev *vdev, struct vhd_vring *vring,
-                             struct vhd_request_queue *rq);
+    int (*dispatch_requests)(struct vhd_vdev *vdev, struct vhd_vring *vring);
     void (*free)(struct vhd_vdev *vdev);
 };
 

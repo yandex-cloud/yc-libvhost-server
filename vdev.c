@@ -99,7 +99,7 @@ static int vring_kick(void *opaque)
      */
     vhd_clear_eventfd(vring->kickfd);
 
-    ret = vdev->type->dispatch_requests(vdev, vring, vdev->rq);
+    ret = vdev->type->dispatch_requests(vdev, vring);
     if (ret < 0) {
         /*
          * seems like full-fledged vring stop may surprize the client, so just
