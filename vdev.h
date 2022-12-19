@@ -208,6 +208,8 @@ struct vhd_vring {
     uint16_t num_in_flight_at_stop;
 };
 
+#define VHD_VRING_FROM_VQ(ptr) containerof(ptr, struct vhd_vring, vq)
+
 struct vhd_request_queue *vhd_get_rq_for_vring(struct vhd_vring *vring);
 
 void vhd_vring_inc_in_flight(struct vhd_vring *vring);
