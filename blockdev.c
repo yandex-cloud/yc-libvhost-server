@@ -13,9 +13,6 @@ struct vhd_bdev {
     /* Base vdev */
     struct vhd_vdev vdev;
 
-    /* Client backend */
-    struct vhd_bdev_info *bdev;
-
     /* VM-facing interface type */
     struct virtio_blk_dev vblk;
 
@@ -31,7 +28,7 @@ static LIST_HEAD(, vhd_bdev) g_bdev_list = LIST_HEAD_INITIALIZER(g_bdev_list);
 
 static uint64_t vblk_get_features(struct vhd_vdev *vdev)
 {
-    struct vhd_bdev_info *bdev = VHD_BLOCKDEV_FROM_VDEV(vdev)->bdev;
+    struct vhd_bdev_info *bdev = VHD_BLOCKDEV_FROM_VDEV(vdev)->vblk.bdev;
 
     return VIRTIO_BLK_DEFAULT_FEATURES |
         (bdev->readonly ? (1U << VIRTIO_BLK_F_RO) : 0);
@@ -124,8 +121,6 @@ struct vhd_vdev *vhd_register_blockdev(struct vhd_bdev_info *bdev,
     if (res != 0) {
         goto error_out;
     }
-
-    dev->bdev = bdev;
 
     LIST_INSERT_HEAD(&g_bdev_list, dev, blockdevs);
     return &dev->vdev;
