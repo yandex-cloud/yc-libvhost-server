@@ -22,7 +22,6 @@ struct vhd_bdev {
 static LIST_HEAD(, vhd_bdev) g_bdev_list = LIST_HEAD_INITIALIZER(g_bdev_list);
 
 #define VHD_BLOCKDEV_FROM_VDEV(ptr) containerof(ptr, struct vhd_bdev, vdev)
-#define VHD_VRING_FROM_VQ(ptr) containerof(ptr, struct vhd_vring, vq)
 
 /*////////////////////////////////////////////////////////////////////////////*/
 
