@@ -80,12 +80,6 @@ static const struct vhd_vdev_type g_virtio_blk_vdev_type = {
     .free               = vblk_free,
 };
 
-static int vblk_handle_request(struct virtio_virtq *vq, struct vhd_bio *bio)
-{
-    bio->vring = VHD_VRING_FROM_VQ(vq);
-    return vhd_enqueue_block_request(vhd_get_rq_for_vring(bio->vring), bio);
-}
-
 struct vhd_vdev *vhd_register_blockdev(struct vhd_bdev_info *bdev,
                                        struct vhd_request_queue **rqs,
                                        int num_rqs, void *priv)
@@ -108,7 +102,7 @@ struct vhd_vdev *vhd_register_blockdev(struct vhd_bdev_info *bdev,
 
     struct vhd_bdev *dev = vhd_zalloc(sizeof(*dev));
 
-    res = virtio_blk_init_dev(&dev->vblk, bdev, vblk_handle_request);
+    res = virtio_blk_init_dev(&dev->vblk, bdev);
     if (res != 0) {
         goto error_out;
     }

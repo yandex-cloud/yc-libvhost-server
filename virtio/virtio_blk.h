@@ -28,10 +28,12 @@ struct virtio_virtq;
 struct virtio_blk_dev;
 
 /**
- * Virtio block I/O dispatch context.
+ * Virtio block I/O dispatch function,
+ * can be overriden for testing.
  */
-typedef int virtio_blk_io_dispatch(struct virtio_virtq *vq,
-                                   struct vhd_bio *bio);
+__attribute__((weak))
+int virtio_blk_handle_request(struct virtio_virtq *vq,
+                              struct vhd_bio *bio);
 
 /**
  * Virtio block device context
@@ -41,9 +43,6 @@ struct virtio_blk_dev {
 
     /* blk config data generated on init from bdev */
     struct virtio_blk_config config;
-
-    /* Handler to dispatch I/O to underlying block backend */
-    virtio_blk_io_dispatch *dispatch;
 };
 
 /**
@@ -51,8 +50,7 @@ struct virtio_blk_dev {
  */
 int virtio_blk_init_dev(
     struct virtio_blk_dev *dev,
-    struct vhd_bdev_info *bdev,
-    virtio_blk_io_dispatch *dispatch);
+    struct vhd_bdev_info *bdev);
 
 /**
  * Dispatch requests from device virtq
