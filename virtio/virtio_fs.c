@@ -8,6 +8,8 @@
 #include "bio.h"
 #include "virt_queue.h"
 #include "logging.h"
+#include "server_internal.h"
+#include "vdev.h"
 
 /******************************************************************************/
 
@@ -46,10 +48,17 @@ static void complete_request(struct vhd_bio *bio)
     vhd_free(vbio);
 }
 
+static int virtio_fs_handle_request(struct virtio_virtq *vq,
+                                    struct vhd_bio *bio)
+{
+    bio->vring = VHD_VRING_FROM_VQ(vq);
+    return vhd_enqueue_block_request(vhd_get_rq_for_vring(bio->vring), bio);
+}
+
 static void handle_buffers(void *arg, struct virtio_virtq *vq, struct virtio_iov *iov)
 {
     uint16_t niov = iov->niov_in + iov->niov_out;
-    struct virtio_fs_dev *dev = (struct virtio_fs_dev *) arg;
+    (void)arg;
 
     /*
      * Assume legacy message framing without VIRTIO_F_ANY_LAYOUT:
@@ -85,7 +94,7 @@ static void handle_buffers(void *arg, struct virtio_virtq *vq, struct virtio_iov
     vbio->bio.bdev_io.sglist.buffers = iov->buffers;
     vbio->bio.completion_handler = complete_request;
 
-    int res = dev->dispatch(vbio->vq, &vbio->bio);
+    int res = virtio_fs_handle_request(vbio->vq, &vbio->bio);
     if (res != 0) {
         VHD_LOG_ERROR("request submission failed with %d", res);
 
@@ -104,13 +113,11 @@ static void handle_buffers(void *arg, struct virtio_virtq *vq, struct virtio_iov
 
 int virtio_fs_init_dev(
     struct virtio_fs_dev *dev,
-    struct vhd_fsdev_info *fsdev,
-    virtio_fs_io_dispatch *dispatch)
+    struct vhd_fsdev_info *fsdev)
 {
     VHD_VERIFY(dev);
     VHD_VERIFY(fsdev);
 
-    dev->dispatch = dispatch;
     dev->fsdev = fsdev;
 
     dev->config = (struct virtio_fs_config) {
