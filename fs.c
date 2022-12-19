@@ -57,12 +57,6 @@ static int vfs_dispatch_requests(struct vhd_vdev *vdev,
     return virtio_fs_dispatch_requests(&dev->vfs, &vring->vq);
 }
 
-static int vfs_handle_request(struct virtio_virtq *vq, struct vhd_bio *bio)
-{
-    bio->vring = VHD_VRING_FROM_VQ(vq);
-    return vhd_enqueue_block_request(vhd_get_rq_for_vring(bio->vring), bio);
-}
-
 static void vfs_free(struct vhd_vdev *vdev)
 {
     struct vhd_fsdev *dev = VHD_FSDEV_FROM_VDEV(vdev);
@@ -91,7 +85,7 @@ struct vhd_vdev *vhd_register_fs(struct vhd_fsdev_info *fsdev,
 
     struct vhd_fsdev *dev = vhd_zalloc(sizeof(*dev));
 
-    int res = virtio_fs_init_dev(&dev->vfs, fsdev, vfs_handle_request);
+    int res = virtio_fs_init_dev(&dev->vfs, fsdev);
     if (res != 0) {
         goto error_out;
     }
