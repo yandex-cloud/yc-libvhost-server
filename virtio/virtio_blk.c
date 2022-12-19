@@ -9,6 +9,8 @@
 #include "bio.h"
 #include "virt_queue.h"
 #include "logging.h"
+#include "server_internal.h"
+#include "vdev.h"
 
 /* virtio blk data for bdev io */
 struct virtio_blk_io {
@@ -146,7 +148,7 @@ static void handle_inout(struct virtio_blk_dev *dev,
     vbio->bio.bdev_io.sglist.buffers = pdata;
     vbio->bio.completion_handler = complete_io;
 
-    int res = dev->dispatch(vbio->vq, &vbio->bio);
+    int res = virtio_blk_handle_request(vbio->vq, &vbio->bio);
     if (res != 0) {
         VHD_LOG_ERROR("bdev request submission failed with %d", res);
         vhd_free(vbio);
@@ -238,10 +240,16 @@ int virtio_blk_dispatch_requests(struct virtio_blk_dev *dev,
     return virtq_dequeue_many(vq, handle_buffers, dev);
 }
 
+__attribute__((weak))
+int virtio_blk_handle_request(struct virtio_virtq *vq, struct vhd_bio *bio)
+{
+    bio->vring = VHD_VRING_FROM_VQ(vq);
+    return vhd_enqueue_block_request(vhd_get_rq_for_vring(bio->vring), bio);
+}
+
 int virtio_blk_init_dev(
     struct virtio_blk_dev *dev,
-    struct vhd_bdev_info *bdev,
-    virtio_blk_io_dispatch *dispatch)
+    struct vhd_bdev_info *bdev)
 {
     /*
      * Here we use same max values like we did for blockstor-plugin.
@@ -257,7 +265,6 @@ int virtio_blk_init_dev(
     uint32_t phys_block_sectors = bdev->block_size >> VHD_SECTOR_SHIFT;
     uint8_t phys_block_exp = vhd_find_first_bit32(phys_block_sectors);
 
-    dev->dispatch = dispatch;
     dev->bdev = bdev;
 
     /*
