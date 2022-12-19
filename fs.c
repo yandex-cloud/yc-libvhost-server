@@ -12,9 +12,6 @@ struct vhd_fsdev {
     /* Base vdev */
     struct vhd_vdev vdev;
 
-    /* Client backend */
-    struct vhd_fsdev_info *fsdev;
-
     /* VM-facing interface type */
     struct virtio_fs_dev vfs;
 
@@ -104,8 +101,6 @@ struct vhd_vdev *vhd_register_fs(struct vhd_fsdev_info *fsdev,
     if (res != 0) {
         goto error_out;
     }
-
-    dev->fsdev = fsdev;
 
     LIST_INSERT_HEAD(&g_fsdev_list, dev, fsdevs);
     return &dev->vdev;
