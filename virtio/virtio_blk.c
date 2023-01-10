@@ -145,8 +145,7 @@ static void handle_inout(struct virtio_blk_dev *dev,
     bio->iov = iov;
     bio->io.completion_handler = complete_io;
 
-    bio->bdev_io.type =
-        (req->type == VIRTIO_BLK_T_IN ? VHD_BDEV_READ : VHD_BDEV_WRITE);
+    bio->bdev_io.type = io_type;
     bio->bdev_io.first_sector = req->sector;
     bio->bdev_io.total_sectors = len / VIRTIO_BLK_SECTOR_SIZE;
     bio->bdev_io.sglist.nbuffers = ndatabufs;
