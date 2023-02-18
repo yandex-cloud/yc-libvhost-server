@@ -333,7 +333,7 @@ bool virtq_is_broken(struct virtio_virtq *vq)
     return vq->broken;
 }
 
-static void mark_broken(struct virtio_virtq *vq)
+void mark_broken(struct virtio_virtq *vq)
 {
     vq->broken = true;
 }
@@ -707,6 +707,7 @@ void virtio_virtq_get_stat(struct virtio_virtq *vq,
     metrics->queue_len_max_60s = vq->stat.metrics.queue_len_max_60s;
 }
 
+__attribute__((weak))
 void abort_request(struct virtio_virtq *vq, struct virtio_iov *iov)
 {
     /*
