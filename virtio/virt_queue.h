@@ -119,6 +119,7 @@ uint16_t virtio_iov_get_head(struct virtio_iov *iov);
 void virtio_virtq_get_stat(struct virtio_virtq *vq,
                            struct vhd_vq_metrics *metrics);
 
+void abort_request(struct virtio_virtq *vq, struct virtio_iov *iov);
 #ifdef __cplusplus
 }
 #endif
