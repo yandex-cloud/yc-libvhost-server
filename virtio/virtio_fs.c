@@ -23,12 +23,6 @@ struct virtio_fs_io {
 
 /******************************************************************************/
 
-static inline void abort_request(struct virtio_virtq *vq, struct virtio_iov *iov)
-{
-    virtq_push(vq, iov, 0);
-    virtio_free_iov(iov);
-}
-
 static void complete_request(struct vhd_io *io)
 {
     struct virtio_fs_io *vbio = containerof(io, struct virtio_fs_io, io);

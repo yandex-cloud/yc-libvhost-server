@@ -706,3 +706,15 @@ void virtio_virtq_get_stat(struct virtio_virtq *vq,
     metrics->queue_len_last = vq->stat.metrics.queue_len_last;
     metrics->queue_len_max_60s = vq->stat.metrics.queue_len_max_60s;
 }
+
+void abort_request(struct virtio_virtq *vq, struct virtio_iov *iov)
+{
+    /*
+     * FIXME: this is called when the message framing is messed up.  This
+     * appears severe enough to just stop processing the virtq and mark it
+     * broken
+     */
+    VHD_LOG_ERROR("no valid virtio request found, queue %p should be aborted", vq);
+    virtq_push(vq, iov, 0);
+    virtio_free_iov(iov);
+}
