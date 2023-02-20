@@ -18,10 +18,10 @@ struct vhd_io;
 struct vhd_vring;
 
 /**
- * Enqueue block IO request
+ * Enqueue IO request
  */
-int vhd_enqueue_block_request(struct vhd_request_queue *rq,
-                              struct vhd_io *io);
+int vhd_enqueue_request(struct vhd_request_queue *rq,
+                        struct vhd_io *io);
 
 void vhd_cancel_queued_requests(struct vhd_request_queue *rq,
                                 const struct vhd_vring *vring);

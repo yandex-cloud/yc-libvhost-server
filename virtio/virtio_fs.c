@@ -44,7 +44,7 @@ static int virtio_fs_handle_request(struct virtio_virtq *vq,
                                     struct vhd_io *io)
 {
     io->vring = VHD_VRING_FROM_VQ(vq);
-    return vhd_enqueue_block_request(vhd_get_rq_for_vring(io->vring), io);
+    return vhd_enqueue_request(vhd_get_rq_for_vring(io->vring), io);
 }
 
 static void handle_buffers(void *arg, struct virtio_virtq *vq, struct virtio_iov *iov)

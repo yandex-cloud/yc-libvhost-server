@@ -234,9 +234,8 @@ int virtio_blk_dispatch_requests(struct virtio_blk_dev *dev,
 __attribute__((weak))
 int virtio_blk_handle_request(struct virtio_virtq *vq, struct vhd_io *io)
 {
-
     io->vring = VHD_VRING_FROM_VQ(vq);
-    return vhd_enqueue_block_request(vhd_get_rq_for_vring(io->vring), io);
+    return vhd_enqueue_request(vhd_get_rq_for_vring(io->vring), io);
 }
 
 int virtio_blk_init_dev(
