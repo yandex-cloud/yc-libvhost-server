@@ -208,7 +208,7 @@ bool vhd_dequeue_request(struct vhd_request_queue *rq,
     return true;
 }
 
-int vhd_enqueue_block_request(struct vhd_request_queue *rq, struct vhd_io *io)
+int vhd_enqueue_request(struct vhd_request_queue *rq, struct vhd_io *io)
 {
     vhd_vring_inc_in_flight(io->vring);
 
