@@ -72,6 +72,38 @@ static const struct vhd_vdev_type g_virtio_blk_vdev_type = {
     .free               = vblk_free,
 };
 
+struct set_total_blocks {
+    struct vhd_vdev *vdev;
+    uint64_t total_blocks;
+};
+
+static void set_total_blocks_entry(struct vhd_work *work, void *opaque)
+{
+    struct set_total_blocks *stb = opaque;
+    struct vhd_bdev *dev = VHD_BLOCKDEV_FROM_VDEV(stb->vdev);
+
+    virtio_blk_set_total_blocks(&dev->vblk, stb->total_blocks);
+    vhd_complete_work(work, 0);
+}
+
+void vhd_blockdev_set_total_blocks(struct vhd_vdev *vdev, uint64_t total_blocks)
+{
+    struct set_total_blocks stb = {
+        .vdev = vdev,
+        .total_blocks = total_blocks,
+    };
+
+    /*
+     * Modify virtio config in g_vhost_evloop, to not interfere with .get_config
+     *
+     * We don't need vdev_submit_work_and_wait() logic here, as setting
+     * total_blocks in config is unrelated stopping process, so it should not be
+     * a problem intersect with wdev_stop_work work.
+     */
+    int ret = vhd_submit_ctl_work_and_wait(set_total_blocks_entry, &stb);
+    VHD_VERIFY(ret == 0);
+}
+
 struct vhd_vdev *vhd_register_blockdev(const struct vhd_bdev_info *bdev,
                                        struct vhd_request_queue **rqs,
                                        int num_rqs, void *priv)
