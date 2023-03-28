@@ -278,6 +278,19 @@ static void refresh_config_geometry(struct virtio_blk_config *config)
             max_cylinders);
 }
 
+uint64_t virtio_blk_get_total_blocks(struct virtio_blk_dev *dev)
+{
+    return dev->config.capacity >> dev->config.topology.physical_block_exp;
+}
+
+void virtio_blk_set_total_blocks(struct virtio_blk_dev *dev,
+                                 uint64_t total_blocks)
+{
+    dev->config.capacity =
+        total_blocks << dev->config.topology.physical_block_exp;
+    refresh_config_geometry(&dev->config);
+}
+
 void virtio_blk_init_dev(
     struct virtio_blk_dev *dev,
     const struct vhd_bdev_info *bdev)
