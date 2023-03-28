@@ -27,10 +27,10 @@ static LIST_HEAD(, vhd_bdev) g_bdev_list = LIST_HEAD_INITIALIZER(g_bdev_list);
 
 static uint64_t vblk_get_features(struct vhd_vdev *vdev)
 {
-    struct vhd_bdev_info *bdev = VHD_BLOCKDEV_FROM_VDEV(vdev)->vblk.bdev;
+    struct vhd_bdev *dev = VHD_BLOCKDEV_FROM_VDEV(vdev);
 
     return VIRTIO_BLK_DEFAULT_FEATURES |
-        (bdev->readonly ? (1U << VIRTIO_BLK_F_RO) : 0);
+        (virtio_blk_is_readonly(&dev->vblk) ? (1U << VIRTIO_BLK_F_RO) : 0);
 }
 
 static int vblk_set_features(struct vhd_vdev *vdev, uint64_t features)
@@ -46,15 +46,7 @@ static size_t vblk_get_config(struct vhd_vdev *vdev, void *cfgbuf,
 {
     struct vhd_bdev *dev = VHD_BLOCKDEV_FROM_VDEV(vdev);
 
-    if (offset >= sizeof(dev->vblk.config)) {
-        return 0;
-    }
-
-    size_t data_size = MIN(bufsize, sizeof(dev->vblk.config) - offset);
-
-    memcpy(cfgbuf, (char *)(&dev->vblk.config) + offset, data_size);
-
-    return data_size;
+    return virtio_blk_get_config(&dev->vblk, cfgbuf, bufsize, offset);
 }
 
 static int vblk_dispatch(struct vhd_vdev *vdev, struct vhd_vring *vring)

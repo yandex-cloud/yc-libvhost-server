@@ -58,6 +58,17 @@ int virtio_blk_init_dev(
 int virtio_blk_dispatch_requests(struct virtio_blk_dev *dev,
                                  struct virtio_virtq *vq);
 
+/**
+ * Get the virtio config
+ */
+size_t virtio_blk_get_config(struct virtio_blk_dev *dev, void *cfgbuf,
+                             size_t bufsize, size_t offset);
+
+/**
+ * Get readonly status
+ */
+bool virtio_blk_is_readonly(struct virtio_blk_dev *dev);
+
 #ifdef __cplusplus
 }
 #endif
