@@ -238,6 +238,25 @@ int virtio_blk_handle_request(struct virtio_virtq *vq, struct vhd_io *io)
     return vhd_enqueue_request(vhd_get_rq_for_vring(io->vring), io);
 }
 
+size_t virtio_blk_get_config(struct virtio_blk_dev *dev, void *cfgbuf,
+                             size_t bufsize, size_t offset)
+{
+    if (offset >= sizeof(dev->config)) {
+        return 0;
+    }
+
+    size_t data_size = MIN(bufsize, sizeof(dev->config) - offset);
+
+    memcpy(cfgbuf, (char *)(&dev->config) + offset, data_size);
+
+    return data_size;
+}
+
+bool virtio_blk_is_readonly(struct virtio_blk_dev *dev)
+{
+    return dev->bdev->readonly;
+}
+
 int virtio_blk_init_dev(
     struct virtio_blk_dev *dev,
     struct vhd_bdev_info *bdev)
