@@ -75,6 +75,17 @@ size_t virtio_blk_get_config(struct virtio_blk_dev *dev, void *cfgbuf,
  */
 bool virtio_blk_is_readonly(struct virtio_blk_dev *dev);
 
+/**
+ * Get total_blocks
+ */
+uint64_t virtio_blk_get_total_blocks(struct virtio_blk_dev *dev);
+
+/**
+ * Update virtio config for new @total_blocks.
+ */
+void virtio_blk_set_total_blocks(struct virtio_blk_dev *dev,
+                                 uint64_t total_blocks);
+
 #ifdef __cplusplus
 }
 #endif
