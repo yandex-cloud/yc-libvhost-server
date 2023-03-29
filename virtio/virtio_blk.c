@@ -257,9 +257,7 @@ bool virtio_blk_is_readonly(struct virtio_blk_dev *dev)
     return dev->readonly;
 }
 
-void virtio_blk_init_dev(
-    struct virtio_blk_dev *dev,
-    const struct vhd_bdev_info *bdev)
+static void refresh_config_geometry(struct virtio_blk_config *config)
 {
     /*
      * Here we use same max values like we did for blockstor-plugin.
@@ -272,6 +270,18 @@ void virtio_blk_init_dev(
     /* 16383 for cylinders */
     const uint16_t max_cylinders = 65535;
 
+    config->geometry.sectors = MIN(config->capacity, max_sectors);
+    config->geometry.heads =
+        MIN(1 + (config->capacity - 1) / max_sectors, max_heads);
+    config->geometry.cylinders =
+        MIN(1 + (config->capacity - 1) / (max_sectors * max_heads),
+            max_cylinders);
+}
+
+void virtio_blk_init_dev(
+    struct virtio_blk_dev *dev,
+    const struct vhd_bdev_info *bdev)
+{
     uint32_t phys_block_sectors = bdev->block_size >> VHD_SECTOR_SHIFT;
     uint8_t phys_block_exp = vhd_find_first_bit32(phys_block_sectors);
 
@@ -304,12 +314,7 @@ void virtio_blk_init_dev(
      */
     dev->config.seg_max = 128 - 2;
 
-    dev->config.geometry.sectors = MIN(dev->config.capacity, max_sectors);
-    dev->config.geometry.heads =
-        MIN(1 + (dev->config.capacity - 1) / max_sectors, max_heads);
-    dev->config.geometry.cylinders =
-        MIN(1 + (dev->config.capacity - 1) / (max_sectors * max_heads),
-            max_cylinders);
+    refresh_config_geometry(&dev->config);
 }
 
 void virtio_blk_destroy_dev(struct virtio_blk_dev *dev)
