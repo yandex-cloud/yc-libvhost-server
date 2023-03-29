@@ -39,7 +39,8 @@ int virtio_blk_handle_request(struct virtio_virtq *vq,
  * Virtio block device context
  */
 struct virtio_blk_dev {
-    struct vhd_bdev_info *bdev;
+    char *serial;
+    bool readonly;
 
     /* blk config data generated on init from bdev */
     struct virtio_blk_config config;
@@ -50,7 +51,12 @@ struct virtio_blk_dev {
  */
 void virtio_blk_init_dev(
     struct virtio_blk_dev *dev,
-    struct vhd_bdev_info *bdev);
+    const struct vhd_bdev_info *bdev);
+
+/**
+ * Destroy virtio blk device context
+ */
+void virtio_blk_destroy_dev(struct virtio_blk_dev *dev);
 
 /**
  * Dispatch requests from device virtq

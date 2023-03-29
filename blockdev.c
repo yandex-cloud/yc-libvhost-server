@@ -108,6 +108,7 @@ struct vhd_vdev *vhd_register_blockdev(struct vhd_bdev_info *bdev,
     return &dev->vdev;
 
 error_out:
+    virtio_blk_destroy_dev(&dev->vblk);
     vhd_free(dev);
     return NULL;
 }
@@ -115,5 +116,8 @@ error_out:
 void vhd_unregister_blockdev(struct vhd_vdev *vdev,
                              void (*unregister_complete)(void *), void *arg)
 {
+    struct vhd_bdev *dev = VHD_BLOCKDEV_FROM_VDEV(vdev);
+
     vhd_vdev_stop_server(vdev, unregister_complete, arg);
+    virtio_blk_destroy_dev(&dev->vblk);
 }

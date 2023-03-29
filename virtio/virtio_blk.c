@@ -113,7 +113,7 @@ static void handle_inout(struct virtio_blk_dev *dev,
         pdata = &iov->iov_in[0];
         ndatabufs = iov->niov_in - 1;
     } else {
-        if (dev->bdev->readonly) {
+        if (dev->readonly) {
             VHD_LOG_ERROR("Write request to readonly device");
             goto complete;
         }
@@ -172,7 +172,7 @@ static uint8_t handle_getid(struct virtio_blk_dev *dev,
      * strncpy will not add a null-term if src length is >= desc->len, which is
      * what we need
      */
-    strncpy((char *) id_buf->base, dev->bdev->serial, id_buf->len);
+    strncpy((char *) id_buf->base, dev->serial, id_buf->len);
 
     return VIRTIO_BLK_S_OK;
 }
@@ -254,12 +254,12 @@ size_t virtio_blk_get_config(struct virtio_blk_dev *dev, void *cfgbuf,
 
 bool virtio_blk_is_readonly(struct virtio_blk_dev *dev)
 {
-    return dev->bdev->readonly;
+    return dev->readonly;
 }
 
 void virtio_blk_init_dev(
     struct virtio_blk_dev *dev,
-    struct vhd_bdev_info *bdev)
+    const struct vhd_bdev_info *bdev)
 {
     /*
      * Here we use same max values like we did for blockstor-plugin.
@@ -275,7 +275,8 @@ void virtio_blk_init_dev(
     uint32_t phys_block_sectors = bdev->block_size >> VHD_SECTOR_SHIFT;
     uint8_t phys_block_exp = vhd_find_first_bit32(phys_block_sectors);
 
-    dev->bdev = bdev;
+    dev->serial = vhd_strdup(bdev->serial);
+    dev->readonly = bdev->readonly;
 
     /*
      * Both virtio and block backend use the same sector size of 512.  Don't
@@ -309,6 +310,12 @@ void virtio_blk_init_dev(
     dev->config.geometry.cylinders =
         MIN(1 + (dev->config.capacity - 1) / (max_sectors * max_heads),
             max_cylinders);
+}
+
+void virtio_blk_destroy_dev(struct virtio_blk_dev *dev)
+{
+    vhd_free(dev->serial);
+    dev->serial = NULL;
 }
 
 struct vhd_bdev_io *vhd_get_bdev_io(struct vhd_io *io)
