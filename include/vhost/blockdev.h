@@ -71,13 +71,15 @@ struct vhd_bdev_io *vhd_get_bdev_io(struct vhd_io *io);
  * socket.
  * All requests are submitted to attacher request queues for caller to process.
  *
- * @bdev        Caller block device info.
+ * @bdev        Caller block device info. The structure is used only for
+ *              initialization and may be freed by caller after
+ *              vhd_register_blockdev() returns.
  * @rqs         An array of request queues to use for dispatching device I/O
  *              requests.
  * @num_rqs     Number of request queues in the @rqs array.
  * @priv        Caller private data to associate with resulting vdev.
  */
-struct vhd_vdev *vhd_register_blockdev(struct vhd_bdev_info *bdev,
+struct vhd_vdev *vhd_register_blockdev(const struct vhd_bdev_info *bdev,
                                        struct vhd_request_queue **rqs,
                                        int num_rqs, void *priv);
 

@@ -72,7 +72,7 @@ static const struct vhd_vdev_type g_virtio_blk_vdev_type = {
     .free               = vblk_free,
 };
 
-struct vhd_vdev *vhd_register_blockdev(struct vhd_bdev_info *bdev,
+struct vhd_vdev *vhd_register_blockdev(const struct vhd_bdev_info *bdev,
                                        struct vhd_request_queue **rqs,
                                        int num_rqs, void *priv)
 {
