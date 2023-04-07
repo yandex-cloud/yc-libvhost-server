@@ -105,6 +105,9 @@ void vhd_bh_delete(struct vhd_bh *bh);
 /*
  * Submit a work item onto @evloop and wait till it's finished.
  * Must not be called in the target event loop.
+ *
+ * Returns exactly the value which user sets by vhd_complete_work(), no other
+ * errors possible.
  */
 struct vhd_work;
 int vhd_submit_work_and_wait(struct vhd_event_loop *evloop,
