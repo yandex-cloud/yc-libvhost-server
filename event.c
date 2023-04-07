@@ -571,27 +571,27 @@ int vhd_submit_work_and_wait(struct vhd_event_loop *evloop,
     /* waiting for completion in the same event loop would deadlock */
     VHD_ASSERT(evloop != home_evloop);
 
+    /* sem_init can't fail when both arguments are zero */
     ret = sem_init(&work.wait, 0, 0);
-    if (ret < 0) {
-        ret = -errno;
-        VHD_LOG_ERROR("sem_init: %s", strerror(-ret));
-        return ret;
-    }
+    VHD_ASSERT(ret == 0);
 
     vhd_bh_schedule_oneshot(evloop, work_bh, &work);
 
+    /*
+     * sem_wait may fail with either EINTR (we handle it) or EINVAL when
+     * called on invalid pointer, which is impossible here.
+     */
     do {
         ret = sem_wait(&work.wait);
     } while (ret < 0 && errno == EINTR);
+    VHD_ASSERT(ret == 0);
 
-    if (ret < 0) {
-        ret = -errno;
-    }
-    sem_destroy(&work.wait);
-    if (ret < 0) {
-        VHD_LOG_ERROR("sem_wait: %s", strerror(-ret));
-        return ret;
-    }
+    /*
+     * sem_destroy may fail only with EINVAL when called on invalid pointer,
+     * which is impossible here.
+     */
+    ret = sem_destroy(&work.wait);
+    VHD_ASSERT(ret == 0);
 
     /*
      * sem_wait is a full memory barrier so this is the ->ret set in
