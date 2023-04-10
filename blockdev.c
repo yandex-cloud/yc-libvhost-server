@@ -94,10 +94,7 @@ struct vhd_vdev *vhd_register_blockdev(struct vhd_bdev_info *bdev,
 
     struct vhd_bdev *dev = vhd_zalloc(sizeof(*dev));
 
-    res = virtio_blk_init_dev(&dev->vblk, bdev);
-    if (res != 0) {
-        goto error_out;
-    }
+    virtio_blk_init_dev(&dev->vblk, bdev);
 
     res = vhd_vdev_init_server(&dev->vdev, bdev->socket_path,
                                &g_virtio_blk_vdev_type,
