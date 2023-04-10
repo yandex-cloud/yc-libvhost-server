@@ -48,7 +48,7 @@ struct virtio_blk_dev {
 /**
  * Init virtio blk device context from bdev info
  */
-int virtio_blk_init_dev(
+void virtio_blk_init_dev(
     struct virtio_blk_dev *dev,
     struct vhd_bdev_info *bdev);
 

@@ -257,7 +257,7 @@ bool virtio_blk_is_readonly(struct virtio_blk_dev *dev)
     return dev->bdev->readonly;
 }
 
-int virtio_blk_init_dev(
+void virtio_blk_init_dev(
     struct virtio_blk_dev *dev,
     struct vhd_bdev_info *bdev)
 {
@@ -309,8 +309,6 @@ int virtio_blk_init_dev(
     dev->config.geometry.cylinders =
         MIN(1 + (dev->config.capacity - 1) / (max_sectors * max_heads),
             max_cylinders);
-
-    return 0;
 }
 
 struct vhd_bdev_io *vhd_get_bdev_io(struct vhd_io *io)
