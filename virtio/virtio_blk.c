@@ -286,8 +286,19 @@ uint64_t virtio_blk_get_total_blocks(struct virtio_blk_dev *dev)
 void virtio_blk_set_total_blocks(struct virtio_blk_dev *dev,
                                  uint64_t total_blocks)
 {
-    dev->config.capacity =
+    uint64_t new_capacity =
         total_blocks << dev->config.topology.physical_block_exp;
+
+    if (new_capacity > dev->config.capacity) {
+        VHD_LOG_INFO("virtio-blk resize: %" PRIu64 " -> %" PRIu64,
+                     dev->config.capacity, new_capacity);
+    } else {
+        VHD_LOG_WARN("virtio-blk resize not increasing: %"
+                     PRIu64 " -> %" PRIu64,
+                     dev->config.capacity, new_capacity);
+    }
+
+    dev->config.capacity = new_capacity;
     refresh_config_geometry(&dev->config);
 }
 
