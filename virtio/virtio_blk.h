@@ -40,7 +40,7 @@ int virtio_blk_handle_request(struct virtio_virtq *vq,
  */
 struct virtio_blk_dev {
     char *serial;
-    bool readonly;
+    uint64_t features;
 
     /* blk config data generated on init from bdev */
     struct virtio_blk_config config;
@@ -69,6 +69,17 @@ int virtio_blk_dispatch_requests(struct virtio_blk_dev *dev,
  */
 size_t virtio_blk_get_config(struct virtio_blk_dev *dev, void *cfgbuf,
                              size_t bufsize, size_t offset);
+
+/**
+ * Get all supported virtio features
+ */
+uint64_t virtio_blk_get_features(struct virtio_blk_dev *dev);
+
+/**
+ * Check if @dev supports a given virtio feature.
+ * @feature is the bit index, and not the mask
+ */
+bool virtio_blk_has_feature(struct virtio_blk_dev *dev, int feature);
 
 /**
  * Get readonly status

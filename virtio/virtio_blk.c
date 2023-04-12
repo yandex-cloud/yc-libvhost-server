@@ -252,9 +252,20 @@ size_t virtio_blk_get_config(struct virtio_blk_dev *dev, void *cfgbuf,
     return data_size;
 }
 
+uint64_t virtio_blk_get_features(struct virtio_blk_dev *dev)
+{
+    return dev->features;
+}
+
+bool virtio_blk_has_feature(struct virtio_blk_dev *dev, int feature)
+{
+    const uint64_t mask = 1ull << feature;
+    return (virtio_blk_get_features(dev) & mask) == mask;
+}
+
 bool virtio_blk_is_readonly(struct virtio_blk_dev *dev)
 {
-    return dev->readonly;
+    return virtio_blk_has_feature(dev, VIRTIO_BLK_F_RO);
 }
 
 static void refresh_config_geometry(struct virtio_blk_config *config)
@@ -310,7 +321,11 @@ void virtio_blk_init_dev(
     uint8_t phys_block_exp = vhd_find_first_bit32(phys_block_sectors);
 
     dev->serial = vhd_strdup(bdev->serial);
-    dev->readonly = bdev->readonly;
+
+    dev->features = VIRTIO_BLK_DEFAULT_FEATURES;
+    if (bdev->readonly) {
+        dev->features |= (1ull << VIRTIO_BLK_F_RO);
+    }
 
     /*
      * Both virtio and block backend use the same sector size of 512.  Don't
