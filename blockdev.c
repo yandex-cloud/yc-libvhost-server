@@ -28,9 +28,7 @@ static LIST_HEAD(, vhd_bdev) g_bdev_list = LIST_HEAD_INITIALIZER(g_bdev_list);
 static uint64_t vblk_get_features(struct vhd_vdev *vdev)
 {
     struct vhd_bdev *dev = VHD_BLOCKDEV_FROM_VDEV(vdev);
-
-    return VIRTIO_BLK_DEFAULT_FEATURES |
-        (virtio_blk_is_readonly(&dev->vblk) ? (1U << VIRTIO_BLK_F_RO) : 0);
+    return virtio_blk_get_features(&dev->vblk);
 }
 
 static int vblk_set_features(struct vhd_vdev *vdev, uint64_t features)
