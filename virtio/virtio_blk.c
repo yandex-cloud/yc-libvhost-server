@@ -113,7 +113,7 @@ static void handle_inout(struct virtio_blk_dev *dev,
         pdata = &iov->iov_in[0];
         ndatabufs = iov->niov_in - 1;
     } else {
-        if (dev->readonly) {
+        if (virtio_blk_is_readonly(dev)) {
             VHD_LOG_ERROR("Write request to readonly device");
             goto complete;
         }
