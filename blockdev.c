@@ -103,6 +103,12 @@ void vhd_blockdev_set_total_blocks(struct vhd_vdev *vdev, uint64_t total_blocks)
     VHD_VERIFY(ret == 0);
 }
 
+static bool blockdev_validate_features(const struct vhd_bdev_info *bdev)
+{
+    const uint64_t valid_features = VHD_BDEV_F_READONLY;
+    return (bdev->features & valid_features) == bdev->features;
+}
+
 struct vhd_vdev *vhd_register_blockdev(const struct vhd_bdev_info *bdev,
                                        struct vhd_request_queue **rqs,
                                        int num_rqs, void *priv)
@@ -120,6 +126,11 @@ struct vhd_vdev *vhd_register_blockdev(const struct vhd_bdev_info *bdev,
         VHD_LOG_ERROR("Block size %" PRIu32 " is not"
                       " a power of two multiple of sector size (%llu)",
                       bdev->block_size, VHD_SECTOR_SIZE);
+        return NULL;
+    }
+
+    if (!blockdev_validate_features(bdev)) {
+        VHD_LOG_ERROR("Invalid blockdev features %" PRIu64, bdev->features);
         return NULL;
     }
 

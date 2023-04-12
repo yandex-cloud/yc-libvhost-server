@@ -15,6 +15,8 @@ struct vhd_vdev;
 #define VHD_SECTOR_SHIFT    (9)
 #define VHD_SECTOR_SIZE     (1ull << VHD_SECTOR_SHIFT)
 
+#define VHD_BDEV_F_READONLY (1ull << 0)
+
 /**
  * Client-supplied block device backend definition
  */
@@ -34,7 +36,8 @@ struct vhd_bdev_info {
     /* Device size in blocks */
     uint64_t total_blocks;
 
-    bool readonly;
+    /* Supported VHD_BDEV_F_* features */
+    uint64_t features;
 
     /* Gets called after mapping guest memory region */
     int (*map_cb)(void *addr, size_t len, void *priv);
@@ -42,6 +45,11 @@ struct vhd_bdev_info {
     /* Gets called before unmapping guest memory region */
     int (*unmap_cb)(void *addr, size_t len, void *priv);
 };
+
+static inline bool vhd_blockdev_is_readonly(const struct vhd_bdev_info *bdev)
+{
+    return (bdev->features & VHD_BDEV_F_READONLY) == VHD_BDEV_F_READONLY;
+}
 
 /**
  * Block io request type
