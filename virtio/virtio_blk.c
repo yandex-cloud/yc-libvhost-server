@@ -323,7 +323,7 @@ void virtio_blk_init_dev(
     dev->serial = vhd_strdup(bdev->serial);
 
     dev->features = VIRTIO_BLK_DEFAULT_FEATURES;
-    if (bdev->readonly) {
+    if (vhd_blockdev_is_readonly(bdev)) {
         dev->features |= (1ull << VIRTIO_BLK_F_RO);
     }
 
