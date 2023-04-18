@@ -60,6 +60,7 @@ static void vblk_free(struct vhd_vdev *vdev)
     struct vhd_bdev *bdev = VHD_BLOCKDEV_FROM_VDEV(vdev);
 
     LIST_REMOVE(bdev, blockdevs);
+    virtio_blk_destroy_dev(&bdev->vblk);
     vhd_free(bdev);
 }
 
@@ -148,8 +149,5 @@ error_out:
 void vhd_unregister_blockdev(struct vhd_vdev *vdev,
                              void (*unregister_complete)(void *), void *arg)
 {
-    struct vhd_bdev *dev = VHD_BLOCKDEV_FROM_VDEV(vdev);
-
     vhd_vdev_stop_server(vdev, unregister_complete, arg);
-    virtio_blk_destroy_dev(&dev->vblk);
 }
