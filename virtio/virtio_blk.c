@@ -169,6 +169,81 @@ fail_request:
     complete_req(vq, iov, VIRTIO_BLK_S_IOERR);
 }
 
+static void handle_discard(struct virtio_blk_dev *dev,
+                           struct virtio_virtq *vq,
+                           struct virtio_iov *iov)
+{
+    struct virtio_blk_discard_write_zeroes seg;
+    struct virtio_blk_io *bio;
+
+    if (virtio_blk_is_readonly(dev)) {
+        VHD_LOG_ERROR("Discard request to readonly device");
+        goto fail_request;
+    }
+
+    /*
+     * The data used for discard, secure erase or write zeroes commands
+     * consists of one or more segments. We support only one at the moment.
+     */
+    if (iov->niov_out != 2) {
+        VHD_LOG_ERROR("Invalid number of segments for a "
+                      "discard request %"PRIu16,
+                      iov->niov_out);
+        goto fail_request;
+    }
+
+    if (iov->iov_out[1].len != sizeof(seg)) {
+        VHD_LOG_ERROR("Invalid discard/write-zeroes segment size: "
+                      "expected %zu, got %zu!", sizeof(seg),
+                      iov->iov_out[1].len);
+        goto fail_request;
+    }
+
+    memcpy(&seg, iov->iov_out[1].base, sizeof(seg));
+    if (!is_valid_block_range_req(seg.sector, seg.num_sectors,
+                                  dev->config.capacity)) {
+        goto fail_request;
+    }
+
+    if (seg.num_sectors > dev->config.max_discard_sectors) {
+        VHD_LOG_ERROR("Discard request too large: %"PRIu32" (max is %"PRIu32")",
+                      seg.num_sectors, dev->config.max_discard_sectors);
+        goto fail_request;
+    }
+
+    if (!VHD_IS_ALIGNED(seg.num_sectors, dev->config.discard_sector_alignment)) {
+        VHD_LOG_ERROR("Discard request sector count %"PRIu32
+                      " not aligned to %"PRIu32,
+                      seg.num_sectors, dev->config.discard_sector_alignment);
+        goto fail_request;
+    }
+
+    if (!VHD_IS_ALIGNED(seg.sector, dev->config.discard_sector_alignment)) {
+        VHD_LOG_ERROR("Discard request sector %"PRIu64
+                      " not aligned to %"PRIu32,
+                      seg.sector, dev->config.discard_sector_alignment);
+        goto fail_request;
+    }
+
+    bio = vhd_zalloc(sizeof(*bio));
+    bio->vq = vq;
+    bio->iov = iov;
+    bio->io.completion_handler = complete_io;
+    bio->bdev_io.type = VHD_BDEV_DISCARD;
+    bio->bdev_io.first_sector = seg.sector;
+    bio->bdev_io.total_sectors = seg.num_sectors;
+
+    if (!bio_submit(bio)) {
+        goto fail_request;
+    }
+
+    /* request will be completed asynchronously */
+    return;
+
+fail_request:
+    complete_req(vq, iov, VIRTIO_BLK_S_IOERR);
+}
+
 static uint8_t handle_getid(struct virtio_blk_dev *dev,
                             struct virtio_iov *iov)
 {
@@ -193,12 +268,32 @@ static uint8_t handle_getid(struct virtio_blk_dev *dev,
     return VIRTIO_BLK_S_OK;
 }
 
+static bool dev_supports_req(struct virtio_blk_dev *dev, le32 type)
+{
+    int feature;
+
+    switch (type) {
+    case VIRTIO_BLK_T_IN:
+    case VIRTIO_BLK_T_OUT:
+    case VIRTIO_BLK_T_GET_ID:
+        return true;
+    case VIRTIO_BLK_T_DISCARD:
+        feature = VIRTIO_BLK_F_DISCARD;
+        break;
+    default:
+        return false;
+    }
+
+    return virtio_blk_has_feature(dev, feature);
+}
+
 static void handle_buffers(void *arg, struct virtio_virtq *vq,
                            struct virtio_iov *iov)
 {
     uint8_t status;
     struct virtio_blk_dev *dev = arg;
     struct virtio_blk_req_hdr *req;
+    le32 type;
 
     /*
      * Assume legacy message framing without VIRTIO_F_ANY_LAYOUT:
@@ -221,8 +316,15 @@ static void handle_buffers(void *arg, struct virtio_virtq *vq,
     }
 
     req = iov->iov_out[0].base;
+    type = req->type;
 
-    switch (req->type) {
+    if (!dev_supports_req(dev, type)) {
+        VHD_LOG_WARN("Unknown or unsupported request type %"PRIu32, type);
+        status = VIRTIO_BLK_S_UNSUPP;
+        goto out;
+    }
+
+    switch (type) {
     case VIRTIO_BLK_T_IN:
     case VIRTIO_BLK_T_OUT:
         handle_inout(dev, req, vq, iov);
@@ -230,12 +332,14 @@ static void handle_buffers(void *arg, struct virtio_virtq *vq,
     case VIRTIO_BLK_T_GET_ID:
         status = handle_getid(dev, iov);
         break;
-    default:
-        VHD_LOG_WARN("unknown request type %d", req->type);
-        status = VIRTIO_BLK_S_UNSUPP;
-        break;
+    case VIRTIO_BLK_T_DISCARD:
+        handle_discard(dev, vq, iov);
+        return;         /* async completion */
+    default:  /* unreachable because of dev_supports_req() */
+        VHD_UNREACHABLE();
     };
 
+out:
     complete_req(vq, iov, status);
 }
 
@@ -342,6 +446,9 @@ void virtio_blk_init_dev(
     if (vhd_blockdev_is_readonly(bdev)) {
         dev->features |= (1ull << VIRTIO_BLK_F_RO);
     }
+    if (vhd_blockdev_has_discard(bdev)) {
+        dev->features |= (1ull << VIRTIO_BLK_F_DISCARD);
+    }
 
     /*
      * Both virtio and block backend use the same sector size of 512.  Don't
@@ -357,6 +464,14 @@ void virtio_blk_init_dev(
     /* TODO: can get that from bdev info */
     dev->config.topology.min_io_size = 1;
     dev->config.topology.opt_io_size = 0;
+
+    /*
+     * Guarded by the assertion above:
+     * VHD_SECTOR_SIZE == VIRTIO_BLK_SECTOR_SIZE
+     */
+    dev->config.discard_sector_alignment = 1;
+    dev->config.max_discard_sectors = VIRTIO_BLK_MAX_DISCARD_SECTORS;
+    dev->config.max_discard_seg = VIRTIO_BLK_MAX_DISCARD_SEGMENTS;
 
     /*
      * Hardcode seg_max to 126. The same way like it's done for virtio-blk in
