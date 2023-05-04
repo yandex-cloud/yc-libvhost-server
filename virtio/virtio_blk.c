@@ -74,6 +74,19 @@ static void complete_io(struct vhd_io *io)
     vhd_free(bio);
 }
 
+static bool is_valid_block_range_req(uint64_t sector, size_t nsectors,
+                                     uint64_t capacity)
+{
+    if (nsectors > capacity || sector > capacity - nsectors) {
+        VHD_LOG_ERROR("Request (%" PRIu64 "s, +%zus) spans"
+                      " beyond device capacity %" PRIu64,
+                      sector, nsectors, capacity);
+        return false;
+    }
+
+    return true;
+}
+
 static bool is_valid_req(uint64_t sector, size_t len, uint64_t capacity)
 {
     size_t nsectors = len / VIRTIO_BLK_SECTOR_SIZE;
@@ -88,13 +101,8 @@ static bool is_valid_req(uint64_t sector, size_t len, uint64_t capacity)
                       len, VIRTIO_BLK_SECTOR_SIZE);
         return false;
     }
-    if (nsectors > capacity || sector > capacity - nsectors) {
-        VHD_LOG_ERROR("Request (%" PRIu64 "s, +%zus) spans"
-                      " beyond device capacity %" PRIu64,
-                      sector, nsectors, capacity);
-        return false;
-    }
-    return true;
+
+    return is_valid_block_range_req(sector, nsectors, capacity);
 }
 
 static void handle_inout(struct virtio_blk_dev *dev,
