@@ -88,7 +88,7 @@ static bool is_valid_req(uint64_t sector, size_t len, uint64_t capacity)
                       len, VIRTIO_BLK_SECTOR_SIZE);
         return false;
     }
-    if (sector > capacity || sector > capacity - nsectors) {
+    if (nsectors > capacity || sector > capacity - nsectors) {
         VHD_LOG_ERROR("Request (%" PRIu64 "s, +%zus) spans"
                       " beyond device capacity %" PRIu64,
                       sector, nsectors, capacity);
