@@ -105,12 +105,23 @@ static bool is_valid_req(uint64_t sector, size_t len, uint64_t capacity)
     return is_valid_block_range_req(sector, nsectors, capacity);
 }
 
+static bool bio_submit(struct virtio_blk_io *bio)
+{
+    int res = virtio_blk_handle_request(bio->vq, &bio->io);
+    if (res != 0) {
+        VHD_LOG_ERROR("bdev request submission failed with %d", res);
+        vhd_free(bio);
+        return false;
+    }
+
+    return true;
+}
+
 static void handle_inout(struct virtio_blk_dev *dev,
                          struct virtio_blk_req_hdr *req,
                          struct virtio_virtq *vq,
                          struct virtio_iov *iov)
 {
-    uint8_t status = VIRTIO_BLK_S_IOERR;
     size_t len;
     uint16_t ndatabufs;
     struct vhd_buffer *pdata;
@@ -123,7 +134,7 @@ static void handle_inout(struct virtio_blk_dev *dev,
     } else {
         if (virtio_blk_is_readonly(dev)) {
             VHD_LOG_ERROR("Write request to readonly device");
-            goto complete;
+            goto fail_request;
         }
         io_type = VHD_BDEV_WRITE;
         pdata = &iov->iov_out[1];
@@ -133,7 +144,7 @@ static void handle_inout(struct virtio_blk_dev *dev,
     len = iov_size(pdata, ndatabufs);
 
     if (!is_valid_req(req->sector, len, dev->config.capacity)) {
-        goto complete;
+        goto fail_request;
     }
 
     struct virtio_blk_io *bio = vhd_zalloc(sizeof(*bio));
@@ -147,18 +158,15 @@ static void handle_inout(struct virtio_blk_dev *dev,
     bio->bdev_io.sglist.nbuffers = ndatabufs;
     bio->bdev_io.sglist.buffers = pdata;
 
-    int res = virtio_blk_handle_request(bio->vq, &bio->io);
-    if (res != 0) {
-        VHD_LOG_ERROR("bdev request submission failed with %d", res);
-        vhd_free(bio);
-        goto complete;
+    if (!bio_submit(bio)) {
+        goto fail_request;
     }
 
     /* request will be completed asynchronously */
     return;
 
-complete:
-    complete_req(vq, iov, status);
+fail_request:
+    complete_req(vq, iov, VIRTIO_BLK_S_IOERR);
 }
 
 static uint8_t handle_getid(struct virtio_blk_dev *dev,
