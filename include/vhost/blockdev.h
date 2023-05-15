@@ -48,7 +48,7 @@ struct vhd_bdev_info {
 
 static inline bool vhd_blockdev_is_readonly(const struct vhd_bdev_info *bdev)
 {
-    return (bdev->features & VHD_BDEV_F_READONLY) == VHD_BDEV_F_READONLY;
+    return bdev->features & VHD_BDEV_F_READONLY;
 }
 
 /**
