@@ -28,6 +28,7 @@ extern "C" {
  * applications to submit multiple segments in a single call.
 */
 #define VIRTIO_BLK_MAX_DISCARD_SEGMENTS 1
+#define VIRTIO_BLK_MAX_WRITE_ZEROES_SEGMENTS 1
 
 /*
  * The config field is an 'le32', we just set it to the maximum
@@ -35,6 +36,7 @@ extern "C" {
  * it to a lower number here.
  */
 #define VIRTIO_BLK_MAX_DISCARD_SECTORS UINT32_MAX
+#define VIRTIO_BLK_MAX_WRITE_ZEROES_SECTORS UINT32_MAX
 
 struct vhd_bdev_info;
 struct vhd_io;

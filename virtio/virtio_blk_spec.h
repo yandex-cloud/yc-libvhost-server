@@ -26,6 +26,7 @@ extern "C" {
 #define VIRTIO_BLK_F_TOPOLOGY   10  /* Device exports information on optimal I/O alignment. */
 #define VIRTIO_BLK_F_CONFIG_WCE 11  /* Device can toggle its cache between writeback and writethrough modes. */
 #define VIRTIO_BLK_F_DISCARD    13  /* Device can support discard command */
+#define VIRTIO_BLK_F_WRITE_ZEROES 14  /* Device supports write-zeroes requests */
 
 /* Custom extentions */
 #define VIRTIO_BLK_F_MQ         12  /* Device reports maximum supported queues in numqueues config field */
@@ -68,6 +69,12 @@ struct VHD_PACKED virtio_blk_config {
     le32 max_discard_sectors;
     le32 max_discard_seg;
     le32 discard_sector_alignment;
+
+    /* VIRTIO_BLK_F_WRITE_ZEROES-specific fields */
+    le32 max_write_zeroes_sectors;
+    le32 max_write_zeroes_seg;
+    u8 write_zeroes_may_unmap;
+    u8 _reserved1[3];
 };
 
 /*
@@ -90,6 +97,7 @@ struct virtio_blk_req_hdr {
 #define VIRTIO_BLK_T_FLUSH      4   /* Flush */
 #define VIRTIO_BLK_T_GET_ID     8   /* Get device id */
 #define VIRTIO_BLK_T_DISCARD    11  /* Discard */
+#define VIRTIO_BLK_T_WRITE_ZEROES 13  /* Write zeroes */
     le32 type;
     le32 reserved;
     le64 sector;
