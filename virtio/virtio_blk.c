@@ -169,15 +169,21 @@ fail_request:
     complete_req(vq, iov, VIRTIO_BLK_S_IOERR);
 }
 
-static void handle_discard(struct virtio_blk_dev *dev,
-                           struct virtio_virtq *vq,
-                           struct virtio_iov *iov)
+static void handle_discard_or_write_zeroes(struct virtio_blk_dev *dev,
+                                           le32 type,
+                                           struct virtio_virtq *vq,
+                                           struct virtio_iov *iov)
 {
     struct virtio_blk_discard_write_zeroes seg;
     struct virtio_blk_io *bio;
+    enum vhd_bdev_io_type io_type;
+    le32 max_sectors;
+    bool is_discard = type == VIRTIO_BLK_T_DISCARD;
+    const char *type_str = is_discard ? "discard" : "write-zeroes";
+    VHD_ASSERT(is_discard || type == VIRTIO_BLK_T_WRITE_ZEROES);
 
     if (virtio_blk_is_readonly(dev)) {
-        VHD_LOG_ERROR("Discard request to readonly device");
+        VHD_LOG_ERROR("%s request to readonly device", type_str);
         goto fail_request;
     }
 
@@ -187,15 +193,15 @@ static void handle_discard(struct virtio_blk_dev *dev,
      */
     if (iov->niov_out != 2) {
         VHD_LOG_ERROR("Invalid number of segments for a "
-                      "discard request %"PRIu16,
-                      iov->niov_out);
+                      "%s request %"PRIu16,
+                      type_str, iov->niov_out);
         goto fail_request;
     }
 
     if (iov->iov_out[1].len != sizeof(seg)) {
-        VHD_LOG_ERROR("Invalid discard/write-zeroes segment size: "
-                      "expected %zu, got %zu!", sizeof(seg),
-                      iov->iov_out[1].len);
+        VHD_LOG_ERROR("Invalid %s segment size: "
+                      "expected %zu, got %zu!", type_str,
+                      sizeof(seg), iov->iov_out[1].len);
         goto fail_request;
     }
 
@@ -205,23 +211,34 @@ static void handle_discard(struct virtio_blk_dev *dev,
         goto fail_request;
     }
 
-    if (seg.num_sectors > dev->config.max_discard_sectors) {
-        VHD_LOG_ERROR("Discard request too large: %"PRIu32" (max is %"PRIu32")",
-                      seg.num_sectors, dev->config.max_discard_sectors);
-        goto fail_request;
+    if (is_discard) {
+        le32 alignment = dev->config.discard_sector_alignment;
+
+        if (!VHD_IS_ALIGNED(seg.num_sectors, alignment)) {
+            VHD_LOG_ERROR("Discard request sector count %"PRIu32
+                          " not aligned to %"PRIu32,
+                          seg.num_sectors, alignment);
+            goto fail_request;
+        }
+
+        if (!VHD_IS_ALIGNED(seg.sector, alignment)) {
+            VHD_LOG_ERROR("Discard request sector %"PRIu64
+                          " not aligned to %"PRIu32,
+                          seg.sector, alignment);
+            goto fail_request;
+        }
+
+        io_type = VHD_BDEV_DISCARD;
+        max_sectors = dev->config.max_discard_sectors;
+    } else {
+        io_type = VHD_BDEV_WRITE_ZEROES;
+        max_sectors = dev->config.max_write_zeroes_sectors;
     }
 
-    if (!VHD_IS_ALIGNED(seg.num_sectors, dev->config.discard_sector_alignment)) {
-        VHD_LOG_ERROR("Discard request sector count %"PRIu32
-                      " not aligned to %"PRIu32,
-                      seg.num_sectors, dev->config.discard_sector_alignment);
-        goto fail_request;
-    }
-
-    if (!VHD_IS_ALIGNED(seg.sector, dev->config.discard_sector_alignment)) {
-        VHD_LOG_ERROR("Discard request sector %"PRIu64
-                      " not aligned to %"PRIu32,
-                      seg.sector, dev->config.discard_sector_alignment);
+    if (seg.num_sectors > max_sectors) {
+        VHD_LOG_ERROR("%s request too large: "
+                      "%"PRIu32" (max is %"PRIu32")",
+                      type_str, seg.num_sectors, max_sectors);
         goto fail_request;
     }
 
@@ -229,7 +246,7 @@ static void handle_discard(struct virtio_blk_dev *dev,
     bio->vq = vq;
     bio->iov = iov;
     bio->io.completion_handler = complete_io;
-    bio->bdev_io.type = VHD_BDEV_DISCARD;
+    bio->bdev_io.type = io_type;
     bio->bdev_io.first_sector = seg.sector;
     bio->bdev_io.total_sectors = seg.num_sectors;
 
@@ -279,6 +296,9 @@ static bool dev_supports_req(struct virtio_blk_dev *dev, le32 type)
         return true;
     case VIRTIO_BLK_T_DISCARD:
         feature = VIRTIO_BLK_F_DISCARD;
+        break;
+    case VIRTIO_BLK_T_WRITE_ZEROES:
+        feature = VIRTIO_BLK_F_WRITE_ZEROES;
         break;
     default:
         return false;
@@ -333,7 +353,8 @@ static void handle_buffers(void *arg, struct virtio_virtq *vq,
         status = handle_getid(dev, iov);
         break;
     case VIRTIO_BLK_T_DISCARD:
-        handle_discard(dev, vq, iov);
+    case VIRTIO_BLK_T_WRITE_ZEROES:
+        handle_discard_or_write_zeroes(dev, type, vq, iov);
         return;         /* async completion */
     default:  /* unreachable because of dev_supports_req() */
         VHD_UNREACHABLE();
@@ -449,6 +470,9 @@ void virtio_blk_init_dev(
     if (vhd_blockdev_has_discard(bdev)) {
         dev->features |= (1ull << VIRTIO_BLK_F_DISCARD);
     }
+    if (vhd_blockdev_has_write_zeroes(bdev)) {
+        dev->features |= (1ull << VIRTIO_BLK_F_WRITE_ZEROES);
+    }
 
     /*
      * Both virtio and block backend use the same sector size of 512.  Don't
@@ -472,6 +496,15 @@ void virtio_blk_init_dev(
     dev->config.discard_sector_alignment = 1;
     dev->config.max_discard_sectors = VIRTIO_BLK_MAX_DISCARD_SECTORS;
     dev->config.max_discard_seg = VIRTIO_BLK_MAX_DISCARD_SEGMENTS;
+
+    dev->config.max_write_zeroes_sectors = VIRTIO_BLK_MAX_WRITE_ZEROES_SECTORS;
+    dev->config.max_write_zeroes_seg = VIRTIO_BLK_MAX_WRITE_ZEROES_SEGMENTS;
+    /*
+     * Since we don't know anything about the user of the library beforehand
+     * assume we _may_ unmap the sectors on write-zeroes.
+     * TODO: maybe propagate this value from blockdev config at creation time?
+     */
+    dev->config.write_zeroes_may_unmap = 1;
 
     /*
      * Hardcode seg_max to 126. The same way like it's done for virtio-blk in
