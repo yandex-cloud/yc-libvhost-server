@@ -7,6 +7,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <time.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -62,6 +63,9 @@ struct vhd_rq_metrics {
     uint64_t completed;
     /* number of requests canceled from internal queue before dispatch */
     uint64_t cancelled;
+
+    /* timestamp of oldest infight request */
+    time_t oldest_inflight_ts;
 };
 
 #ifdef __cplusplus
