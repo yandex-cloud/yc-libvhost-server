@@ -681,6 +681,7 @@ void virtq_push(struct virtio_virtq *vq, struct virtio_iov *iov, uint32_t len)
     }
 
     virtq_notify(vq);
+    vq->stat.metrics.request_completed++;
 }
 
 void virtq_set_notify_fd(struct virtio_virtq *vq, int fd)
