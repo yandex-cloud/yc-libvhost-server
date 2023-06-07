@@ -48,6 +48,22 @@ struct vhd_vq_metrics {
     uint16_t queue_len_max_60s;
 };
 
+/**
+ * request queue usage statistics
+ */
+struct vhd_rq_metrics {
+    /* number of requests read from guest and put to internal queue */
+    uint64_t enqueued;
+    /* number of requests dispatched for handling */
+    uint64_t dequeued;
+    /* number of requests completed externally and scheduled for completion in rq */
+    uint64_t completions_received;
+    /* number of requests completed and reported to guest */
+    uint64_t completed;
+    /* number of requests canceled from internal queue before dispatch */
+    uint64_t cancelled;
+};
+
 #ifdef __cplusplus
 }
 #endif
