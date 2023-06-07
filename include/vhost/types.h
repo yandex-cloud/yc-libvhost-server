@@ -38,6 +38,8 @@ struct vhd_vq_metrics {
     /* Request counters */
     /* total amount of requests processed */
     uint64_t request_total;
+    /* total amount of requests completed */
+    uint64_t request_completed;
 
     /* Other counters*/
     /* number of requests was dispatched from vring last time*/
