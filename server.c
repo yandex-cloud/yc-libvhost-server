@@ -102,6 +102,7 @@ struct vhd_request_queue {
 
     vhd_io_list completion;
     struct vhd_bh *completion_bh;
+    struct vhd_rq_metrics metrics;
 };
 
 void vhd_run_in_rq(struct vhd_request_queue *rq, void (*cb)(void *),
@@ -145,6 +146,7 @@ static void rq_complete_bh(void *opaque)
         }
         SLIST_REMOVE_HEAD(&io_list, completion_link);
         req_complete(io);
+        ++rq->metrics.completed;
     }
 }
 
@@ -205,6 +207,7 @@ bool vhd_dequeue_request(struct vhd_request_queue *rq,
     out_req->vdev = io->vring->vdev;
     out_req->io = io;
 
+    ++rq->metrics.dequeued;
     return true;
 }
 
@@ -213,6 +216,7 @@ int vhd_enqueue_request(struct vhd_request_queue *rq, struct vhd_io *io)
     vhd_vring_inc_in_flight(io->vring);
 
     TAILQ_INSERT_TAIL(&rq->submission, io, submission_link);
+    ++rq->metrics.enqueued;
     return 0;
 }
 
@@ -227,6 +231,7 @@ void vhd_cancel_queued_requests(struct vhd_request_queue *rq,
             TAILQ_REMOVE(&rq->submission, io, submission_link);
             io->status = VHD_BDEV_CANCELED;
             req_complete(io);
+            ++rq->metrics.cancelled;
         }
         io = next;
     }
@@ -250,4 +255,5 @@ void vhd_complete_bio(struct vhd_io *io, enum vhd_bdev_io_result status)
     if (!SLIST_INSERT_HEAD_ATOMIC(&rq->completion, io, completion_link)) {
         vhd_bh_schedule(rq->completion_bh);
     }
+    ++rq->metrics.completions_received;
 }
