@@ -169,6 +169,7 @@ struct vhd_request_queue *vhd_create_request_queue(void)
     TAILQ_INIT(&rq->inflight);
     SLIST_INIT(&rq->completion);
     rq->completion_bh = vhd_bh_new(rq->evloop, rq_complete_bh, rq);
+    memset(&rq->metrics, 0, sizeof(rq->metrics));
     return rq;
 }
 
