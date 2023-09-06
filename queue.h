@@ -17,7 +17,7 @@
     typeof(elm) old_slh_first;                                                    \
     do {                                                                          \
         /* Grab the current head and make the new element point to it */          \
-        (elm)->field.sle_next = (head)->slh_first;                                \
+        (elm)->field.sle_next = catomic_read(&(head)->slh_first);                 \
         old_slh_first = (elm)->field.sle_next;                                    \
                                                                                   \
         /* Repeat until slh_first matches old_slh_first at the time of cmpxchg */ \
