@@ -28,10 +28,9 @@ struct vhd_memory_map {
     struct objref ref;
 
     /* gets called after mapping guest memory region */
-    int (*map_cb)(void *addr, size_t len, void *opaque);
+    int (*map_cb)(void *addr, size_t len);
     /* gets called before unmapping guest memory region */
-    int (*unmap_cb)(void *addr, size_t len, void *opaque);
-    void *opaque;
+    int (*unmap_cb)(void *addr, size_t len);
 
     /* actual number of slots used */
     unsigned num;
@@ -109,7 +108,7 @@ static int unmap_memory(void *addr, size_t len)
 
 static int map_region(struct vhd_memory_region *region, uint64_t gpa,
                       uint64_t uva, size_t size, int fd, off_t offset,
-                      int (*map_cb)(void *, size_t, void *), void *opaque)
+                      int (*map_cb)(void *, size_t))
 {
     void *ptr;
 
@@ -122,7 +121,7 @@ static int map_region(struct vhd_memory_region *region, uint64_t gpa,
 
     if (map_cb) {
         size_t len = VHD_ALIGN_PTR_UP(size, HUGE_PAGE_SIZE);
-        int ret = map_cb(ptr, len, opaque);
+        int ret = map_cb(ptr, len);
         if (ret < 0) {
             VHD_LOG_ERROR("map callback failed for region %p-%p: %s",
                           ptr, ptr + len, strerror(-ret));
@@ -144,13 +143,13 @@ static int map_region(struct vhd_memory_region *region, uint64_t gpa,
 }
 
 static int unmap_region(struct vhd_memory_region *reg,
-                        int (*unmap_cb)(void *, size_t, void *), void *opaque)
+                        int (*unmap_cb)(void *, size_t))
 {
     int ret;
 
     if (unmap_cb) {
         size_t len = VHD_ALIGN_PTR_UP(reg->size, HUGE_PAGE_SIZE);
-        ret = unmap_cb(reg->ptr, len, opaque);
+        ret = unmap_cb(reg->ptr, len);
         if (ret < 0) {
             VHD_LOG_ERROR("unmap callback failed for region %p-%p: %s",
                           reg->ptr, reg->ptr + reg->size, strerror(-ret));
@@ -174,7 +173,7 @@ static void memmap_release(struct objref *objref)
     unsigned i;
 
     for (i = 0; i < mm->num; i++) {
-        unmap_region(&mm->regions[i], mm->unmap_cb, mm->opaque);
+        unmap_region(&mm->regions[i], mm->unmap_cb);
     }
 
     vhd_free(mm);
@@ -232,16 +231,13 @@ void *gpa_range_to_ptr(struct vhd_memory_map *mm, uint64_t gpa, size_t len)
     return NULL;
 }
 
-
-struct vhd_memory_map *vhd_memmap_new(int (*map_cb)(void *, size_t, void *),
-                                      int (*unmap_cb)(void *, size_t, void *),
-                                      void *opaque)
+struct vhd_memory_map *vhd_memmap_new(int (*map_cb)(void *, size_t),
+                                      int (*unmap_cb)(void *, size_t))
 {
     struct vhd_memory_map *mm = vhd_alloc(sizeof(*mm));
     *mm = (struct vhd_memory_map) {
         .map_cb = map_cb,
         .unmap_cb = unmap_cb,
-        .opaque = opaque,
     };
 
     objref_init(&mm->ref, memmap_release);
@@ -282,7 +278,7 @@ int vhd_memmap_add_slot(struct vhd_memory_map *mm, uint64_t gpa, uint64_t uva,
     }
 
     ret = map_region(&region, gpa, uva, size, fd, offset,
-                     mm->map_cb, mm->opaque);
+                     mm->map_cb);
     if (ret < 0) {
         return ret;
     }
@@ -314,7 +310,7 @@ int vhd_memmap_del_slot(struct vhd_memory_map *mm, uint64_t gpa, uint64_t uva,
         return -ENXIO;
     }
 
-    ret = unmap_region(&mm->regions[i], mm->unmap_cb, mm->opaque);
+    ret = unmap_region(&mm->regions[i], mm->unmap_cb);
     if (ret < 0) {
         return ret;
     }
