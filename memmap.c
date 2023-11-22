@@ -34,7 +34,7 @@ struct vhd_memory_map {
 
     /* actual number of slots used */
     unsigned num;
-    struct vhd_memory_region regions[VHD_RAM_SLOTS_MAX];
+    struct vhd_memory_region *regions[VHD_RAM_SLOTS_MAX];
 };
 
 /*
@@ -46,7 +46,7 @@ void *uva_to_ptr(struct vhd_memory_map *mm, uint64_t uva)
     unsigned i;
 
     for (i = 0; i < mm->num; i++) {
-        struct vhd_memory_region *reg = &mm->regions[i];
+        struct vhd_memory_region *reg = mm->regions[i];
         if (uva >= reg->uva && uva - reg->uva < reg->size) {
             return reg->ptr + (uva - reg->uva);
         }
@@ -173,7 +173,8 @@ static void memmap_release(struct objref *objref)
     unsigned i;
 
     for (i = 0; i < mm->num; i++) {
-        unmap_region(&mm->regions[i], mm->unmap_cb);
+        unmap_region(mm->regions[i], mm->unmap_cb);
+        vhd_free(mm->regions[i]);
     }
 
     vhd_free(mm);
@@ -195,7 +196,7 @@ uint64_t ptr_to_gpa(struct vhd_memory_map *mm, void *ptr)
 {
     unsigned i;
     for (i = 0; i < mm->num; ++i) {
-        struct vhd_memory_region *reg = &mm->regions[i];
+        struct vhd_memory_region *reg = mm->regions[i];
         if (ptr >= reg->ptr && ptr < reg->ptr + reg->size) {
             return (ptr - reg->ptr) + reg->gpa;
         }
@@ -212,7 +213,7 @@ void *gpa_range_to_ptr(struct vhd_memory_map *mm, uint64_t gpa, size_t len)
     unsigned i;
 
     for (i = 0; i < mm->num; i++) {
-        struct vhd_memory_region *reg = &mm->regions[i];
+        struct vhd_memory_region *reg = mm->regions[i];
         if (gpa >= reg->gpa && gpa - reg->gpa < reg->size) {
             /*
              * Check (overflow-safe) that length fits in a single region.
@@ -249,7 +250,7 @@ int vhd_memmap_add_slot(struct vhd_memory_map *mm, uint64_t gpa, uint64_t uva,
 {
     int ret;
     unsigned i;
-    struct vhd_memory_region region;
+    struct vhd_memory_region *region;
 
     /* check for overflow */
     if (gpa + size < gpa || uva + size < uva) {
@@ -261,7 +262,7 @@ int vhd_memmap_add_slot(struct vhd_memory_map *mm, uint64_t gpa, uint64_t uva,
     }
     /* check for intersection with existing slots */
     for (i = 0; i < mm->num; i++) {
-        struct vhd_memory_region *reg = &mm->regions[i];
+        struct vhd_memory_region *reg = mm->regions[i];
         if (reg->gpa + reg->size <= gpa || gpa + size <= reg->gpa ||
             reg->uva + reg->size <= uva || uva + size <= reg->uva) {
             continue;
@@ -271,15 +272,17 @@ int vhd_memmap_add_slot(struct vhd_memory_map *mm, uint64_t gpa, uint64_t uva,
 
     /* find appropriate position to keep ascending order in gpa */
     for (i = mm->num; i > 0; i--) {
-        struct vhd_memory_region *reg = &mm->regions[i - 1];
+        struct vhd_memory_region *reg = mm->regions[i - 1];
         if (reg->gpa < gpa) {
             break;
         }
     }
 
-    ret = map_region(&region, gpa, uva, size, fd, offset,
+    region = vhd_calloc(1, sizeof(*region));
+    ret = map_region(region, gpa, uva, size, fd, offset,
                      mm->map_cb);
     if (ret < 0) {
+        vhd_free(region);
         return ret;
     }
 
@@ -300,7 +303,7 @@ int vhd_memmap_del_slot(struct vhd_memory_map *mm, uint64_t gpa, uint64_t uva,
     unsigned i;
 
     for (i = 0; i < mm->num; i++) {
-        struct vhd_memory_region *reg = &mm->regions[i];
+        struct vhd_memory_region *reg = mm->regions[i];
         if (reg->gpa == gpa && reg->uva == uva && reg->size == size) {
             break;
         }
@@ -310,10 +313,11 @@ int vhd_memmap_del_slot(struct vhd_memory_map *mm, uint64_t gpa, uint64_t uva,
         return -ENXIO;
     }
 
-    ret = unmap_region(&mm->regions[i], mm->unmap_cb);
+    ret = unmap_region(mm->regions[i], mm->unmap_cb);
     if (ret < 0) {
         return ret;
     }
+    vhd_free(mm->regions[i]);
 
     mm->num--;
     if (i < mm->num) {
