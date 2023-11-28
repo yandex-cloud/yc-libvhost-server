@@ -5,6 +5,13 @@
 #include "logging.h"
 #include "objref.h"
 
+struct vhd_mmap_callbacks {
+    /* gets called after mapping guest memory region */
+    int (*map_cb)(void *addr, size_t len);
+    /* gets called before unmapping guest memory region */
+    int (*unmap_cb)(void *addr, size_t len);
+};
+
 struct vhd_memory_region {
     /* start of the region in guest physical space */
     uint64_t gpa;
@@ -27,10 +34,7 @@ struct vhd_memory_region {
 struct vhd_memory_map {
     struct objref ref;
 
-    /* gets called after mapping guest memory region */
-    int (*map_cb)(void *addr, size_t len);
-    /* gets called before unmapping guest memory region */
-    int (*unmap_cb)(void *addr, size_t len);
+    struct vhd_mmap_callbacks callbacks;
 
     /* actual number of slots used */
     unsigned num;
@@ -173,7 +177,7 @@ static void memmap_release(struct objref *objref)
     unsigned i;
 
     for (i = 0; i < mm->num; i++) {
-        unmap_region(mm->regions[i], mm->unmap_cb);
+        unmap_region(mm->regions[i], mm->callbacks.unmap_cb);
         vhd_free(mm->regions[i]);
     }
 
@@ -237,8 +241,10 @@ struct vhd_memory_map *vhd_memmap_new(int (*map_cb)(void *, size_t),
 {
     struct vhd_memory_map *mm = vhd_alloc(sizeof(*mm));
     *mm = (struct vhd_memory_map) {
-        .map_cb = map_cb,
-        .unmap_cb = unmap_cb,
+        .callbacks = (struct vhd_mmap_callbacks) {
+            .map_cb = map_cb,
+            .unmap_cb = unmap_cb,
+        }
     };
 
     objref_init(&mm->ref, memmap_release);
@@ -280,7 +286,7 @@ int vhd_memmap_add_slot(struct vhd_memory_map *mm, uint64_t gpa, uint64_t uva,
 
     region = vhd_calloc(1, sizeof(*region));
     ret = map_region(region, gpa, uva, size, fd, offset,
-                     mm->map_cb);
+                     mm->callbacks.map_cb);
     if (ret < 0) {
         vhd_free(region);
         return ret;
@@ -313,7 +319,7 @@ int vhd_memmap_del_slot(struct vhd_memory_map *mm, uint64_t gpa, uint64_t uva,
         return -ENXIO;
     }
 
-    ret = unmap_region(mm->regions[i], mm->unmap_cb);
+    ret = unmap_region(mm->regions[i], mm->callbacks.unmap_cb);
     if (ret < 0) {
         return ret;
     }
