@@ -13,6 +13,8 @@ struct vhd_mmap_callbacks {
 };
 
 struct vhd_memory_region {
+    struct objref ref;
+
     /* start of the region in guest physical space */
     uint64_t gpa;
     /* start of the region in master's virtual space */
@@ -137,12 +139,11 @@ static int map_region(struct vhd_memory_region *region, uint64_t gpa,
     /* Mark memory as defined explicitly */
     VHD_MEMCHECK_DEFINED(ptr, size);
 
-    *region = (struct vhd_memory_region) {
-        .ptr = ptr,
-        .gpa = gpa,
-        .uva = uva,
-        .size = size,
-    };
+    region->ptr = ptr;
+    region->gpa = gpa;
+    region->uva = uva;
+    region->size = size;
+
     return 0;
 }
 
@@ -170,6 +171,19 @@ static int unmap_region(struct vhd_memory_region *reg,
     return 0;
 }
 
+static void region_release(struct objref *objref)
+{
+    struct vhd_memory_region *reg =
+            containerof(objref, struct vhd_memory_region, ref);
+
+    vhd_free(reg);
+}
+
+static void region_unref(struct vhd_memory_region *reg)
+{
+    objref_put(&reg->ref);
+}
+
 static void memmap_release(struct objref *objref)
 {
     struct vhd_memory_map *mm =
@@ -178,7 +192,7 @@ static void memmap_release(struct objref *objref)
 
     for (i = 0; i < mm->num; i++) {
         unmap_region(mm->regions[i], mm->callbacks.unmap_cb);
-        vhd_free(mm->regions[i]);
+        region_unref(mm->regions[i]);
     }
 
     vhd_free(mm);
@@ -285,6 +299,7 @@ int vhd_memmap_add_slot(struct vhd_memory_map *mm, uint64_t gpa, uint64_t uva,
     }
 
     region = vhd_calloc(1, sizeof(*region));
+    objref_init(&region->ref, region_release);
     ret = map_region(region, gpa, uva, size, fd, offset,
                      mm->callbacks.map_cb);
     if (ret < 0) {
@@ -323,7 +338,7 @@ int vhd_memmap_del_slot(struct vhd_memory_map *mm, uint64_t gpa, uint64_t uva,
     if (ret < 0) {
         return ret;
     }
-    vhd_free(mm->regions[i]);
+    region_unref(mm->regions[i]);
 
     mm->num--;
     if (i < mm->num) {
