@@ -1,5 +1,8 @@
 #include <string.h>
+#include <inttypes.h>
+#include <sys/stat.h>
 
+#include "queue.h"
 #include "memmap.h"
 #include "platform.h"
 #include "logging.h"
@@ -23,10 +26,33 @@ struct vhd_memory_region {
     void *ptr;
     /* region size */
     size_t size;
+    /* offset of the region from the file base */
+    off_t offset;
+
+    /* unique identifiers of this region for caching purposes */
+    dev_t device;
+    ino_t inode;
 
     /* callbacks associated with this memory region */
     struct vhd_mmap_callbacks callbacks;
+
+    LIST_ENTRY(vhd_memory_region) region_link;
 };
+
+static LIST_HEAD(, vhd_memory_region) g_regions =
+    LIST_HEAD_INITIALIZER(g_regions);
+
+static void region_init_id(struct vhd_memory_region *reg, int fd)
+{
+    struct stat stat;
+
+    if (fstat(fd, &stat) < 0) {
+        return;
+    }
+
+    reg->device = stat.st_dev;
+    reg->inode = stat.st_ino;
+}
 
 /*
  * This should be no less than VHOST_USER_MEM_REGIONS_MAX, to accept any
@@ -145,6 +171,8 @@ static int map_region(struct vhd_memory_region *region, uint64_t gpa,
     region->gpa = gpa;
     region->uva = uva;
     region->size = size;
+    region->offset = offset;
+    region_init_id(region, fd);
 
     return 0;
 }
@@ -177,13 +205,53 @@ static void region_release(struct objref *objref)
     struct vhd_memory_region *reg =
             containerof(objref, struct vhd_memory_region, ref);
 
+    LIST_REMOVE(reg, region_link);
     unmap_region(reg);
     vhd_free(reg);
+}
+
+static void region_ref(struct vhd_memory_region *reg)
+{
+    objref_get(&reg->ref);
 }
 
 static void region_unref(struct vhd_memory_region *reg)
 {
     objref_put(&reg->ref);
+}
+
+static inline struct vhd_memory_region *region_get_cached(
+    uint64_t gpa, uint64_t uva,
+    size_t size, int fd,
+    off_t offset,
+    struct vhd_mmap_callbacks *callbacks
+)
+{
+    struct vhd_memory_region *region;
+    struct stat stat;
+
+    if (fstat(fd, &stat) < 0) {
+        return NULL;
+    }
+
+    LIST_FOREACH(region, &g_regions, region_link) {
+        if (region->inode != stat.st_ino || region->device != stat.st_dev) {
+            continue;
+        }
+        if (region->gpa != gpa || region->uva != uva ||
+            region->size != size || region->offset != offset) {
+            continue;
+        }
+        if (region->callbacks.map_cb != callbacks->map_cb ||
+            region->callbacks.unmap_cb != callbacks->unmap_cb) {
+            continue;
+        }
+
+        region_ref(region);
+        return region;
+    }
+
+    return NULL;
 }
 
 static void memmap_release(struct objref *objref)
@@ -299,15 +367,28 @@ int vhd_memmap_add_slot(struct vhd_memory_map *mm, uint64_t gpa, uint64_t uva,
         }
     }
 
-    region = vhd_calloc(1, sizeof(*region));
-    *region = (struct vhd_memory_region) {
-        .callbacks = mm->callbacks,
-    };
-    objref_init(&region->ref, region_release);
-    ret = map_region(region, gpa, uva, size, fd, offset);
-    if (ret < 0) {
-        vhd_free(region);
-        return ret;
+    region = region_get_cached(gpa, uva, size, fd, offset, &mm->callbacks);
+    if (region == NULL) {
+        region = vhd_calloc(1, sizeof(*region));
+        *region = (struct vhd_memory_region) {
+            .callbacks = mm->callbacks,
+        };
+
+        objref_init(&region->ref, region_release);
+
+        ret = map_region(region, gpa, uva, size, fd, offset);
+        if (ret < 0) {
+            vhd_free(region);
+            return ret;
+        }
+
+        LIST_INSERT_HEAD(&g_regions, region, region_link);
+    } else {
+        VHD_LOG_INFO(
+            "region %jd-%ju (GPA 0x%016"PRIX64" -> 0x%016"PRIX64") cache hit, "
+            "reusing (%u refs total)", region->device, region->inode,
+            region->gpa, region->gpa + region->size, objref_read(&region->ref)
+        );
     }
 
     if (i < mm->num) {
