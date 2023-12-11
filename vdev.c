@@ -54,6 +54,7 @@ static const char *const vhost_req_names[] = {
     VHOST_REQ(SET_INFLIGHT_FD),
     VHOST_REQ(GET_MAX_MEM_SLOTS),
     VHOST_REQ(ADD_MEM_REG),
+    VHOST_REQ(REM_MEM_REG),
 };
 #undef VHOST_REQ
 
@@ -993,6 +994,76 @@ fail:
     return ret;
 }
 
+static int vhost_rem_mem_reg(struct vhd_vdev *vdev, const void *payload,
+                             size_t size, const int *fds, size_t num_fds)
+{
+    int ret;
+    const struct vhost_user_mem_single_mem_desc *desc = payload;
+    const struct vhost_user_mem_region *region = &desc->region;
+    struct vhd_memory_map *new_mm, *mm = vdev->memmap;
+    uint16_t i;
+
+    if (size < sizeof(*desc)) {
+        VHD_OBJ_ERROR(vdev, "malformed message: size %zu expected %zu",
+                      size, sizeof(*desc));
+        return -EMSGSIZE;
+    }
+
+    /*
+     * vhost-user spec:
+     * No file descriptors SHOULD be passed in the ancillary data.
+     * For compatibility with existing incorrect implementations, the back-end
+     * MAY accept messages with one file descriptor. If a file descriptor is
+     * passed, the back-end MUST close it without using it otherwise.
+     */
+    if (num_fds > 1) {
+        VHD_OBJ_ERROR(vdev, "malformed message num_fds=%zu", num_fds);
+        return -EINVAL;
+    }
+
+    if (mm == NULL) {
+        VHD_OBJ_ERROR(
+            vdev,
+            "cannot remove memory region, device doesn't have a memmap"
+        );
+        return -EINVAL;
+    }
+
+    new_mm = vhd_memmap_dup(mm);
+    ret = vhd_memmap_del_slot(new_mm, region->guest_addr, region->user_addr,
+                              region->size);
+    if (ret < 0) {
+        goto fail;
+    }
+
+    for (i = 0; i < vdev->num_queues; i++) {
+        if (!vdev->vrings[i].started_in_ctl) {
+            continue;
+        }
+        ret = vring_update_shadow_vq_addrs(&vdev->vrings[i], new_mm);
+        if (ret < 0) {
+            goto fail;
+        }
+    }
+
+    vdev->old_memmap = mm;
+    vdev->memmap = new_mm;
+
+    if (!vdev->num_vrings_in_flight) {
+        return set_mem_table_complete(vdev);
+    }
+
+    vdev->handle_complete = set_mem_table_complete;
+    for (i = 0; i < vdev->num_queues; i++) {
+        vring_handle_msg(&vdev->vrings[i], vring_sync_to_virtq_bh);
+    }
+    return 0;
+
+fail:
+    vhd_memmap_unref(new_mm);
+    return ret;
+}
+
 static int vhost_get_config(struct vhd_vdev *vdev, const void *payload,
                             size_t size, const int *fds, size_t num_fds)
 {
@@ -1624,6 +1695,7 @@ static int (*vhost_msg_handlers[])(struct vhd_vdev *vdev,
     [VHOST_USER_SET_INFLIGHT_FD]        = vhost_set_inflight_fd,
     [VHOST_USER_GET_MAX_MEM_SLOTS]      = vhost_get_max_mem_slots,
     [VHOST_USER_ADD_MEM_REG]            = vhost_add_mem_reg,
+    [VHOST_USER_REM_MEM_REG]            = vhost_rem_mem_reg,
 };
 
 static int vhost_handle_msg(struct vhd_vdev *vdev, uint32_t req,

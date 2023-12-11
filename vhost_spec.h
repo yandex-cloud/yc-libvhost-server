@@ -103,6 +103,7 @@ enum {
     VHOST_USER_SET_INFLIGHT_FD = 32,
     VHOST_USER_GET_MAX_MEM_SLOTS = 36,
     VHOST_USER_ADD_MEM_REG = 37,
+    VHOST_USER_REM_MEM_REG = 38,
 };
 
 struct vhost_user_mem_region {
