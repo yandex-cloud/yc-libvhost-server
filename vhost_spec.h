@@ -101,6 +101,7 @@ enum {
     VHOST_USER_POSTCOPY_END = 30,
     VHOST_USER_GET_INFLIGHT_FD = 31,
     VHOST_USER_SET_INFLIGHT_FD = 32,
+    VHOST_USER_GET_MAX_MEM_SLOTS = 36,
 };
 
 struct vhost_user_mem_region {
