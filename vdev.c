@@ -52,6 +52,7 @@ static const char *const vhost_req_names[] = {
     VHOST_REQ(POSTCOPY_END),
     VHOST_REQ(GET_INFLIGHT_FD),
     VHOST_REQ(SET_INFLIGHT_FD),
+    VHOST_REQ(GET_MAX_MEM_SLOTS),
 };
 #undef VHOST_REQ
 
@@ -1505,6 +1506,17 @@ static int vhost_set_inflight_fd(struct vhd_vdev *vdev, const void *payload,
     return vhost_ack(vdev, 0);
 }
 
+static int vhost_get_max_mem_slots(struct vhd_vdev *vdev, const void *payload,
+                                   size_t size, const int *fds, size_t num_fds)
+{
+    if (num_fds) {
+        VHD_OBJ_ERROR(vdev, "malformed message num_fds=%zu", num_fds);
+        return -EINVAL;
+    }
+
+    return vhost_reply_u64(vdev, vhd_memmap_max_memslots());
+}
+
 static int (*vhost_msg_handlers[])(struct vhd_vdev *vdev,
                                    const void *payload, size_t size,
                                    const int *fds, size_t num_fds) = {
@@ -1526,6 +1538,7 @@ static int (*vhost_msg_handlers[])(struct vhd_vdev *vdev,
     [VHOST_USER_SET_VRING_ADDR]         = vhost_set_vring_addr,
     [VHOST_USER_GET_INFLIGHT_FD]        = vhost_get_inflight_fd,
     [VHOST_USER_SET_INFLIGHT_FD]        = vhost_set_inflight_fd,
+    [VHOST_USER_GET_MAX_MEM_SLOTS]      = vhost_get_max_mem_slots,
 };
 
 static int vhost_handle_msg(struct vhd_vdev *vdev, uint32_t req,
