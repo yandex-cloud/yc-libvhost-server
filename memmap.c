@@ -62,6 +62,11 @@ static void region_init_id(struct vhd_memory_region *reg, int fd)
  */
 #define VHD_RAM_SLOTS_MAX 32
 
+size_t vhd_memmap_max_memslots(void)
+{
+    return VHD_RAM_SLOTS_MAX;
+}
+
 struct vhd_memory_map {
     struct objref ref;
 
