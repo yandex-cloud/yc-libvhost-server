@@ -38,6 +38,7 @@ extern "C" {
 #define VHOST_USER_PROTOCOL_F_PAGEFAULT      8
 #define VHOST_USER_PROTOCOL_F_CONFIG         9
 #define VHOST_USER_PROTOCOL_F_INFLIGHT_SHMFD 12
+#define VHOST_USER_PROTOCOL_F_CONFIGURE_MEM_SLOTS 15
 
 /* Vhost user features (GET_FEATURES and SET_FEATURES commands). */
 #define VHOST_F_LOG_ALL                     26
