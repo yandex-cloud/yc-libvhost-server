@@ -53,6 +53,7 @@ static const char *const vhost_req_names[] = {
     VHOST_REQ(GET_INFLIGHT_FD),
     VHOST_REQ(SET_INFLIGHT_FD),
     VHOST_REQ(GET_MAX_MEM_SLOTS),
+    VHOST_REQ(ADD_MEM_REG),
 };
 #undef VHOST_REQ
 
@@ -909,6 +910,89 @@ fail:
     return ret;
 }
 
+static int vhost_add_mem_reg(struct vhd_vdev *vdev, const void *payload,
+                             size_t size, const int *fds, size_t num_fds)
+{
+    int ret;
+    const struct vhost_user_mem_single_mem_desc *desc = payload;
+    const struct vhost_user_mem_region *region = &desc->region;
+    struct vhd_memory_map *mm = vdev->memmap;
+    bool can_add_inplace = false;
+    uint16_t i;
+
+    if (size < sizeof(*desc)) {
+        VHD_OBJ_ERROR(vdev, "malformed message: size %zu expected %zu",
+                      size, sizeof(*desc));
+        return -EMSGSIZE;
+    }
+    if (num_fds != 1) {
+        VHD_OBJ_ERROR(vdev, "expected a region file descriptor");
+        return -EINVAL;
+    }
+
+    if (mm == NULL) {
+        mm = vhd_memmap_new(vdev->map_cb, vdev->unmap_cb);
+    } else {
+        can_add_inplace = vdev->num_vrings_in_flight == 0;
+
+        /*
+         * Slow path:
+         * The rings are already live, therefore we cannot touch their memory
+         * map here. All we can do is create a copy, modify it how we want,
+         * and then tell the rings to use it via a message to their event loop.
+         */
+        if (!can_add_inplace) {
+            mm = vhd_memmap_dup(mm);
+        }
+    }
+
+    ret = vhd_memmap_add_slot(mm, region->guest_addr, region->user_addr,
+                              region->size, fds[0], region->mmap_offset);
+    if (ret < 0) {
+        goto fail;
+    }
+
+    for (i = 0; i < vdev->num_queues; i++) {
+        if (!vdev->vrings[i].started_in_ctl) {
+            continue;
+        }
+        ret = vring_update_shadow_vq_addrs(&vdev->vrings[i], mm);
+        if (ret < 0) {
+            goto fail;
+        }
+    }
+
+    /*
+     * Fast path:
+     * The rings are not yet started, but a valid memory map
+     * structure already exists. In this case we can just modify
+     * it in-place and return right away without creating a copy
+     * of it.
+     */
+    if (can_add_inplace) {
+        return vhost_ack(vdev, 0);
+    }
+
+    vdev->old_memmap = vdev->memmap;
+    vdev->memmap = mm;
+
+    if (!vdev->num_vrings_in_flight) {
+        return set_mem_table_complete(vdev);
+    }
+
+    vdev->handle_complete = set_mem_table_complete;
+    for (i = 0; i < vdev->num_queues; i++) {
+        vring_handle_msg(&vdev->vrings[i], vring_sync_to_virtq_bh);
+    }
+    return 0;
+
+fail:
+    if (!can_add_inplace) {
+        vhd_memmap_unref(mm);
+    }
+    return ret;
+}
+
 static int vhost_get_config(struct vhd_vdev *vdev, const void *payload,
                             size_t size, const int *fds, size_t num_fds)
 {
@@ -1539,6 +1623,7 @@ static int (*vhost_msg_handlers[])(struct vhd_vdev *vdev,
     [VHOST_USER_GET_INFLIGHT_FD]        = vhost_get_inflight_fd,
     [VHOST_USER_SET_INFLIGHT_FD]        = vhost_set_inflight_fd,
     [VHOST_USER_GET_MAX_MEM_SLOTS]      = vhost_get_max_mem_slots,
+    [VHOST_USER_ADD_MEM_REG]            = vhost_add_mem_reg,
 };
 
 static int vhost_handle_msg(struct vhd_vdev *vdev, uint32_t req,
