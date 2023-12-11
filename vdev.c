@@ -526,7 +526,8 @@ static const uint64_t g_default_protocol_features =
     (1UL << VHOST_USER_PROTOCOL_F_LOG_SHMFD) |
     (1UL << VHOST_USER_PROTOCOL_F_REPLY_ACK) |
     (1UL << VHOST_USER_PROTOCOL_F_CONFIG) |
-    (1UL << VHOST_USER_PROTOCOL_F_INFLIGHT_SHMFD);
+    (1UL << VHOST_USER_PROTOCOL_F_INFLIGHT_SHMFD) |
+    (1UL << VHOST_USER_PROTOCOL_F_CONFIGURE_MEM_SLOTS);
 
 static inline bool has_feature(uint64_t features_qword, size_t feature_bit)
 {
