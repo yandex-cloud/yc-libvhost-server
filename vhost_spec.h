@@ -102,6 +102,7 @@ enum {
     VHOST_USER_GET_INFLIGHT_FD = 31,
     VHOST_USER_SET_INFLIGHT_FD = 32,
     VHOST_USER_GET_MAX_MEM_SLOTS = 36,
+    VHOST_USER_ADD_MEM_REG = 37,
 };
 
 struct vhost_user_mem_region {
@@ -109,6 +110,11 @@ struct vhost_user_mem_region {
     uint64_t size;
     uint64_t user_addr;
     uint64_t mmap_offset;
+};
+
+struct vhost_user_mem_single_mem_desc {
+    uint64_t _padding;
+    struct vhost_user_mem_region region;
 };
 
 struct vhost_user_mem_desc {
