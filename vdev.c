@@ -108,6 +108,10 @@ static int vring_kick(void *opaque)
      */
     vhd_clear_eventfd(vring->kickfd);
 
+    if (!vring->vq.enabled) {
+        return 0;
+    }
+
     ret = vdev->type->dispatch_requests(vdev, vring);
     if (ret < 0) {
         /*
@@ -152,6 +156,8 @@ static int vring_update_shadow_vq_addrs(struct vhd_vring *vring,
 
 static void vring_sync_to_virtq(struct vhd_vring *vring)
 {
+    bool should_kick;
+
     vring->vq.flags = vring->shadow_vq.flags;
     vring->vq.desc = vring->shadow_vq.desc;
     vring->vq.used = vring->shadow_vq.used;
@@ -159,7 +165,20 @@ static void vring_sync_to_virtq(struct vhd_vring *vring)
     vring->vq.used_gpa_base = vring->shadow_vq.used_gpa_base;
     vring->vq.mm = vring->shadow_vq.mm;
     vring->vq.log = vring->shadow_vq.log;
+
+    /*
+     * Since QEMU sets kickfd before enabling the vring, it gets kicked while
+     * still in the disabled state. Kick manually after enabling here just
+     * in case.
+     */
+    should_kick = !vring->vq.enabled && vring->shadow_vq.enabled;
+    vring->vq.enabled = vring->shadow_vq.enabled;
+
     virtq_set_notify_fd(&vring->vq, vring->callfd);
+
+    if (should_kick) {
+        vhd_set_eventfd(vring->kickfd);
+    }
 }
 
 /*
@@ -767,22 +786,9 @@ static int vhost_set_features(struct vhd_vdev *vdev, const void *payload,
     uint16_t i;
     const uint64_t *features = payload;
     bool has_event_idx = has_feature(*features, VIRTIO_F_RING_EVENT_IDX);
+    bool has_vring_enable = has_feature(*features, VHOST_USER_F_PROTOCOL_FEATURES);
 
-    /*
-     * VHOST_USER_F_PROTOCOL_FEATURES normally doesn't need negotiation: it's just
-     * offered by the slave, and then the master may use
-     * VHOST_USER_[GS]ET_PROTOCOL_FEATURES to negotiate the vhost protocol features
-     * without interfering with the guest-visibile virtio features.
-     * There's one exception though: the master may use VHOST_USER_SET_VRING_ENABLE
-     * only when VHOST_USER_F_PROTOCOL_FEATURES itself is negotiated.  (Presumably
-     * that was a design fallout, it should have received its own within the
-     * protocol feature mask.)
-     * As we don't support VHOST_USER_SET_VRING_ENABLE, reject the master
-     * connections that try to negotiate VHOST_USER_F_PROTOCOL_FEATURES, even
-     * though offering it.
-     */
-    uint64_t supported_features =
-        vdev->supported_features & ~(1ull << VHOST_USER_F_PROTOCOL_FEATURES);
+    uint64_t supported_features = vdev->supported_features;
     uint64_t changed_features;
 
     if (num_fds || size < sizeof(*features)) {
@@ -801,6 +807,8 @@ static int vhost_set_features(struct vhd_vdev *vdev, const void *payload,
         vdev->negotiated_features = *features;
         for (i = 0; i < vdev->num_queues; i++) {
             vdev->vrings[i].vq.has_event_idx = has_event_idx;
+            vdev->vrings[i].shadow_vq.enabled = !has_vring_enable;
+            vdev->vrings[i].vq.enabled = vdev->vrings[i].shadow_vq.enabled;
         }
         return set_features_complete(vdev);
     }
@@ -1673,6 +1681,48 @@ static int vhost_get_max_mem_slots(struct vhd_vdev *vdev, const void *payload,
     return vhost_reply_u64(vdev, vhd_memmap_max_memslots());
 }
 
+static int vring_enable_complete(struct vhd_vdev *vdev)
+{
+    return vhost_ack(vdev, 0);
+}
+
+static int vhost_vring_enable(struct vhd_vdev *vdev, const void *payload,
+                              size_t size, const int *fds, size_t num_fds)
+{
+    const struct vhost_user_vring_state *vrstate = payload;
+    struct vhd_vring *vring;
+
+    if (num_fds || size < sizeof(*vrstate)) {
+        VHD_OBJ_ERROR(vdev, "malformed message size=%zu #fds=%zu", size,
+                      num_fds);
+        return -EINVAL;
+    }
+
+    vring = get_vring(vdev, vrstate->index);
+    if (!vring) {
+        return -EINVAL;
+    }
+
+    if (!has_feature(vdev->negotiated_features,
+                     VHOST_USER_F_PROTOCOL_FEATURES)) {
+        VHD_OBJ_ERROR(vring, "tried to SET_VRING_ENABLE without negotiating "
+                             "VHOST_USER_F_PROTOCOL_FEATURES");
+        return -EINVAL;
+    }
+
+    vring->shadow_vq.enabled = !vring->shadow_vq.enabled;
+    VHD_OBJ_INFO(vdev, "changing vring %" PRIu32 " state to %s", vrstate->index,
+                 vring->shadow_vq.enabled ? "enabled" : "disabled");
+
+    if (!vring->started_in_ctl) {
+        return vring_enable_complete(vdev);
+    }
+
+    vdev->handle_complete = vring_enable_complete;
+    vring_handle_msg(vring, vring_sync_to_virtq_bh);
+    return 0;
+}
+
 static int (*vhost_msg_handlers[])(struct vhd_vdev *vdev,
                                    const void *payload, size_t size,
                                    const int *fds, size_t num_fds) = {
@@ -1697,6 +1747,7 @@ static int (*vhost_msg_handlers[])(struct vhd_vdev *vdev,
     [VHOST_USER_GET_MAX_MEM_SLOTS]      = vhost_get_max_mem_slots,
     [VHOST_USER_ADD_MEM_REG]            = vhost_add_mem_reg,
     [VHOST_USER_REM_MEM_REG]            = vhost_rem_mem_reg,
+    [VHOST_USER_SET_VRING_ENABLE]       = vhost_vring_enable,
 };
 
 static int vhost_handle_msg(struct vhd_vdev *vdev, uint32_t req,
