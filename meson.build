@@ -59,3 +59,5 @@ libvhost = static_library(
     include_directories: libvhost_includes,
     c_args: libvhost_args + libvhost_optional_args + libvhost_defines,
 )
+
+subdir('tests')
