@@ -1,0 +1,24 @@
+name: CI
+on: [push, pull_request]
+
+jobs:
+  build-and-run-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@v3
+
+      - name: Install libraries
+        run: |
+          sudo apt update
+          sudo apt install python3 python3-pytest meson clang libaio-dev
+
+      - name: Build
+        run: |
+          src_dir="${{ github.workspace }}"
+          build_dir="$src_dir/build"
+          CC=clang meson setup $build_dir $src_dir
+          pushd $build_dir
+          ninja -j0
+          popd
