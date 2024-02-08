@@ -97,8 +97,16 @@ void *uva_to_ptr(struct vhd_memory_map *mm, uint64_t uva)
 
 static void *map_memory(void *addr, size_t len, int fd, off_t offset)
 {
-    size_t aligned_len = VHD_ALIGN_PTR_UP(len, HUGE_PAGE_SIZE);
-    size_t map_len = aligned_len + HUGE_PAGE_SIZE + PAGE_SIZE;
+    size_t aligned_len, map_len;
+
+    /*
+     * Some apps map memory in very small chunks, make sure it's at least the
+     * size of a page so that remap doesn't fail later on.
+     */
+    len = VHD_ALIGN_UP(len, PAGE_SIZE);
+
+    aligned_len = VHD_ALIGN_PTR_UP(len, HUGE_PAGE_SIZE);
+    map_len = aligned_len + HUGE_PAGE_SIZE + PAGE_SIZE;
 
     char *map = mmap(addr, map_len, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1,
                      0);
