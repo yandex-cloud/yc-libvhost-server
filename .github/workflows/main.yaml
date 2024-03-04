@@ -33,6 +33,24 @@ jobs:
         if: always()
         with:
           report_paths: result.xml
+  build-with-cmake:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@v3
+
+      - name: Install libraries
+        run: |
+          sudo apt update
+          sudo apt install cmake ninja-build clang
+
+      - name: Build
+        run: |
+          src_dir="${{ github.workspace }}"
+          build_dir="$src_dir/build"
+          cmake -S $src_dir -B $build_dir -G Ninja -DCMAKE_C_COMPILER=clang
+          ninja -C $build_dir
   lint-python-scripts:
     runs-on: ubuntu-latest
 
