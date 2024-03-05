@@ -24,7 +24,7 @@ envdata.append(
 
 test(
     'unit-tests',
-    import('python').find_installation('python3'),
+    import('python').find_installation('python3', modules: ['pytest']),
     args: ['-m', 'pytest', '-rsv'],
     depends: vhost_user_blk_test_server,
     env: envdata,
