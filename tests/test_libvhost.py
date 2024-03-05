@@ -18,6 +18,10 @@ def base_dir_abs_path() -> str:
     return os.path.dirname(os.path.abspath(__file__))
 
 
+def build_dir() -> str:
+    return os.path.join(base_dir_abs_path(), os.pardir, "build")
+
+
 @pytest.fixture(scope="session")
 def blkio_bench() -> str:
     repo_path = os.path.join(base_dir_abs_path(), "libblkio")
@@ -37,19 +41,18 @@ def blkio_bench() -> str:
 
 @pytest.fixture(scope="session")
 def vhost_user_test_server() -> str:
+    env_path = os.environ.get(TEST_SERVER_BINARY_ENV_PATH)
+    if env_path and os.path.exists(env_path):
+        return env_path
+
     server_path = os.path.join(
-        base_dir_abs_path(), os.pardir, "build", "tests",
-        "vhost-user-blk-test-server"
+        build_dir(), "tests", "vhost-user-blk-test-server"
     )
     if os.path.exists(server_path):
         return server_path
 
-    env_path = os.environ.get(TEST_SERVER_BINARY_ENV_PATH)
-    if env_path is None or not os.path.exists(env_path):
-        raise RuntimeError("A valid path to the test server must be specified "
-                           f"in the {TEST_SERVER_BINARY_ENV_PATH} variable")
-
-    return env_path
+    raise RuntimeError("A valid path to the test server must be specified "
+                       f"in the {TEST_SERVER_BINARY_ENV_PATH} variable")
 
 
 @pytest.fixture(scope="session")
