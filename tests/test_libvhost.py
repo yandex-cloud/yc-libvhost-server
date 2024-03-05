@@ -10,8 +10,8 @@ from typing import Tuple, List, Generator
 # 1 GiB should be enough
 DISK_IMAGE_SIZE = 1024 * 1024 * 1024
 WORK_DIR = "work"
-LIBBLKIO_GIT = "https://gitlab.com/libblkio/libblkio.git/"
 TEST_SERVER_BINARY_ENV_PATH = "TEST_SERVER_BINARY"
+BLKIO_BENCH_ENV_PATH = "BLKIO_BENCH_BINARY"
 
 
 def base_dir_abs_path() -> str:
@@ -24,19 +24,18 @@ def build_dir() -> str:
 
 @pytest.fixture(scope="session")
 def blkio_bench() -> str:
-    repo_path = os.path.join(base_dir_abs_path(), "libblkio")
-    build_dir = os.path.join(repo_path, "build")
-    blkio_bench_path = os.path.join(build_dir, "examples", "blkio-bench")
+    env_path = os.environ.get(BLKIO_BENCH_ENV_PATH)
+    if env_path and os.path.exists(env_path):
+        return env_path
 
-    if not os.path.exists(repo_path):
-        subprocess.check_call(["git", "clone", LIBBLKIO_GIT, repo_path])
+    blkio_bench_path = os.path.join(
+        build_dir(), "subprojects", "libblkio", "examples", "blkio-bench"
+    )
+    if os.path.exists(blkio_bench_path):
+        return blkio_bench_path
 
-    if not os.path.exists(blkio_bench_path):
-        shutil.rmtree(build_dir, ignore_errors=True)
-        subprocess.check_call(["meson", "setup", build_dir, repo_path])
-        subprocess.check_call(["ninja"], cwd=build_dir)
-
-    return blkio_bench_path
+    raise RuntimeError("This test requires blkio-bench example program "
+                       "which comes with libblkio")
 
 
 @pytest.fixture(scope="session")
