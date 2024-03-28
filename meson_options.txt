@@ -1,1 +1,1 @@
-option('tests', type : 'feature', value : 'auto', description : 'Build tests and pull libblkio subproject')
+option('libblkio', type : 'feature', value : 'auto', description : 'Pull libblkio subproject (required for tests)')

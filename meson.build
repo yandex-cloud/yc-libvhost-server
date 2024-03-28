@@ -60,14 +60,13 @@ libvhost = static_library(
     c_args: libvhost_args + libvhost_optional_args + libvhost_defines,
 )
 
-if not get_option('tests').disabled()
-  libblkio_proj = subproject(
-      'libblkio',
-      default_options: [
-        'subproject-docs=disabled',
-        'subproject-examples=enabled', # used in libvhost tests
-        'subproject-tests=disabled'
-      ]
-  )
-  subdir('tests')
-endif
+libblkio_proj = subproject(
+    'libblkio',
+    default_options: [
+      'subproject-docs=disabled',
+      'subproject-examples=enabled', # used in libvhost tests
+      'subproject-tests=disabled'
+    ],
+    required: get_option('libblkio')
+)
+subdir('tests')
