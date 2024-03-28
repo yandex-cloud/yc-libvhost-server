@@ -16,6 +16,12 @@ vhost_user_blk_test_server = executable(
     ]
 )
 
+# If libblkio is disabled, we have no client to run
+# against vhost-user-blk-test-server, so nothing to do here.
+if not libblkio_proj.found()
+  subdir_done()
+endif
+
 # If libblkio subproject doesn't define blkio_bench, this yields
 # a fatal error. It is OK as we pull a specific libblkio revision
 # which is known to define blkio_bench, and if it is missing,
