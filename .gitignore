@@ -1,2 +1,4 @@
-build/
-subprojects/libblkio/
+.*
+/build_*/
+/build/
+/subprojects/libblkio/

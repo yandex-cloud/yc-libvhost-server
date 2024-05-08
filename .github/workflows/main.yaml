@@ -43,7 +43,7 @@ jobs:
       - name: Install libraries
         run: |
           sudo apt update
-          sudo apt install cmake ninja-build clang
+          sudo apt install cmake ninja-build clang libaio-dev
 
       - name: Build
         run: |
