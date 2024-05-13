@@ -27,9 +27,10 @@ static inline void vhd_log_stderr(enum LogLevel level, const char *fmt, ...)
     if (level <= LOG_VERBOSITY) {
         char timestr[64];
         struct timeval tv;
+        struct tm local_tm;
 
         gettimeofday(&tv, NULL);
-        strftime(timestr, sizeof(timestr), "%F %T", localtime(&tv.tv_sec));
+        strftime(timestr, sizeof(timestr), "%F %T", localtime_r(&tv.tv_sec, &local_tm));
         fprintf(stderr, "%s.%03ld [%8s] ", timestr, tv.tv_usec / 1000,
                 log_level_str[level]);
         vfprintf(stderr, fmt, args);
