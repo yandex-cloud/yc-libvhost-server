@@ -1036,7 +1036,8 @@ static void monitor_serve_unix_socket(const char *path,
 static void interactive_sigint(int sig)
 {
     const char *const msg = "\nUse 'stop' command or Ctrl+D to exit\n";
-    write(2, msg, strlen(msg));
+    ssize_t res = write(2, msg, strlen(msg));
+    VHD_ASSERT(res == strlen(msg));
 }
 
 static void monitor_serve_stdio(struct disks_context *ctx)
