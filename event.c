@@ -64,21 +64,22 @@ struct vhd_event_loop {
 
     /* eventfd we use to cancel epoll_wait if needed */
     int notifyfd;
+
+    /* number of currently attached events (for consistency checks) */
+    uint32_t num_events_attached;
+
     bool notified;
 
     /* vhd_terminate_event_loop has been completed */
     bool is_terminated;
 
+    bool has_home_thread;
+
     /* preallocated events buffer */
     struct epoll_event *events;
-    size_t max_events;
-
-    /* number of currently attached events (for consistency checks) */
-    unsigned num_events_attached;
+    uint64_t max_events;
 
     vhd_bh_list bh_list;
-
-    bool has_home_thread;
 
     SLIST_HEAD(, vhd_io_handler) deleted_handlers;
 };
@@ -237,10 +238,10 @@ static void bh_cleanup(struct vhd_event_loop *ctx)
 
 struct vhd_io_handler {
     struct vhd_event_loop *evloop;
-    int fd;
     int (*read)(void *opaque);
     /* FIXME: must really include write handler as well */
     void *opaque;
+    int fd;
 
     bool attached;
     SLIST_ENTRY(vhd_io_handler) deleted_entry;
