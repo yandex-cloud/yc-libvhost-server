@@ -12,11 +12,11 @@
 #endif
 
 /* Log function for tests */
-static const char *log_level_str[] = {
+static const char *const log_level_str[] = {
     "ERROR",
     "WARNING",
     "INFO",
-    "DEBUG"
+    "DEBUG",
 };
 
 __attribute__((format(printf, 2, 3)))

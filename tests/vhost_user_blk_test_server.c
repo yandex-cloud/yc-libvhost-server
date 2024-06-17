@@ -854,11 +854,11 @@ static int resize(struct disk *d, uint64_t new_size)
 static bool monitor_serve_fd(FILE *f_in, FILE *f_out,
                              struct disks_context *ctx)
 {
-    const char *help = "Commands:\n"
-        "  help  -  print this message\n"
-        "  stop  -  stop the server and quit\n"
-        "  stat  -  print statistics\n"
-        "  resize <new_size>  -  resize the disk\n";
+    const char *const help = "Commands:\n"
+                             "  help  -  print this message\n"
+                             "  stop  -  stop the server and quit\n"
+                             "  stat  -  print statistics\n"
+                             "  resize <new_size>  -  resize the disk\n";
 
     bool interactive = (f_in == stdin && f_out == stdout);
 
@@ -1035,7 +1035,7 @@ static void monitor_serve_unix_socket(const char *path,
 
 static void interactive_sigint(int sig)
 {
-    const char *msg = "\nUse 'stop' command or Ctrl+D to exit\n";
+    const char *const msg = "\nUse 'stop' command or Ctrl+D to exit\n";
     write(2, msg, strlen(msg));
 }
 
