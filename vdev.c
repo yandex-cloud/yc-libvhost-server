@@ -1940,7 +1940,8 @@ static int timer_read(void *opaque)
     uint64_t count;
 
     /* Read the count to rearm the periodic timer, but ignore the result */
-    (void)read(vdev->timerfd, &count, sizeof(count));
+    ssize_t res = read(vdev->timerfd, &count, sizeof(count));
+    VHD_ASSERT(res == sizeof(count));
 
     elapsed_time(vdev, &elapsed);
 

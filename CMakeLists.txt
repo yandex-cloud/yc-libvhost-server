@@ -17,6 +17,7 @@ message("Libvhost log verbosity: ${LIBVHOST_LOG_VERBOSITY}")
 add_library(vhost-server)
 add_compile_definitions(_GNU_SOURCE LOG_VERBOSITY=${LIBVHOST_LOG_VERBOSITY})
 target_compile_options(vhost-server PRIVATE
+  -std=gnu17
   -Wall
   -Werror
   -Wextra
@@ -61,3 +62,6 @@ target_sources(vhost-server PRIVATE
   virtio/virtio_blk.c
   virtio/virtio_fs.c
 )
+
+
+add_subdirectory(tests)
