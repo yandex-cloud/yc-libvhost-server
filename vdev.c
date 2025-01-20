@@ -1750,17 +1750,46 @@ static int (*vhost_msg_handlers[])(struct vhd_vdev *vdev,
     [VHOST_USER_SET_VRING_ENABLE]       = vhost_vring_enable,
 };
 
+static inline void log_vhost_request_failed(struct vhd_vdev *vdev, uint32_t req,
+                                            const void *payload, size_t size,
+                                            int ret)
+{
+#define CHARS_PER_BYTE 3 // hex number + space
+#define MAX_BYTES_TO_DUMP 100
+    char payload_hex[CHARS_PER_BYTE * MAX_BYTES_TO_DUMP + 1];
+    size_t payload_bytes_to_dump;
+
+    payload_bytes_to_dump = MIN(MAX_BYTES_TO_DUMP, size);
+
+    for (size_t i = 0; i < payload_bytes_to_dump; ++i) {
+        sprintf(payload_hex + CHARS_PER_BYTE * i, "%02X ", ((char*)payload)[i]);
+    }
+    payload_hex[CHARS_PER_BYTE * payload_bytes_to_dump] = '\0';
+#undef MAX_BYTES_TO_DUMP
+#undef CHARS_PER_BYTE
+
+    VHD_OBJ_ERROR(vdev, "%s (%u) request failed: %s, request payload (%zu bytes): %s",
+                  vhost_req_name(req), req, strerror(-ret), size, payload_hex);
+}
+
 static int vhost_handle_msg(struct vhd_vdev *vdev, uint32_t req,
                             const void *payload, size_t size,
                             const int *fds, size_t num_fds)
 {
+    int ret;
+
     if (req >= sizeof(vhost_msg_handlers) / sizeof(vhost_msg_handlers[0]) ||
         !vhost_msg_handlers[req]) {
         VHD_OBJ_WARN(vdev, "%s (%u) not supported", vhost_req_name(req), req);
         return -ENOTSUP;
     }
 
-    return vhost_msg_handlers[req](vdev, payload, size, fds, num_fds);
+    ret = vhost_msg_handlers[req](vdev, payload, size, fds, num_fds);
+    if (ret < 0) {
+        log_vhost_request_failed(vdev, req, payload, size, ret);
+    }
+
+    return ret;
 }
 
 struct vdev_work {
