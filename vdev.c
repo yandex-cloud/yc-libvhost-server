@@ -753,6 +753,9 @@ static int vhost_get_features(struct vhd_vdev *vdev, const void *payload,
     vdev->supported_features = g_default_features |
                                vdev->type->get_features(vdev);
 
+    VHD_OBJ_INFO(vdev, "GET_FEATURES: reply with supported_features 0x%" PRIx64,
+                 vdev->supported_features);
+
     return vhost_reply_u64(vdev, vdev->supported_features);
 }
 
@@ -790,6 +793,8 @@ static int vhost_set_features(struct vhd_vdev *vdev, const void *payload,
 
     uint64_t supported_features = vdev->supported_features;
     uint64_t changed_features;
+
+    VHD_OBJ_INFO(vdev, "SET_FEATURES: features 0x%" PRIx64, *features);
 
     if (num_fds || size < sizeof(*features)) {
         VHD_OBJ_ERROR(vdev, "malformed message size=%zu #fds=%zu", size,
