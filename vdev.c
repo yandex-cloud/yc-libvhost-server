@@ -594,6 +594,9 @@ static void arm_msg_handling_timer(struct vhd_vdev *vdev, int secs)
 static void vdev_handle_start(struct vhd_vdev *vdev, uint32_t req,
                               bool ack_pending)
 {
+    /* detach timer_handler attached right after accept, no-op after the first request */
+    vhd_detach_io_handler(vdev->timer_handler);
+
     /* do not accept further messages until this one is fully handled */
     vhd_detach_io_handler(vdev->conn_handler);
 
@@ -603,8 +606,8 @@ static void vdev_handle_start(struct vhd_vdev *vdev, uint32_t req,
 
     VHD_OBJ_DEBUG(vdev, "%s (%u)", vhost_req_name(req), req);
 
-    vhd_attach_io_handler(vdev->timer_handler);
     arm_msg_handling_timer(vdev, MSG_HANDLING_LOG_INTERVAL);
+    vhd_attach_io_handler(vdev->timer_handler);
 }
 
 static void vdev_handle_finish(struct vhd_vdev *vdev)
@@ -1978,9 +1981,13 @@ static int timer_read(void *opaque)
 
     elapsed_time(vdev, &elapsed);
 
-    VHD_OBJ_WARN(vdev, "long processing %s (%u): elapsed %jd.%03lds",
-                 vhost_req_name(vdev->req), vdev->req,
-                 (intmax_t)elapsed.tv_sec, elapsed.tv_nsec / NSEC_PER_MSEC);
+    if (likely(vdev->req != VHOST_USER_NONE)) {
+        VHD_OBJ_WARN(vdev, "long processing %s (%u): elapsed %jd.%03lds",
+                     vhost_req_name(vdev->req), vdev->req,
+                     (intmax_t)elapsed.tv_sec, elapsed.tv_nsec / NSEC_PER_MSEC);
+    } else {
+        VHD_OBJ_WARN(vdev, "Still waiting for a vhost-user request...");
+    }
 
     return 0;
 }
@@ -2018,8 +2025,6 @@ static int server_read(void *opaque)
     if (!timer_handler) {
         goto close_timer;
     }
-    /* it only needs to be attached during message handling */
-    vhd_detach_io_handler(timer_handler);
 
     vhd_detach_io_handler(vdev->listen_handler);
 
@@ -2030,6 +2035,9 @@ static int server_read(void *opaque)
     vdev->negotiated_features = 0;
     vdev->negotiated_protocol_features = 0;
     VHD_OBJ_INFO(vdev, "Connection established, sock = %d", connfd);
+
+    arm_msg_handling_timer(vdev, MSG_HANDLING_LOG_INTERVAL);
+
     return 0;
 
 close_timer:
