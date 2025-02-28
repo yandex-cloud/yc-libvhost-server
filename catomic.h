@@ -24,7 +24,7 @@
  * slow this down unnecessarily. This seems not to be the case on x86_64; need
  * to recheck if we ever build for another arch.
  */
-#ifndef __x86_64__
+#if !defined(__x86_64__) && !defined(__aarch64__)
 #error Verify smp_read_barrier_depends incurs no extra costs
 #endif
 #define smp_read_barrier_depends()      \
@@ -45,7 +45,7 @@
  * catomic_rcu_read potentially has the same issue with consume order as
  * smp_read_barrier_depends, see above.
  */
-#ifndef __x86_64__
+#if !defined(__x86_64__) && !defined(__aarch64__)
 #error Verify catomic_rcu_read incurs no extra costs
 #endif
 #define catomic_rcu_read(ptr)      __atomic_load_n(ptr, __ATOMIC_CONSUME)
