@@ -11,9 +11,6 @@
 #include <unistd.h>
 #include <stdarg.h>
 
-#define PAGE_SHIFT  12
-#define PAGE_SIZE   (1ul << PAGE_SHIFT)
-
 #define HUGE_PAGE_SIZE 0x200000
 
 /*////////////////////////////////////////////////////////////////////////////*/
@@ -216,3 +213,7 @@ static inline char *vhd_strdup_printf(const char *fmt, ...)
     }
     return ret;
 }
+
+int init_platform_page_size(void);
+
+extern size_t platform_page_size;

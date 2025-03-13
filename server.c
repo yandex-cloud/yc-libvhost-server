@@ -35,6 +35,14 @@ static void *vhost_evloop_func(void *arg)
 
 int vhd_start_vhost_server(log_function log_fn)
 {
+    int res;
+
+    res = init_platform_page_size();
+    if (res != 0) {
+        VHD_LOG_ERROR("failed to init platform page size: %d", res);
+        return -res;
+    }
+
     if (g_vhost_evloop != NULL) {
         return 0;
     }
@@ -47,7 +55,7 @@ int vhd_start_vhost_server(log_function log_fn)
         return -EIO;
     }
 
-    int res = pthread_create(&g_vhost_thread, NULL, vhost_evloop_func, NULL);
+    res = pthread_create(&g_vhost_thread, NULL, vhost_evloop_func, NULL);
     if (res != 0) {
         VHD_LOG_ERROR("failed to start vhost event loop thread: %d", res);
         free_vhost_event_loop();
