@@ -42,6 +42,8 @@ struct vhd_memory_region {
 static LIST_HEAD(, vhd_memory_region) g_regions =
     LIST_HEAD_INITIALIZER(g_regions);
 
+size_t platform_page_size;
+
 static void region_init_id(struct vhd_memory_region *reg, int fd)
 {
     struct stat stat;
@@ -103,10 +105,10 @@ static void *map_memory(void *addr, size_t len, int fd, off_t offset)
      * Some apps map memory in very small chunks, make sure it's at least the
      * size of a page so that remap doesn't fail later on.
      */
-    len = VHD_ALIGN_UP(len, PAGE_SIZE);
+    len = VHD_ALIGN_UP(len, platform_page_size);
 
     aligned_len = VHD_ALIGN_PTR_UP(len, HUGE_PAGE_SIZE);
-    map_len = aligned_len + HUGE_PAGE_SIZE + PAGE_SIZE;
+    map_len = aligned_len + HUGE_PAGE_SIZE + platform_page_size;
 
     char *map = mmap(addr, map_len, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1,
                      0);
@@ -115,7 +117,7 @@ static void *map_memory(void *addr, size_t len, int fd, off_t offset)
         return MAP_FAILED;
     }
 
-    char *aligned_addr = VHD_ALIGN_PTR_UP(map + PAGE_SIZE, HUGE_PAGE_SIZE);
+    char *aligned_addr = VHD_ALIGN_PTR_UP(map + platform_page_size, HUGE_PAGE_SIZE);
     addr = mmap(aligned_addr, len, PROT_READ | PROT_WRITE,
                 MAP_SHARED | MAP_FIXED, fd, offset);
     if (addr == MAP_FAILED) {
@@ -139,8 +141,8 @@ static void *map_memory(void *addr, size_t len, int fd, off_t offset)
         }
     }
 
-    char *start = aligned_addr - PAGE_SIZE;
-    char *end = aligned_addr + aligned_len + PAGE_SIZE;
+    char *start = aligned_addr - platform_page_size;
+    char *end = aligned_addr + aligned_len + platform_page_size;
     munmap(map, start - map);
     munmap(end, map + map_len - end);
 
@@ -149,8 +151,8 @@ static void *map_memory(void *addr, size_t len, int fd, off_t offset)
 
 static int unmap_memory(void *addr, size_t len)
 {
-    size_t map_len = VHD_ALIGN_PTR_UP(len, HUGE_PAGE_SIZE) + PAGE_SIZE * 2;
-    char *map = addr - PAGE_SIZE;
+    size_t map_len = VHD_ALIGN_PTR_UP(len, HUGE_PAGE_SIZE) + platform_page_size * 2;
+    char *map = addr - platform_page_size;
     return munmap(map, map_len);
 }
 

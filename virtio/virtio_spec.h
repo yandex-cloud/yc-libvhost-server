@@ -15,8 +15,6 @@ extern "C" {
 #endif
 
 #define VIRTQ_SIZE_MAX  32768u
-#define VIRTQ_ALIGNMENT PAGE_SIZE
-#define VIRTQ_ALIGN(x)  (((x) + VIRTQ_ALIGNMENT) & ~VIRTQ_ALIGNMENT)
 
 struct virtq_desc {
     /* Address (guest-physical). */
@@ -87,11 +85,16 @@ VHD_STATIC_ASSERT(sizeof(struct virtq_used) == 4);
  * };
 */
 
+static inline size_t virtq_align(size_t size)
+{
+    return (size + platform_page_size) & ~platform_page_size;
+}
+
 static inline unsigned virtq_size(unsigned int qsz)
 {
-    return VIRTQ_ALIGN(sizeof(struct virtq_desc) * qsz +
+    return virtq_align(sizeof(struct virtq_desc) * qsz +
                        sizeof(le16) * (3 + qsz))
-         + VIRTQ_ALIGN(sizeof(le16) * 3 +
+         + virtq_align(sizeof(le16) * 3 +
                        sizeof(struct virtq_used_elem) * qsz);
 }
 

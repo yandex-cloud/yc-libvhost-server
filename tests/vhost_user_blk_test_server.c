@@ -11,6 +11,7 @@
 #include <sys/stat.h>
 #include <sys/eventfd.h>
 #include <sys/time.h>
+#include <sys/mman.h>
 #include <unistd.h>
 #include <stdlib.h>
 #include <getopt.h>
@@ -110,8 +111,7 @@ struct request {
 /*
  * Zero page used for write-zeroes requests
  */
-_Alignas(PAGE_SIZE)
-static uint8_t zero_page[PAGE_SIZE];
+static uint8_t *zero_page;
 
 static const char *bio_type_to_str(enum vhd_bdev_io_type type)
 {
@@ -154,7 +154,7 @@ static struct iocb *prepare_io_operation(struct vhd_request *lib_req)
 
     if (is_write_zeroes) {
         uint64_t bytes = bio->total_sectors << VHD_SECTOR_SHIFT;
-        nbufs = VHD_ALIGN_UP(bytes, sizeof(zero_page)) / sizeof(zero_page);
+        nbufs = VHD_ALIGN_UP(bytes, platform_page_size) / platform_page_size;
     } else {
         nbufs = bio->sglist.nbuffers;
     }
@@ -173,7 +173,7 @@ static struct iocb *prepare_io_operation(struct vhd_request *lib_req)
         for (i = 0; i < nbufs; ++i) {
             struct iovec *iov = &req->iov[i];
             iov->iov_base = zero_page;
-            iov->iov_len = MIN(sizeof(zero_page), bytes_left);
+            iov->iov_len = MIN(platform_page_size, bytes_left);
             bytes_left -= iov->iov_len;
         }
     } else {
@@ -1131,6 +1131,22 @@ static void disk_stop(struct disk *d)
     vhd_free((void *)conf->serial);
 }
 
+static void init_zero_page(void)
+{
+    int res;
+
+    res = init_platform_page_size();
+    if (res) {
+        DIE("failed to init platform page size: %d", res);
+    }
+
+    zero_page = mmap(NULL, platform_page_size, PROT_READ | PROT_WRITE,
+                     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (zero_page == MAP_FAILED) {
+        DIE("failed to map zero page: %d", errno);
+    }
+}
+
 /*
  * Main execution thread. Used for initializing and common management.
  */
@@ -1157,6 +1173,7 @@ int main(int argc, char **argv)
         }
     }
 
+    init_zero_page();
     if (vhd_start_vhost_server(vhd_log_stderr) < 0) {
         DIE("vhd_start_vhost_server failed");
     }

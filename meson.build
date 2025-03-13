@@ -17,6 +17,7 @@ libvhost_sources = files([
     'memmap.c',
     'server.c',
     'vdev.c',
+    'platform.c',
     'virtio/virtio_blk.c',
     'virtio/virtio_fs.c',
     'virtio/virt_queue.c'
