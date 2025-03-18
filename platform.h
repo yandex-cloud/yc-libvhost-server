@@ -11,6 +11,10 @@
 #include <unistd.h>
 #include <stdarg.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define HUGE_PAGE_SIZE 0x200000
 
 /*////////////////////////////////////////////////////////////////////////////*/
@@ -217,3 +221,7 @@ static inline char *vhd_strdup_printf(const char *fmt, ...)
 int init_platform_page_size(void);
 
 extern size_t platform_page_size;
+
+#ifdef __cplusplus
+}
+#endif
