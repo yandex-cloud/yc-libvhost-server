@@ -60,8 +60,7 @@ static const char *const vhost_req_names[] = {
 
 static const char *vhost_req_name(uint32_t req)
 {
-    if (req >= sizeof(vhost_req_names) / sizeof(vhost_req_names[0]) ||
-        !vhost_req_names[req]) {
+    if (req >= VHD_ARRAY_SIZE(vhost_req_names) || !vhost_req_names[req]) {
         return "**UNKNOWN**";
     }
     return vhost_req_names[req];
