@@ -54,6 +54,8 @@ extern "C" {
 #   define VHD_TYPEOF               __typeof
 #   define VHD_PACKED               __attribute__((packed))
 
+#define VHD_ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
+
 /* Return 0-based index of first least significant bit set in 32-bit value */
 static inline int vhd_find_first_bit32(uint32_t val)
 {
