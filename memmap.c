@@ -429,6 +429,44 @@ static int region_create(
     return 0;
 }
 
+struct vhd_memory_map *vhd_memmap_dup_remap(struct vhd_memory_map *mm)
+{
+    int ret;
+    size_t i;
+    struct vhd_memory_map *new_mm;
+
+    // Verify that the memmap was created with preserve_fd=true
+    for (i = 0; i < mm->num; i++) {
+        if (unlikely(mm->regions[i]->fd < 0)) {
+            VHD_LOG_ERROR("attempting to remap a memory map without preserved"
+                          " fds");
+            return NULL;
+        }
+    }
+
+    new_mm = vhd_alloc(sizeof(*mm));
+    new_mm->callbacks = mm->callbacks;
+    new_mm->num = mm->num;
+    objref_init(&new_mm->ref, memmap_release);
+
+    for (i = 0; i < mm->num; i++) {
+        struct vhd_memory_region *reg = mm->regions[i];
+        ret = region_create(reg->gpa, reg->uva, reg->size,
+                            reg->fd, reg->offset, mm->callbacks,
+                            true, &new_mm->regions[i]);
+
+        if (unlikely(ret < 0)) {
+            while (i-- > 0) {
+                region_unref(new_mm->regions[i]);
+            }
+            vhd_free(new_mm);
+            return NULL;
+        }
+    }
+
+    return new_mm;
+}
+
 int vhd_memmap_add_slot(struct vhd_memory_map *mm, uint64_t gpa, uint64_t uva,
                         size_t size, int fd, off_t offset, bool preserve_fd)
 {
