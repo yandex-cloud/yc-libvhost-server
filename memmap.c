@@ -1,6 +1,7 @@
 #include <string.h>
 #include <inttypes.h>
 #include <sys/stat.h>
+#include <sys/mman.h>
 
 #include "queue.h"
 #include "memmap.h"
@@ -33,6 +34,13 @@ struct vhd_memory_region {
     dev_t device;
     ino_t inode;
 
+    /*
+     * file descriptor this region was created from. Note that this is only
+     * set to a valid value if the region was created with preserve_fd, -1
+     * otherwise.
+     */
+    int fd;
+
     /* callbacks associated with this memory region */
     struct vhd_mmap_callbacks callbacks;
 
@@ -44,16 +52,29 @@ static LIST_HEAD(, vhd_memory_region) g_regions =
 
 size_t platform_page_size;
 
-static void region_init_id(struct vhd_memory_region *reg, int fd)
+static int region_init_id(struct vhd_memory_region *reg, int fd, bool preserve_fd)
 {
     struct stat stat;
 
+    if (preserve_fd) {
+        reg->fd = dup(fd);
+        if (reg->fd < 0) {
+            VHD_LOG_ERROR("unable to dup memory region %p-%p fd: %s",
+                          reg->ptr, reg->ptr + reg->size, strerror(errno));
+            return -1;
+        }
+    } else {
+        reg->fd = -1;
+    }
+
     if (fstat(fd, &stat) < 0) {
-        return;
+        return 0;
     }
 
     reg->device = stat.st_dev;
     reg->inode = stat.st_ino;
+
+    return 0;
 }
 
 /*
@@ -157,9 +178,11 @@ static int unmap_memory(void *addr, size_t len)
 }
 
 static int map_region(struct vhd_memory_region *region, uint64_t gpa,
-                      uint64_t uva, size_t size, int fd, off_t offset)
+                      uint64_t uva, size_t size, int fd, off_t offset,
+                      bool preserve_fd)
 {
     void *ptr;
+    int ret;
 
     ptr = map_memory(NULL, size, fd, offset);
     if (ptr == MAP_FAILED) {
@@ -168,9 +191,21 @@ static int map_region(struct vhd_memory_region *region, uint64_t gpa,
         return ret;
     }
 
+    region->ptr = ptr;
+    region->gpa = gpa;
+    region->uva = uva;
+    region->size = size;
+    region->offset = offset;
+
+    ret = region_init_id(region, fd, preserve_fd);
+    if (ret < 0) {
+        munmap(ptr, size);
+        return -1;
+    }
+
     if (region->callbacks.map_cb) {
         size_t len = VHD_ALIGN_PTR_UP(size, HUGE_PAGE_SIZE);
-        int ret = region->callbacks.map_cb(ptr, len);
+        ret = region->callbacks.map_cb(ptr, len);
         if (ret < 0) {
             VHD_LOG_ERROR("map callback failed for region %p-%p: %s",
                           ptr, ptr + len, strerror(-ret));
@@ -181,13 +216,6 @@ static int map_region(struct vhd_memory_region *region, uint64_t gpa,
 
     /* Mark memory as defined explicitly */
     VHD_MEMCHECK_DEFINED(ptr, size);
-
-    region->ptr = ptr;
-    region->gpa = gpa;
-    region->uva = uva;
-    region->size = size;
-    region->offset = offset;
-    region_init_id(region, fd);
 
     return 0;
 }
@@ -222,6 +250,9 @@ static void region_release(struct objref *objref)
 
     LIST_REMOVE(reg, region_link);
     unmap_region(reg);
+    if (reg->fd >= 0) {
+        close(reg->fd);
+    }
     vhd_free(reg);
 }
 
@@ -239,7 +270,8 @@ static inline struct vhd_memory_region *region_get_cached(
     uint64_t gpa, uint64_t uva,
     size_t size, int fd,
     off_t offset,
-    struct vhd_mmap_callbacks *callbacks
+    struct vhd_mmap_callbacks *callbacks,
+    bool preserve_fd
 )
 {
     struct vhd_memory_region *region;
@@ -259,6 +291,9 @@ static inline struct vhd_memory_region *region_get_cached(
         }
         if (region->callbacks.map_cb != callbacks->map_cb ||
             region->callbacks.unmap_cb != callbacks->unmap_cb) {
+            continue;
+        }
+        if (preserve_fd && region->fd == -1) {
             continue;
         }
 
@@ -369,7 +404,8 @@ struct vhd_memory_map *vhd_memmap_dup(struct vhd_memory_map *mm)
 
 static struct vhd_memory_region *region_create(
     uint64_t gpa, uint64_t uva, size_t size, int fd,
-    off_t offset, struct vhd_mmap_callbacks callbacks)
+    off_t offset, struct vhd_mmap_callbacks callbacks,
+    bool preserve_fd)
 {
     struct vhd_memory_region *region;
     int ret;
@@ -381,7 +417,7 @@ static struct vhd_memory_region *region_create(
 
     objref_init(&region->ref, region_release);
 
-    ret = map_region(region, gpa, uva, size, fd, offset);
+    ret = map_region(region, gpa, uva, size, fd, offset, preserve_fd);
     if (ret < 0) {
         vhd_free(region);
         return NULL;
@@ -392,7 +428,7 @@ static struct vhd_memory_region *region_create(
 }
 
 int vhd_memmap_add_slot(struct vhd_memory_map *mm, uint64_t gpa, uint64_t uva,
-                        size_t size, int fd, off_t offset)
+                        size_t size, int fd, off_t offset, bool preserve_fd)
 {
     unsigned i;
     struct vhd_memory_region *region;
@@ -423,9 +459,11 @@ int vhd_memmap_add_slot(struct vhd_memory_map *mm, uint64_t gpa, uint64_t uva,
         }
     }
 
-    region = region_get_cached(gpa, uva, size, fd, offset, &mm->callbacks);
+    region = region_get_cached(gpa, uva, size, fd, offset, &mm->callbacks,
+                               preserve_fd);
     if (region == NULL) {
-        region = region_create(gpa, uva, size, fd, offset, mm->callbacks);
+        region = region_create(gpa, uva, size, fd, offset, mm->callbacks,
+                               preserve_fd);
     } else {
         VHD_LOG_INFO(
             "region %jd-%ju (GPA 0x%016"PRIX64" -> 0x%016"PRIX64") cache hit, "

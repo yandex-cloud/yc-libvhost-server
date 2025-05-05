@@ -2,6 +2,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <stdbool.h>
 #include <sys/mman.h>
 
 #ifdef __cplusplus
@@ -17,7 +18,7 @@ struct vhd_memory_map *vhd_memmap_dup(struct vhd_memory_map *mm);
 size_t vhd_memmap_max_memslots(void);
 
 int vhd_memmap_add_slot(struct vhd_memory_map *mm, uint64_t gpa, uint64_t uva,
-                        size_t size, int fd, off_t offset);
+                        size_t size, int fd, off_t offset, bool preserve_fd);
 int vhd_memmap_del_slot(struct vhd_memory_map *mm, uint64_t gpa, uint64_t uva,
                         size_t size);
 
