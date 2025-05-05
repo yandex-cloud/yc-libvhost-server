@@ -91,7 +91,7 @@ struct vhd_vdev *vhd_register_fs(struct vhd_fsdev_info *fsdev,
     }
 
     res = vhd_vdev_init_server(&dev->vdev, fsdev->socket_path, &g_virtio_fs_vdev_type,
-                               fsdev->num_queues, &rq, 1, priv, NULL, NULL);
+                               fsdev->num_queues, &rq, 1, priv, NULL, NULL, 0);
     if (res != 0) {
         goto error_out;
     }

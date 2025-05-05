@@ -100,6 +100,9 @@ struct vhd_vdev {
     struct inflight_split_region *inflight_mem;
     uint64_t inflight_size;
 
+    size_t pte_flush_byte_threshold;
+    int64_t bytes_left_before_pte_flush;
+
     /* #vrings which may have requests in flight */
     uint16_t num_vrings_in_flight;
     /* #vrings started and haven't yet acknowledged stop */
@@ -119,6 +122,7 @@ struct vhd_vdev {
 
     /* whether an ACK should be sent once the message is handled  */
     bool ack_pending;
+    bool pte_flush_pending;
 
     /* fd to keep open until handle_complete and to close there */
     int keep_fd;
@@ -137,6 +141,9 @@ struct vhd_vdev {
  * @priv            User private data
  * @map_cb          User function to call after mapping guest memory
  * @unmap_cb        User function to call before unmapping guest memory
+ * @pte_flush_byte_threshold
+ *                  Number of bytes to process before flushing the PTEs
+ *                  of the guest address space
  */
 int vhd_vdev_init_server(
     struct vhd_vdev *vdev,
@@ -146,7 +153,8 @@ int vhd_vdev_init_server(
     struct vhd_request_queue **rqs, int num_rqs,
     void *priv,
     int (*map_cb)(void *addr, size_t len),
-    int (*unmap_cb)(void *addr, size_t len));
+    int (*unmap_cb)(void *addr, size_t len),
+    size_t pte_flush_byte_threshold);
 
 /**
  * Stop vhost device.  Once this returns no more new requests will reach the

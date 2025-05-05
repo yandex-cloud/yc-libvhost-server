@@ -49,15 +49,27 @@ static void set_status(struct virtio_iov *iov, uint8_t status)
     *((uint8_t *)last_iov->base) = status;
 }
 
-static void complete_req(struct virtio_virtq *vq, struct virtio_iov *iov,
-                         uint8_t status)
+static void complete_req(struct vhd_vdev *vdev, struct virtio_virtq *vq,
+                         struct virtio_iov *iov, uint8_t status)
 {
+    size_t in_size;
+
     set_status(iov, status);
     /*
      * the last byte in the IN buffer is always written (for status), so pass
      * the total length of the IN buffer to virtq_push()
      */
-    virtq_push(vq, iov, iov_size(iov->iov_in, iov->niov_in));
+    in_size = iov_size(iov->iov_in, iov->niov_in);
+    virtq_push(vq, iov, in_size);
+
+    if (status == VHD_BDEV_SUCCESS && vdev != NULL &&
+        vdev->pte_flush_byte_threshold) {
+        size_t out_size;
+
+        out_size = iov_size(iov->iov_out, iov->niov_out);
+        catomic_sub(&vdev->bytes_left_before_pte_flush, in_size + out_size);
+    }
+
     virtio_free_iov(iov);
 }
 
@@ -66,7 +78,8 @@ static void complete_io(struct vhd_io *io)
     struct virtio_blk_io *bio = containerof(io, struct virtio_blk_io, io);
 
     if (likely(bio->io.status != VHD_BDEV_CANCELED)) {
-        complete_req(bio->vq, bio->iov, translate_status(bio->io.status));
+        complete_req(io->vring->vdev, bio->vq, bio->iov,
+                     translate_status(bio->io.status));
     } else {
         virtio_free_iov(bio->iov);
     }
@@ -166,7 +179,7 @@ static void handle_inout(struct virtio_blk_dev *dev,
     return;
 
 fail_request:
-    complete_req(vq, iov, VIRTIO_BLK_S_IOERR);
+    complete_req(NULL, vq, iov, VIRTIO_BLK_S_IOERR);
 }
 
 static void handle_discard_or_write_zeroes(struct virtio_blk_dev *dev,
@@ -258,7 +271,7 @@ static void handle_discard_or_write_zeroes(struct virtio_blk_dev *dev,
     return;
 
 fail_request:
-    complete_req(vq, iov, VIRTIO_BLK_S_IOERR);
+    complete_req(NULL, vq, iov, VIRTIO_BLK_S_IOERR);
 }
 
 static uint8_t handle_getid(struct virtio_blk_dev *dev,
@@ -361,7 +374,7 @@ static void handle_buffers(void *arg, struct virtio_virtq *vq,
     };
 
 out:
-    complete_req(vq, iov, status);
+    complete_req(NULL, vq, iov, status);
 }
 
 /*////////////////////////////////////////////////////////////////////////////*/
