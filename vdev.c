@@ -58,8 +58,30 @@ static const char *const vhost_req_names[] = {
 };
 #undef VHOST_REQ
 
+// Internal synthetic requests
+#define VHOST_INTERNAL_REQUEST_BASE 0xFFFF0000
+#define VHOST_INTERNAL_MEMMAP_FLUSH_AFTER_THRESHOLD VHOST_INTERNAL_REQUEST_BASE
+
+#define VHOST_REQ(req) \
+    [VHOST_INTERNAL_ ## req - VHOST_INTERNAL_REQUEST_BASE] = #req
+
+static const char *const internal_vhost_req_names[] = {
+    VHOST_REQ(MEMMAP_FLUSH_AFTER_THRESHOLD),
+};
+#undef VHOST_REQ
+
 static const char *vhost_req_name(uint32_t req)
 {
+    if (req >= VHOST_INTERNAL_REQUEST_BASE) {
+        req -= VHOST_INTERNAL_REQUEST_BASE;
+
+        if (req >= VHD_ARRAY_SIZE(internal_vhost_req_names) ||
+            !internal_vhost_req_names[req]) {
+            return "**UNKNOWN**";
+        }
+        return internal_vhost_req_names[req];
+    }
+
     if (req >= VHD_ARRAY_SIZE(vhost_req_names) || !vhost_req_names[req]) {
         return "**UNKNOWN**";
     }
@@ -318,6 +340,14 @@ static void vring_mark_drained_bh(void *opaque)
     vring_mark_drained(opaque);
 }
 
+static void flush_vdev_ptes(struct vhd_vdev *vdev);
+
+static void flush_vdev_ptes_bh(void *opaque)
+{
+    struct vhd_vdev *vdev = opaque;
+    flush_vdev_ptes(vdev);
+}
+
 void vhd_vring_inc_in_flight(struct vhd_vring *vring)
 {
     vring->num_in_flight++;
@@ -326,7 +356,28 @@ void vhd_vring_inc_in_flight(struct vhd_vring *vring)
 void vhd_vring_dec_in_flight(struct vhd_vring *vring)
 {
     vring->num_in_flight--;
-    if (!vring->num_in_flight && !vring->started_in_rq) {
+
+    if (vring->started_in_rq) {
+        struct vhd_vdev *vdev = vring->vdev;
+
+        if (vdev->pte_flush_byte_threshold && !vring->disconnecting) {
+            int64_t bytes_left;
+
+            if (catomic_load_acquire(&vdev->pte_flush_pending)) {
+                return;
+            }
+
+            bytes_left = catomic_load_acquire(&vdev->bytes_left_before_pte_flush);
+            if (bytes_left <= 0) {
+                catomic_store_release(&vdev->pte_flush_pending, true);
+                vhd_run_in_ctl(flush_vdev_ptes_bh, vdev);
+            }
+        }
+
+        return;
+    }
+
+    if (!vring->num_in_flight) {
         vhd_run_in_ctl(vring_mark_drained_bh, vring);
     }
 }
@@ -894,7 +945,7 @@ static int vhost_set_mem_table(struct vhd_vdev *vdev, const void *payload,
         const struct vhost_user_mem_region *region = &desc->regions[i];
         ret = vhd_memmap_add_slot(mm, region->guest_addr, region->user_addr,
                                   region->size, fds[i], region->mmap_offset,
-                                  false);
+                                  vdev->pte_flush_byte_threshold != 0);
         if (ret < 0) {
             goto fail;
         }
@@ -966,7 +1017,7 @@ static int vhost_add_mem_reg(struct vhd_vdev *vdev, const void *payload,
 
     ret = vhd_memmap_add_slot(mm, region->guest_addr, region->user_addr,
                               region->size, fds[0], region->mmap_offset,
-                              false);
+                              vdev->pte_flush_byte_threshold != 0);
     if (ret < 0) {
         goto fail;
     }
@@ -1080,6 +1131,116 @@ static int vhost_rem_mem_reg(struct vhd_vdev *vdev, const void *payload,
 fail:
     vhd_memmap_unref(new_mm);
     return ret;
+}
+
+static int pte_flush_complete(struct vhd_vdev *vdev)
+{
+    if (vdev->old_memmap) {
+        vhd_memmap_unref(vdev->old_memmap);
+        vdev->old_memmap = NULL;
+    }
+
+    catomic_store_release(&vdev->pte_flush_pending, false);
+    return vhost_ack(vdev, 0);
+}
+
+static void pte_flush_refresh_threshold(struct vhd_vdev *vdev)
+{
+    catomic_store_release(&vdev->bytes_left_before_pte_flush,
+                          vdev->pte_flush_byte_threshold);
+}
+
+static void vdev_handle_start(struct vhd_vdev *vdev, uint32_t req,
+                              bool ack_pending);
+
+static void flush_vdev_ptes(struct vhd_vdev *vdev)
+{
+    int64_t bytes_left;
+    struct vhd_memory_map *new_memmap;
+    size_t i;
+    bool any_started = false;
+
+    bytes_left = catomic_load_acquire(&vdev->bytes_left_before_pte_flush);
+    if (bytes_left > 0) {
+        /*
+         * Multiple vrings might have noticed that it's time to flush the PTEs
+         * at the same time, this is fine, just skip the duplicated call.
+         */
+        VHD_OBJ_DEBUG(vdev, "skipping duplicated PTE flush");
+        return;
+    }
+
+    if (vdev->req != VHOST_USER_NONE) {
+        /*
+         * Racing vrings might make it here if pte_flush_byte_threshold is
+         * set to such a tiny number that they manage to process more bytes
+         * than the next threshold after having scheduled the flush call.
+         * This is not a problem, just skip silently.
+         */
+        if (vdev->req == VHOST_INTERNAL_MEMMAP_FLUSH_AFTER_THRESHOLD) {
+            // Don't cancel here, control plane will do it itself
+            VHD_OBJ_DEBUG(vdev, "a PTE flush is already in-progress, skipping");
+            return;
+        }
+
+        VHD_OBJ_INFO(vdev, "control plane is busy servicing '%s', "
+                     "skipping PTE flush", vhost_req_name(vdev->req));
+        goto out_cancel;
+    }
+
+    new_memmap = vhd_memmap_dup_remap(vdev->memmap);
+    if (new_memmap == NULL) {
+        VHD_OBJ_ERROR(vdev, "failed to create a new memory map for PTE flush");
+        goto out_cancel;
+    }
+
+    for (i = 0; i < vdev->num_queues; i++) {
+        if (!vdev->vrings[i].started_in_ctl) {
+            continue;
+        }
+
+        any_started = true;
+        if (vring_update_shadow_vq_addrs(&vdev->vrings[i], new_memmap) < 0) {
+            /*
+             * We weren't able to resolve the mappings in the new memmap, undo
+             * what we just did and skip this flush.
+             */
+            while (i-- > 0) {
+                vring_update_shadow_vq_addrs(&vdev->vrings[i], vdev->memmap);
+            }
+
+            vhd_memmap_unref(new_memmap);
+            goto out_cancel;
+        }
+    }
+
+    if (!any_started) {
+        VHD_OBJ_INFO(vdev, "no vrings started, skipping PTE flush");
+        vhd_memmap_unref(new_memmap);
+        goto out_cancel;
+    }
+
+    // Block other VHOST requests while we perform the flush
+    vdev_handle_start(vdev, VHOST_INTERNAL_MEMMAP_FLUSH_AFTER_THRESHOLD, 0);
+
+    pte_flush_refresh_threshold(vdev);
+
+    VHD_OBJ_INFO(vdev, "performing a PTE flush after processing %zu bytes",
+                 vdev->pte_flush_byte_threshold);
+
+    vdev->old_memmap = vdev->memmap;
+    vdev->memmap = new_memmap;
+
+    vdev->handle_complete = pte_flush_complete;
+    for (i = 0; i < vdev->num_queues; i++) {
+        vring_handle_msg(&vdev->vrings[i], vring_sync_to_virtq_bh);
+    }
+
+    return;
+
+out_cancel:
+    pte_flush_refresh_threshold(vdev);
+    catomic_store_release(&vdev->pte_flush_pending, false);
 }
 
 static int vhost_get_config(struct vhd_vdev *vdev, const void *payload,
@@ -2167,7 +2328,8 @@ int vhd_vdev_init_server(
     int num_rqs,
     void *priv,
     int (*map_cb)(void *addr, size_t len),
-    int (*unmap_cb)(void *addr, size_t len))
+    int (*unmap_cb)(void *addr, size_t len),
+    size_t pte_flush_byte_threshold)
 {
     int ret;
     int listenfd;
@@ -2216,6 +2378,8 @@ int vhd_vdev_init_server(
         .num_rqs = num_rqs,
         .map_cb = map_cb,
         .unmap_cb = unmap_cb,
+        .pte_flush_byte_threshold = pte_flush_byte_threshold,
+        .bytes_left_before_pte_flush = pte_flush_byte_threshold,
         .supported_protocol_features = g_default_protocol_features,
         .num_queues = max_queues,
         .keep_fd = -1,
