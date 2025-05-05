@@ -893,7 +893,8 @@ static int vhost_set_mem_table(struct vhd_vdev *vdev, const void *payload,
     for (i = 0; i < desc->nregions; i++) {
         const struct vhost_user_mem_region *region = &desc->regions[i];
         ret = vhd_memmap_add_slot(mm, region->guest_addr, region->user_addr,
-                                  region->size, fds[i], region->mmap_offset);
+                                  region->size, fds[i], region->mmap_offset,
+                                  false);
         if (ret < 0) {
             goto fail;
         }
@@ -964,7 +965,8 @@ static int vhost_add_mem_reg(struct vhd_vdev *vdev, const void *payload,
     }
 
     ret = vhd_memmap_add_slot(mm, region->guest_addr, region->user_addr,
-                              region->size, fds[0], region->mmap_offset);
+                              region->size, fds[0], region->mmap_offset,
+                              false);
     if (ret < 0) {
         goto fail;
     }
