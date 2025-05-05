@@ -367,10 +367,33 @@ struct vhd_memory_map *vhd_memmap_dup(struct vhd_memory_map *mm)
     return new_mm;
 }
 
+static struct vhd_memory_region *region_create(
+    uint64_t gpa, uint64_t uva, size_t size, int fd,
+    off_t offset, struct vhd_mmap_callbacks callbacks)
+{
+    struct vhd_memory_region *region;
+    int ret;
+
+    region = vhd_calloc(1, sizeof(*region));
+    *region = (struct vhd_memory_region) {
+        .callbacks = callbacks,
+    };
+
+    objref_init(&region->ref, region_release);
+
+    ret = map_region(region, gpa, uva, size, fd, offset);
+    if (ret < 0) {
+        vhd_free(region);
+        return NULL;
+    }
+
+    LIST_INSERT_HEAD(&g_regions, region, region_link);
+    return region;
+}
+
 int vhd_memmap_add_slot(struct vhd_memory_map *mm, uint64_t gpa, uint64_t uva,
                         size_t size, int fd, off_t offset)
 {
-    int ret;
     unsigned i;
     struct vhd_memory_region *region;
 
@@ -402,20 +425,7 @@ int vhd_memmap_add_slot(struct vhd_memory_map *mm, uint64_t gpa, uint64_t uva,
 
     region = region_get_cached(gpa, uva, size, fd, offset, &mm->callbacks);
     if (region == NULL) {
-        region = vhd_calloc(1, sizeof(*region));
-        *region = (struct vhd_memory_region) {
-            .callbacks = mm->callbacks,
-        };
-
-        objref_init(&region->ref, region_release);
-
-        ret = map_region(region, gpa, uva, size, fd, offset);
-        if (ret < 0) {
-            vhd_free(region);
-            return ret;
-        }
-
-        LIST_INSERT_HEAD(&g_regions, region, region_link);
+        region = region_create(gpa, uva, size, fd, offset, mm->callbacks);
     } else {
         VHD_LOG_INFO(
             "region %jd-%ju (GPA 0x%016"PRIX64" -> 0x%016"PRIX64") cache hit, "
