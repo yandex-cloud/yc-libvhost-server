@@ -46,6 +46,14 @@ struct vhd_bdev_info {
 
     /* Gets called before unmapping guest memory region */
     int (*unmap_cb)(void *addr, size_t len);
+
+    /*
+     * If set to a non-zero value, PTEs backing the guest memory regions
+     * for this blockdev are flushed (unmapped and mapped back) every
+     * N bytes processed by the backend. E.g. if this value is 1024, PTEs
+     * will be flushed after the guest reads/writes 2 blocks.
+     */
+    size_t pte_flush_byte_threshold;
 };
 
 static inline bool vhd_blockdev_is_readonly(const struct vhd_bdev_info *bdev)

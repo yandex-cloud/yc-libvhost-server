@@ -145,7 +145,8 @@ struct vhd_vdev *vhd_register_blockdev(const struct vhd_bdev_info *bdev,
     res = vhd_vdev_init_server(&dev->vdev, bdev->socket_path,
                                &g_virtio_blk_vdev_type,
                                bdev->num_queues, rqs, num_rqs, priv,
-                               bdev->map_cb, bdev->unmap_cb);
+                               bdev->map_cb, bdev->unmap_cb,
+                               bdev->pte_flush_byte_threshold);
     if (res != 0) {
         goto error_out;
     }
