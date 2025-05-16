@@ -61,6 +61,7 @@ struct disk_config {
     bool support_discard;
     bool support_write_zeroes;
     unsigned long batch_size;
+    unsigned long pte_flush_threshold;
     unsigned long num_rqs;
 };
 
@@ -441,6 +442,7 @@ static int init_disk(struct disk *d)
     d->info.total_blocks = file_len / VHD_SECTOR_SIZE;
     d->info.map_cb = NULL;
     d->info.unmap_cb = NULL;
+    d->info.pte_flush_byte_threshold = conf->pte_flush_threshold;
 
     if (conf->readonly) {
         d->info.features |= VHD_BDEV_F_READONLY;
@@ -480,6 +482,8 @@ static void usage(const char *cmd)
     printf("      ,num-rqs=NUM       NUM of rqs to spawn\n");
     printf("      ,batch-size=NUM    submit/complete i/o in batches "
            "of up to NUM\n");
+    printf("      ,pte-flush-threshold=NUM Bytes to process before flushing "
+           "the PTEs (0 disables this)\n");
     printf("  -m, --monitor=PATH      Unix socket for interactive command line "
            "to operate with sever. Or 'stdio' keyword to operate through stdin "
            "and stdout\n");
@@ -535,6 +539,7 @@ enum disk_arg {
     DISK_ARG_DELAY,
     DISK_ARG_NUM_RQS,
     DISK_ARG_BATCH_SIZE,
+    DISK_ARG_PTE_FLUSH_THRESHOLD,
 };
 
 static char *const disk_arg_tokens[] = {
@@ -547,6 +552,7 @@ static char *const disk_arg_tokens[] = {
     [DISK_ARG_DELAY] = "delay",
     [DISK_ARG_NUM_RQS] = "num-rqs",
     [DISK_ARG_BATCH_SIZE] = "batch-size",
+    [DISK_ARG_PTE_FLUSH_THRESHOLD] = "pte-flush-threshold",
     NULL
 };
 
@@ -572,6 +578,7 @@ static struct arg_setter disk_arg_setters[] = {
     [DISK_ARG_DELAY] = { set_ul, CONF_FIELD(delay) },
     [DISK_ARG_NUM_RQS] = { set_ul, CONF_FIELD(num_rqs) },
     [DISK_ARG_BATCH_SIZE] = { set_ul, CONF_FIELD(batch_size) },
+    [DISK_ARG_PTE_FLUSH_THRESHOLD] = { set_ul, CONF_FIELD(pte_flush_threshold) },
 };
 
 static bool parse_disk_args(const char *args, struct disk_config *conf)
