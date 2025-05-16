@@ -76,14 +76,15 @@ def disk_image(work_dir: str) -> Generator[str, None, None]:
 
 
 def create_server(
-    work_dir: str, disk_image: str, vhost_user_test_server: str
+    work_dir: str, disk_image: str, vhost_user_test_server: str,
+    pte_flush_threshold: int = 0
 ) -> Generator[str, None, None]:
     socket_path = os.path.join(work_dir, "server.sock")
 
     process = subprocess.Popen([
         vhost_user_test_server, "--disk",
         f"socket-path={socket_path},blk-file={disk_image}"
-        ",serial=helloworld"
+        f",serial=helloworld,pte-flush-threshold={pte_flush_threshold}"
     ])
 
     retry = 0
@@ -110,6 +111,15 @@ def server_socket(
     work_dir: str, disk_image: str, vhost_user_test_server: str
 ) -> Generator[str, None, None]:
     yield from create_server(work_dir, disk_image, vhost_user_test_server)
+
+
+@pytest.fixture(scope="class")
+def server_socket_with_pte_flush(
+    request: pytest.FixtureRequest, work_dir: str, disk_image: str,
+    vhost_user_test_server: str
+) -> Generator[str, None, None]:
+    yield from create_server(work_dir, disk_image, vhost_user_test_server,
+                             request.param)
 
 
 def pretty_print_blkio_config(param: List[str]) -> str:
@@ -142,3 +152,22 @@ class TestBasic:
         self, server_socket: str, blkio_bench: str, config: Tuple[str, int]
     ) -> None:
         check_run_blkio_bench(blkio_bench, *config, 30, server_socket)
+
+
+@pytest.mark.parametrize(
+    'server_socket_with_pte_flush, time',
+    [
+        # Flush every 1 byte processed for 5 seconds
+        [1, 5],
+        # Flush every 50MiB processed for 30 seconds
+        [50 * 1024 * 1024, 30],
+    ],
+    indirect=['server_socket_with_pte_flush']
+)
+class TestPTEFlush:
+    def test_pte_flush(
+        self, server_socket_with_pte_flush: str, time: int,
+        blkio_bench: str
+    ) -> None:
+        check_run_blkio_bench(blkio_bench, "randread", 4096, time,
+                              server_socket_with_pte_flush)
