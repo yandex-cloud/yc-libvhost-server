@@ -75,7 +75,7 @@ def disk_image(work_dir: str) -> Generator[str, None, None]:
     os.remove(disk_image_path)
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="class")
 def server_socket(
     work_dir: str, disk_image: str, vhost_user_test_server: str
 ) -> Generator[str, None, None]:
@@ -121,17 +121,18 @@ def check_run_blkio_bench(
     ], timeout=time + 10)
 
 
-@pytest.mark.parametrize(
-    'config',
-    [
-        ["read", 1024 * 1024],
-        ["write", 1024 * 1024],
-        ["randread", 4096],
-        ["randwrite", 4096],
-    ],
-    ids=pretty_print_blkio_config
-)
-def test_basic_operations(
-    server_socket: str, blkio_bench: str, config: Tuple[str, int]
-) -> None:
-    check_run_blkio_bench(blkio_bench, *config, 30, server_socket)
+class TestBasic:
+    @pytest.mark.parametrize(
+        'config',
+        [
+            ["read", 1024 * 1024],
+            ["write", 1024 * 1024],
+            ["randread", 4096],
+            ["randwrite", 4096],
+        ],
+        ids=pretty_print_blkio_config
+    )
+    def test_basic_operations(
+        self, server_socket: str, blkio_bench: str, config: Tuple[str, int]
+    ) -> None:
+        check_run_blkio_bench(blkio_bench, *config, 30, server_socket)
