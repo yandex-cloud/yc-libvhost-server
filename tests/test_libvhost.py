@@ -75,8 +75,7 @@ def disk_image(work_dir: str) -> Generator[str, None, None]:
     os.remove(disk_image_path)
 
 
-@pytest.fixture(scope="class")
-def server_socket(
+def create_server(
     work_dir: str, disk_image: str, vhost_user_test_server: str
 ) -> Generator[str, None, None]:
     socket_path = os.path.join(work_dir, "server.sock")
@@ -104,6 +103,13 @@ def server_socket(
 
     process.send_signal(signal.SIGINT)
     process.wait(10)
+
+
+@pytest.fixture(scope="class")
+def server_socket(
+    work_dir: str, disk_image: str, vhost_user_test_server: str
+) -> Generator[str, None, None]:
+    yield from create_server(work_dir, disk_image, vhost_user_test_server)
 
 
 def pretty_print_blkio_config(param: List[str]) -> str:
