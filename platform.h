@@ -15,7 +15,7 @@
 extern "C" {
 #endif
 
-#define HUGE_PAGE_SIZE 0x200000
+#define HUGE_PAGE_SIZE 0x40000000 // 1G, works also for 2M pages alignment
 
 /*////////////////////////////////////////////////////////////////////////////*/
 
