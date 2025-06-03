@@ -942,7 +942,7 @@ static bool monitor_serve_fd(FILE *f_in, FILE *f_out,
                 snprintf(output_buf, output_buf_size,
                          "Invalid device index %" PRIu64 "\n", dev_idx);
             }
-        } else {
+        } else if (strlen(cmdline)) {
             out = "Unknown command\n";
         }
 
