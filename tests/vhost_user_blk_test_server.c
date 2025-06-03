@@ -904,6 +904,9 @@ static bool monitor_serve_fd(FILE *f_in, FILE *f_out,
 
         len = strlen(cmdline);
         if (cmdline[len - 1] == '\n') {
+            if (len == 1) {
+                continue;
+            }
             cmdline[len - 1] = '\0';
         }
 
