@@ -688,8 +688,7 @@ static void vdev_handle_finish(struct vhd_vdev *vdev)
 static int vhost_send_fds(struct vhd_vdev *vdev,
                           const struct vhost_user_msg_hdr *hdr,
                           const void *payload,
-                          int *fds, size_t num_fds,
-                          bool handle_finish)
+                          int *fds, size_t num_fds)
 {
     int len;
 
@@ -698,9 +697,7 @@ static int vhost_send_fds(struct vhd_vdev *vdev,
         return len;
     }
 
-    if (handle_finish) {
-        vdev_handle_finish(vdev);
-    }
+    vdev_handle_finish(vdev);
     return 0;
 }
 
@@ -714,7 +711,7 @@ static int vhost_reply_fds(struct vhd_vdev *vdev,
         .flags = VHOST_USER_MSG_FLAGS_REPLY,
     };
 
-    return vhost_send_fds(vdev, &hdr, payload, fds, num_fds, true);
+    return vhost_send_fds(vdev, &hdr, payload, fds, num_fds);
 }
 
 static int vhost_reply(struct vhd_vdev *vdev,
