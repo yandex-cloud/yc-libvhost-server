@@ -697,12 +697,8 @@ static int vhost_send_fds(struct vhd_vdev *vdev,
     int len;
 
     len = net_send_msg(vdev->connfd, hdr, payload, fds, num_fds);
-    if (len < 0) {
-        return len;
-    }
-
     vdev_handle_finish(vdev);
-    return 0;
+    return len < 0 ? len : 0;
 }
 
 static int vhost_reply_fds(struct vhd_vdev *vdev,
