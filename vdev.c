@@ -664,6 +664,10 @@ static void vdev_handle_finish(struct vhd_vdev *vdev)
 {
     struct timespec elapsed;
 
+    if (vdev->req == VHOST_USER_NONE) {
+        return;
+    }
+
     vhd_detach_io_handler(vdev->timer_handler);
     arm_msg_handling_timer(vdev, 0);
 
