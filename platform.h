@@ -15,6 +15,12 @@
 extern "C" {
 #endif
 
+#ifdef __has_feature
+#   define VHD_HAS_FEATURE(x) __has_feature(x)
+#else
+#   define VHD_HAS_FEATURE(x) 0
+#endif
+
 #define HUGE_PAGE_SIZE 0x40000000 // 1G, works also for 2M pages alignment
 
 /*////////////////////////////////////////////////////////////////////////////*/
