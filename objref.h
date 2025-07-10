@@ -22,6 +22,7 @@
 
 #include <stdbool.h>
 #include "catomic.h"
+#include "platform.h"
 
 struct objref {
     unsigned long refcount;
@@ -52,7 +53,13 @@ static inline void objref_get(struct objref *objref)
 
 static inline bool refcount_dec_and_test(unsigned long *ptr)
 {
-    unsigned long old = __atomic_fetch_sub(ptr, 1, __ATOMIC_RELEASE);
+    const int memory_order =
+    #if VHD_HAS_FEATURE(thread_sanitizer)
+        __ATOMIC_ACQ_REL;
+    #else
+        __ATOMIC_RELEASE;
+    #endif
+    unsigned long old = __atomic_fetch_sub(ptr, 1, memory_order);
 
     if (old == 1) {
         smp_mb_acquire();
