@@ -32,6 +32,9 @@ struct vhd_bdev_info {
     /* Block size in bytes */
     uint32_t block_size;
 
+    /* Optimal io size in bytes */
+    uint32_t optimal_io_size;
+
     /* Total number of backend queues this device supports */
     uint32_t num_queues;
 
