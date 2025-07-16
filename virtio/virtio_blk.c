@@ -500,7 +500,7 @@ void virtio_blk_init_dev(
     dev->config.topology.alignment_offset = 0;
     /* TODO: can get that from bdev info */
     dev->config.topology.min_io_size = 1;
-    dev->config.topology.opt_io_size = 0;
+    dev->config.topology.opt_io_size = bdev->optimal_io_size >> VHD_SECTOR_SHIFT;
 
     /*
      * Guarded by the assertion above:

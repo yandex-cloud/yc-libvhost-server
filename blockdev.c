@@ -133,6 +133,13 @@ struct vhd_vdev *vhd_register_blockdev(const struct vhd_bdev_info *bdev,
         return NULL;
     }
 
+    if (bdev->optimal_io_size % bdev->block_size) {
+        VHD_LOG_ERROR("Optimal io size %" PRIu32 " is not"
+                      " a multiple of block size (%" PRIu32 ")",
+                      bdev->optimal_io_size, bdev->block_size);
+        return NULL;
+    }
+
     if (!blockdev_validate_features(bdev)) {
         VHD_LOG_ERROR("Invalid blockdev features %" PRIu64, bdev->features);
         return NULL;
