@@ -47,6 +47,11 @@ struct vhd_vdev *vhd_register_fs(struct vhd_fsdev_info *fsdev,
                                  struct vhd_request_queue *rq,
                                  void *priv);
 
+struct vhd_vdev *vhd_register_fs_mq(struct vhd_fsdev_info *fsdev,
+                                    struct vhd_request_queue **rqs,
+                                    int num_rqs,
+                                    void *priv);
+
 /**
  * Unregister vhost file system.
  */
