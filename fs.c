@@ -80,8 +80,16 @@ struct vhd_vdev *vhd_register_fs(struct vhd_fsdev_info *fsdev,
                                  struct vhd_request_queue *rq,
                                  void *priv)
 {
+    return vhd_register_fs_mq(fsdev, &rq, 1, priv);
+}
+
+struct vhd_vdev *vhd_register_fs_mq(struct vhd_fsdev_info *fsdev,
+                                    struct vhd_request_queue **rqs,
+                                    int num_rqs,
+                                    void *priv)
+{
     VHD_VERIFY(fsdev);
-    VHD_VERIFY(rq);
+    VHD_VERIFY(rqs);
 
     struct vhd_fsdev *dev = vhd_zalloc(sizeof(*dev));
 
@@ -91,7 +99,7 @@ struct vhd_vdev *vhd_register_fs(struct vhd_fsdev_info *fsdev,
     }
 
     res = vhd_vdev_init_server(&dev->vdev, fsdev->socket_path, &g_virtio_fs_vdev_type,
-                               fsdev->num_queues, &rq, 1, priv, NULL, NULL, 0);
+                               fsdev->num_queues, rqs, num_rqs, priv, NULL, NULL, 0);
     if (res != 0) {
         goto error_out;
     }
