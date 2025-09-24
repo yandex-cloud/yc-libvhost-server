@@ -1155,7 +1155,6 @@ static void flush_vdev_ptes(struct vhd_vdev *vdev)
     int64_t bytes_left;
     struct vhd_memory_map *new_memmap;
     size_t i;
-    bool any_started = false;
 
     bytes_left = catomic_load_acquire(&vdev->bytes_left_before_pte_flush);
     if (bytes_left > 0) {
@@ -1191,12 +1190,18 @@ static void flush_vdev_ptes(struct vhd_vdev *vdev)
         goto out_cancel;
     }
 
+    if (!vdev->num_vrings_in_flight) {
+        vhd_memmap_unref(vdev->memmap);
+        vdev->memmap = new_memmap;
+        vdev->old_memmap = NULL;
+        goto out_cancel;
+    }
+
     for (i = 0; i < vdev->num_queues; i++) {
         if (!vdev->vrings[i].started_in_ctl) {
             continue;
         }
 
-        any_started = true;
         if (vring_update_shadow_vq_addrs(&vdev->vrings[i], new_memmap) < 0) {
             /*
              * We weren't able to resolve the mappings in the new memmap, undo
@@ -1209,12 +1214,6 @@ static void flush_vdev_ptes(struct vhd_vdev *vdev)
             vhd_memmap_unref(new_memmap);
             goto out_cancel;
         }
-    }
-
-    if (!any_started) {
-        VHD_OBJ_INFO(vdev, "no vrings started, skipping PTE flush");
-        vhd_memmap_unref(new_memmap);
-        goto out_cancel;
     }
 
     // Block other VHOST requests while we perform the flush
