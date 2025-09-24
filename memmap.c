@@ -526,6 +526,32 @@ struct vhd_memory_map *vhd_memmap_dup_remap(struct vhd_memory_map *mm)
     return new_mm;
 }
 
+struct vhd_memory_map *vhd_memmap_dup_refresh(struct vhd_memory_map *mm)
+{
+    size_t i;
+    bool found_any = false;
+
+    for (i = 0; i < mm->num; i++) {
+        struct vhd_memory_region *reg = mm->regions[i];
+
+        if (region_find(reg->gpa, reg->uva, reg->size, reg->fd, reg->offset,
+                        &mm->callbacks, true, reg->generation + 1, false)) {
+            found_any = true;
+            break;
+        }
+    }
+
+    if (!found_any) {
+        /*
+         * Our memmap is up-to-date, just return the old memmap to indicate to
+         * the caller that there's nothing to refresh.
+         */
+        return mm;
+    }
+
+    return vhd_memmap_dup_remap(mm);
+}
+
 int vhd_memmap_add_slot(struct vhd_memory_map *mm, uint64_t gpa, uint64_t uva,
                         size_t size, int fd, off_t offset, bool preserve_fd)
 {
