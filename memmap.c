@@ -125,6 +125,22 @@ void *uva_to_ptr(struct vhd_memory_map *mm, uint64_t uva)
     return NULL;
 }
 
+bool vhd_memmap_is_shared(struct vhd_memory_map *lhs,
+                          struct vhd_memory_map *rhs)
+{
+    size_t i, j;
+
+    for (i = 0; i < lhs->num; i++) {
+        for (j = 0; j < rhs->num; j++) {
+            if (lhs->regions[i] == rhs->regions[j]) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
 static void *map_memory(size_t len, int fd, off_t offset)
 {
     size_t aligned_len, map_len;
