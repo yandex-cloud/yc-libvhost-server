@@ -103,6 +103,9 @@ struct vhd_vdev {
     size_t pte_flush_byte_threshold;
     int64_t bytes_left_before_pte_flush;
 
+    size_t num_pending_memmap_refreshes;
+    size_t num_seen_memmap_refreshes;
+
     /* #vrings which may have requests in flight */
     uint16_t num_vrings_in_flight;
     /* #vrings started and haven't yet acknowledged stop */
