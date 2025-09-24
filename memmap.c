@@ -274,13 +274,14 @@ static void region_unref(struct vhd_memory_region *reg)
     objref_put(&reg->ref);
 }
 
-static inline struct vhd_memory_region *region_get_cached(
+static inline struct vhd_memory_region *region_find(
     uint64_t gpa, uint64_t uva,
     size_t size, int fd,
     off_t offset,
     struct vhd_mmap_callbacks *callbacks,
     bool preserve_fd,
-    size_t min_generation
+    size_t min_generation,
+    bool should_ref
 )
 {
     struct vhd_memory_region *region;
@@ -315,10 +316,23 @@ static inline struct vhd_memory_region *region_get_cached(
         best_generation = region->generation;
     }
 
-    if (best_region) {
+    if (best_region && should_ref) {
         region_ref(best_region);
     }
     return best_region;
+}
+
+static inline struct vhd_memory_region *region_get_cached(
+    uint64_t gpa, uint64_t uva,
+    size_t size, int fd,
+    off_t offset,
+    struct vhd_mmap_callbacks *callbacks,
+    bool preserve_fd,
+    size_t min_generation
+)
+{
+    return region_find(gpa, uva, size, fd, offset, callbacks,
+                       preserve_fd, min_generation, true);
 }
 
 static void memmap_release(struct objref *objref)
