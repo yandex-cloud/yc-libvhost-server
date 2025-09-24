@@ -41,6 +41,12 @@ struct vhd_memory_region {
      */
     int fd;
 
+    /*
+     * generation of this mapping. This counter increases each time a mapping
+     * is remapped in order to flush the PTEs.
+     */
+    size_t generation;
+
     /* callbacks associated with this memory region */
     struct vhd_mmap_callbacks callbacks;
 
@@ -273,11 +279,14 @@ static inline struct vhd_memory_region *region_get_cached(
     size_t size, int fd,
     off_t offset,
     struct vhd_mmap_callbacks *callbacks,
-    bool preserve_fd
+    bool preserve_fd,
+    size_t min_generation
 )
 {
     struct vhd_memory_region *region;
+    struct vhd_memory_region *best_region = NULL;
     struct stat stat;
+    size_t best_generation = min_generation;
 
     if (fstat(fd, &stat) < 0) {
         return NULL;
@@ -298,12 +307,18 @@ static inline struct vhd_memory_region *region_get_cached(
         if (preserve_fd && region->fd == -1) {
             continue;
         }
+        if (region->generation < best_generation) {
+            continue;
+        }
 
-        region_ref(region);
-        return region;
+        best_region = region;
+        best_generation = region->generation;
     }
 
-    return NULL;
+    if (best_region) {
+        region_ref(best_region);
+    }
+    return best_region;
 }
 
 static void memmap_release(struct objref *objref)
@@ -407,7 +422,7 @@ struct vhd_memory_map *vhd_memmap_dup(struct vhd_memory_map *mm)
 static int region_create(
     uint64_t gpa, uint64_t uva, size_t size, int fd,
     off_t offset, struct vhd_mmap_callbacks callbacks,
-    bool preserve_fd, struct vhd_memory_region **out_region)
+    bool preserve_fd, size_t generation, struct vhd_memory_region **out_region)
 {
     struct vhd_memory_region *region;
     int ret;
@@ -415,6 +430,7 @@ static int region_create(
     region = vhd_calloc(1, sizeof(*region));
     *region = (struct vhd_memory_region) {
         .callbacks = callbacks,
+        .generation = generation,
     };
 
     objref_init(&region->ref, region_release);
@@ -452,16 +468,28 @@ struct vhd_memory_map *vhd_memmap_dup_remap(struct vhd_memory_map *mm)
 
     for (i = 0; i < mm->num; i++) {
         struct vhd_memory_region *reg = mm->regions[i];
-        ret = region_create(reg->gpa, reg->uva, reg->size,
-                            reg->fd, reg->offset, mm->callbacks,
-                            true, &new_mm->regions[i]);
 
-        if (unlikely(ret < 0)) {
-            while (i-- > 0) {
-                region_unref(new_mm->regions[i]);
+        /*
+         * Check if there is already a region with a newer generation number we
+         * could reuse here.
+         */
+        new_mm->regions[i] = region_get_cached(
+            reg->gpa, reg->uva, reg->size, reg->fd, reg->offset,
+            &mm->callbacks, true, reg->generation + 1
+        );
+        if (!new_mm->regions[i]) {
+            ret = region_create(reg->gpa, reg->uva, reg->size,
+                                reg->fd, reg->offset, mm->callbacks,
+                                true, reg->generation + 1,
+                                &new_mm->regions[i]);
+
+            if (unlikely(ret < 0)) {
+                while (i-- > 0) {
+                    region_unref(new_mm->regions[i]);
+                }
+                vhd_free(new_mm);
+                return NULL;
             }
-            vhd_free(new_mm);
-            return NULL;
         }
     }
 
@@ -502,10 +530,10 @@ int vhd_memmap_add_slot(struct vhd_memory_map *mm, uint64_t gpa, uint64_t uva,
     }
 
     region = region_get_cached(gpa, uva, size, fd, offset, &mm->callbacks,
-                               preserve_fd);
+                               preserve_fd, 0);
     if (region == NULL) {
         ret = region_create(gpa, uva, size, fd, offset, mm->callbacks,
-                            preserve_fd, &region);
+                            preserve_fd, 0, &region);
         if (ret < 0) {
             return ret;
         }
