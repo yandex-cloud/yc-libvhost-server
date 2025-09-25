@@ -246,8 +246,16 @@ static void vring_mark_msg_handled(struct vhd_vring *vring)
     vdev->num_vrings_handling_msg--;
 
     if (!vdev->num_vrings_handling_msg) {
-        int ret = vdev->handle_complete(vdev);
+        int (*handle_complete_cb)(struct vhd_vdev *) = vdev->handle_complete;
+
+        /*
+         * The handle_complete() callback might arm a new handle_complete()
+         * callback, make sure we clear it before invoking the handler to
+         * preserve whatever it sets.
+         */
         vdev->handle_complete = NULL;
+
+        int ret = handle_complete_cb(vdev);
         if (ret < 0) {
             vdev_disconnect(vdev);
         }
