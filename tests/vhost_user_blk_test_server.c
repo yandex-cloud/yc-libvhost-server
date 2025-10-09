@@ -345,7 +345,7 @@ static void *io_submission(void *opaque)
     return NULL;
 }
 
-static sig_atomic_t stop_completion_thread;
+static __thread bool stop_completion_thread;
 
 static void thread_exit()
 {
