@@ -44,3 +44,5 @@ void vhd_run_in_ctl(void (*cb)(void *), void *opaque);
 struct vhd_work;
 int vhd_submit_ctl_work_and_wait(void (*func)(struct vhd_work *, void *),
                                  void *opaque);
+
+bool vhd_in_ctl_thread(void);

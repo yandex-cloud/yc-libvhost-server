@@ -18,9 +18,18 @@ static inline void free_vhost_event_loop(void)
     g_vhost_evloop = NULL;
 }
 
+static __thread bool g_is_ctl_thread;
+
+bool vhd_in_ctl_thread(void)
+{
+    return g_is_ctl_thread;
+}
+
 static void *vhost_evloop_func(void *arg)
 {
     int res;
+
+    g_is_ctl_thread = true;
 
     do {
         res = vhd_run_event_loop(g_vhost_evloop, -1);
