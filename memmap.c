@@ -8,6 +8,7 @@
 #include "platform.h"
 #include "logging.h"
 #include "objref.h"
+#include "server_internal.h"
 
 struct vhd_mmap_callbacks {
     /* gets called after mapping guest memory region */
@@ -245,10 +246,9 @@ static int unmap_region(struct vhd_memory_region *reg)
     return 0;
 }
 
-static void region_release(struct objref *objref)
+static void region_do_release(struct vhd_memory_region *reg)
 {
-    struct vhd_memory_region *reg =
-            containerof(objref, struct vhd_memory_region, ref);
+    VHD_ASSERT(vhd_in_ctl_thread());
 
     LIST_REMOVE(reg, region_link);
     unmap_region(reg);
@@ -256,6 +256,38 @@ static void region_release(struct objref *objref)
         close(reg->fd);
     }
     vhd_free(reg);
+}
+
+static void reap_regions_bh(void *unused)
+{
+    struct vhd_memory_region *reg, *tmp_reg;
+
+    VHD_ASSERT(vhd_in_ctl_thread());
+
+    LIST_FOREACH_SAFE(reg, &g_regions, region_link, tmp_reg) {
+        if (objref_read(&reg->ref) != 0) {
+            continue;
+        }
+
+        region_do_release(reg);
+    }
+}
+
+static void region_release(struct objref *objref)
+{
+    struct vhd_memory_region *reg =
+            containerof(objref, struct vhd_memory_region, ref);
+
+    if (vhd_in_ctl_thread()) {
+        /*
+         * Only the control thread gets the right to actually delete regions.
+         * All other threads do it by submitting control work.
+         */
+        region_do_release(reg);
+        return;
+    }
+
+    vhd_run_in_ctl(reap_regions_bh, NULL);
 }
 
 static void region_ref(struct vhd_memory_region *reg)
