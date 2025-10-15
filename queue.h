@@ -36,3 +36,8 @@
  * Read the current list head with consume
  */
 #define SLIST_FIRST_RCU(head)       catomic_rcu_read(&(head)->slh_first)
+
+#define LIST_FOREACH_SAFE(elm, head, field, tmp_elm)       \
+    for ((elm) = ((head)->lh_first);                       \
+        (elm) && ((tmp_elm) = LIST_NEXT((elm), field), 1); \
+        (elm) = (tmp_elm))
