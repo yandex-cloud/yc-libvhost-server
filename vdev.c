@@ -1157,6 +1157,14 @@ static void flush_vdev_ptes(struct vhd_vdev *vdev)
     size_t i;
     bool any_started = false;
 
+    if (unlikely(vdev->conn_handler == NULL)) {
+        /*
+         * If there is no connection the mappings will be dropped anyway upon
+         * reconnect.
+         */
+        goto out_cancel;
+    }
+
     bytes_left = catomic_load_acquire(&vdev->bytes_left_before_pte_flush);
     if (bytes_left > 0) {
         /*
