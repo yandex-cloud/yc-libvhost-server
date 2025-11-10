@@ -14,7 +14,7 @@ extern log_function __attribute__((format(printf, 2, 3))) g_log_fn;
         }                                                       \
     } while (0)
 
-#ifdef VHD_DEBUG
+#ifndef VHD_NO_DEBUG_LOGS
 #   define VHD_LOG_DEBUG(fmt, ...) VHD_LOG(LOG_DEBUG, fmt, ##__VA_ARGS__)
 #else
 #   define VHD_LOG_DEBUG(fmt, ...)
