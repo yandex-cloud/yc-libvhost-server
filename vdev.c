@@ -1230,8 +1230,8 @@ static void flush_vdev_ptes(struct vhd_vdev *vdev)
 
     pte_flush_refresh_threshold(vdev);
 
-    VHD_OBJ_INFO(vdev, "performing a PTE flush after processing %zu bytes",
-                 vdev->pte_flush_byte_threshold);
+    VHD_OBJ_DEBUG(vdev, "performing a PTE flush after processing %zu bytes",
+                  vdev->pte_flush_byte_threshold);
 
     vdev->old_memmap = vdev->memmap;
     vdev->memmap = new_memmap;
