@@ -1439,6 +1439,12 @@ static int vhost_set_vring_kick(struct vhd_vdev *vdev, const void *payload,
         return -EISCONN;
     }
 
+    if (vdev->memmap == NULL) {
+        VHD_OBJ_ERROR(vring, "no valid memory map set, did you forget to add "
+                             "a QEMU memdev with share=on?");
+        return -EINVAL;
+    }
+
     ret = vring_update_shadow_vq_addrs(vring, vdev->memmap);
     if (ret < 0) {
         return ret;
