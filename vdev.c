@@ -61,12 +61,14 @@ static const char *const vhost_req_names[] = {
 // Internal synthetic requests
 #define VHOST_INTERNAL_REQUEST_BASE 0xFFFF0000
 #define VHOST_INTERNAL_MEMMAP_FLUSH_AFTER_THRESHOLD VHOST_INTERNAL_REQUEST_BASE
+#define VHOST_INTERNAL_MEMMAP_REFRESH (VHOST_INTERNAL_REQUEST_BASE + 1)
 
 #define VHOST_REQ(req) \
     [VHOST_INTERNAL_ ## req - VHOST_INTERNAL_REQUEST_BASE] = #req
 
 static const char *const internal_vhost_req_names[] = {
     VHOST_REQ(MEMMAP_FLUSH_AFTER_THRESHOLD),
+    VHOST_REQ(MEMMAP_REFRESH),
 };
 #undef VHOST_REQ
 
@@ -246,8 +248,16 @@ static void vring_mark_msg_handled(struct vhd_vring *vring)
     vdev->num_vrings_handling_msg--;
 
     if (!vdev->num_vrings_handling_msg) {
-        int ret = vdev->handle_complete(vdev);
+        int (*handle_complete_cb)(struct vhd_vdev *) = vdev->handle_complete;
+
+        /*
+         * The handle_complete() callback might arm a new handle_complete()
+         * callback, make sure we clear it before invoking the handler to
+         * preserve whatever it sets.
+         */
         vdev->handle_complete = NULL;
+
+        int ret = handle_complete_cb(vdev);
         if (ret < 0) {
             vdev_disconnect(vdev);
         }
@@ -660,12 +670,22 @@ static void vdev_handle_start(struct vhd_vdev *vdev, uint32_t req,
     vhd_attach_io_handler(vdev->timer_handler);
 }
 
+static void refresh_vdev_memmap(struct vhd_vdev *vdev);
+
 static void vdev_handle_finish(struct vhd_vdev *vdev)
 {
     struct timespec elapsed;
 
     if (vdev->req == VHOST_USER_NONE) {
         return;
+    }
+    if (vdev->req == VHOST_INTERNAL_MEMMAP_REFRESH) {
+        /*
+         * We don't just drop this variable to zero because there may have been
+         * other refreshes queued up for us while we were trying to perform
+         * this one.
+         */
+        vdev->num_pending_memmap_refreshes -= vdev->num_seen_memmap_refreshes;
     }
 
     vhd_detach_io_handler(vdev->timer_handler);
@@ -682,6 +702,15 @@ static void vdev_handle_finish(struct vhd_vdev *vdev)
 
     vdev->ack_pending = false;
     vdev->req = VHOST_USER_NONE;
+
+    if (vdev->num_pending_memmap_refreshes != 0) {
+        /*
+         * Potentially a recursive call but bounded at exactly 1 recursion
+         * because only this thread can set num_pending_memmap_refreshes.
+         */
+        refresh_vdev_memmap(vdev);
+        return;
+    }
 
     /* resume accepting further messages if still connected */
     if (vdev->conn_handler) {
@@ -1150,12 +1179,90 @@ static void pte_flush_refresh_threshold(struct vhd_vdev *vdev)
 static void vdev_handle_start(struct vhd_vdev *vdev, uint32_t req,
                               bool ack_pending);
 
+static void refresh_vdev_memmap(struct vhd_vdev *vdev)
+{
+    struct vhd_memory_map *new_memmap;
+    size_t i;
+
+    if (vdev->req != VHOST_USER_NONE) {
+        /* We will come back here after vhost_ack'ing the current request */
+        return;
+    }
+
+    vdev->num_seen_memmap_refreshes = vdev->num_pending_memmap_refreshes;
+    if (unlikely(vdev->conn_handler == NULL)) {
+        /*
+         * If there is no connection the mappings will be dropped anyway upon
+         * reconnect.
+         */
+        return;
+    }
+
+    vdev_handle_start(vdev, VHOST_INTERNAL_MEMMAP_REFRESH, 0);
+
+    new_memmap = vhd_memmap_dup_refresh(vdev->memmap);
+    if (new_memmap == NULL) {
+        VHD_OBJ_ERROR(vdev,
+                      "failed to create a new memory map for PTE refresh");
+        goto out_cancel;
+    }
+
+    if (new_memmap == vdev->memmap) {
+        /*
+         * A spurious refresh request is rare but possible. One possibilty is
+         * the disk that queued the refresh for us no longer exists and its
+         * regions are now gone as well so there is nothing to refresh to.
+         */
+        VHD_OBJ_WARN(vdev, "spurious memory map refresh request");
+        goto out_cancel;
+    }
+
+    for (i = 0; i < vdev->num_queues; i++) {
+        if (!vdev->vrings[i].started_in_ctl) {
+            continue;
+        }
+
+        if (vring_update_shadow_vq_addrs(&vdev->vrings[i], new_memmap) < 0) {
+            /*
+             * We weren't able to resolve the mappings in the new memmap, undo
+             * what we just did and skip this flush.
+             */
+            while (i-- > 0) {
+                vring_update_shadow_vq_addrs(&vdev->vrings[i], vdev->memmap);
+            }
+
+            vhd_memmap_unref(new_memmap);
+            goto out_cancel;
+        }
+    }
+
+    vdev->old_memmap = vdev->memmap;
+    vdev->memmap = new_memmap;
+
+    if (!vdev->num_vrings_in_flight) {
+        pte_flush_complete(vdev);
+        return;
+    }
+
+    pte_flush_refresh_threshold(vdev);
+
+    vdev->handle_complete = pte_flush_complete;
+    for (i = 0; i < vdev->num_queues; i++) {
+        vring_handle_msg(&vdev->vrings[i], vring_sync_to_virtq_bh);
+    }
+
+    return;
+
+out_cancel:
+    vhost_ack(vdev, 0);
+}
+
 static void flush_vdev_ptes(struct vhd_vdev *vdev)
 {
     int64_t bytes_left;
     struct vhd_memory_map *new_memmap;
     size_t i;
-    bool any_started = false;
+    struct vhd_vdev *other_vdev;
 
     if (unlikely(vdev->conn_handler == NULL)) {
         /*
@@ -1199,12 +1306,18 @@ static void flush_vdev_ptes(struct vhd_vdev *vdev)
         goto out_cancel;
     }
 
+    if (!vdev->num_vrings_in_flight) {
+        vhd_memmap_unref(vdev->memmap);
+        vdev->memmap = new_memmap;
+        vdev->old_memmap = NULL;
+        goto out_cancel;
+    }
+
     for (i = 0; i < vdev->num_queues; i++) {
         if (!vdev->vrings[i].started_in_ctl) {
             continue;
         }
 
-        any_started = true;
         if (vring_update_shadow_vq_addrs(&vdev->vrings[i], new_memmap) < 0) {
             /*
              * We weren't able to resolve the mappings in the new memmap, undo
@@ -1217,12 +1330,6 @@ static void flush_vdev_ptes(struct vhd_vdev *vdev)
             vhd_memmap_unref(new_memmap);
             goto out_cancel;
         }
-    }
-
-    if (!any_started) {
-        VHD_OBJ_INFO(vdev, "no vrings started, skipping PTE flush");
-        vhd_memmap_unref(new_memmap);
-        goto out_cancel;
     }
 
     // Block other VHOST requests while we perform the flush
@@ -1239,6 +1346,26 @@ static void flush_vdev_ptes(struct vhd_vdev *vdev)
     vdev->handle_complete = pte_flush_complete;
     for (i = 0; i < vdev->num_queues; i++) {
         vring_handle_msg(&vdev->vrings[i], vring_sync_to_virtq_bh);
+    }
+
+    LIST_FOREACH(other_vdev, &g_vdevs, vdev_list) {
+        if (other_vdev == vdev || other_vdev->memmap == NULL) {
+            continue;
+        }
+
+        if (!vhd_memmap_is_shared(vdev->old_memmap, other_vdev->memmap)) {
+            continue;
+        }
+
+        /*
+         * This device shares the mappings with us. We must make it sync to the
+         * new mapping generation as well manually, otherwise the previous
+         * generation might stay alive for too long and end up using twice as
+         * much memory for the page tables since we now have two such mappings
+         * alive instead of just one.
+         */
+        other_vdev->num_pending_memmap_refreshes++;
+        refresh_vdev_memmap(other_vdev);
     }
 
     return;
