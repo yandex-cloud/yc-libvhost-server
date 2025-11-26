@@ -63,6 +63,8 @@ struct disk_config {
     unsigned long batch_size;
     unsigned long pte_flush_threshold;
     unsigned long num_rqs;
+    unsigned long block_size;
+    unsigned long sector_size;
 };
 
 /*
@@ -426,20 +428,26 @@ static int init_disk(struct disk *d)
         return -ret;
     }
 
+    if (!conf->sector_size)
+        conf->sector_size = VHD_DEFAULT_SECTOR_SIZE;
+    if (!conf->block_size)
+        conf->block_size = VHD_DEFAULT_SECTOR_SIZE;
+
     file_len = lseek(d->fd, 0, SEEK_END);
-    if (file_len % VHD_SECTOR_SIZE != 0) {
+    if (file_len % conf->sector_size != 0) {
         vhd_log_stderr(LOG_WARNING,
                        "File size is not a multiple of the block size");
         vhd_log_stderr(LOG_WARNING,
-                       "Last %llu bytes will not be accessible",
-                       file_len % VHD_SECTOR_SIZE);
+                       "Last %lu bytes will not be accessible",
+                       file_len % conf->sector_size);
     }
 
     d->info.socket_path = conf->socket_path;
     d->info.serial = conf->serial;
-    d->info.block_size = VHD_SECTOR_SIZE;
+    d->info.block_size = conf->block_size;
+    d->info.sector_size = conf->sector_size;
     d->info.num_queues = 256; /* Max count of virtio queues */
-    d->info.total_blocks = file_len / VHD_SECTOR_SIZE;
+    d->info.total_blocks = file_len / conf->block_size;
     d->info.map_cb = NULL;
     d->info.unmap_cb = NULL;
     d->info.pte_flush_byte_threshold = conf->pte_flush_threshold;
@@ -484,6 +492,8 @@ static void usage(const char *cmd)
            "of up to NUM\n");
     printf("      ,pte-flush-threshold=NUM Bytes to process before flushing "
            "the PTEs (0 disables this)\n");
+    printf("      ,block-size=NUM (logical) block size in bytes\n");
+    printf("      ,sector-size=NUM sector (physical block) size in bytes\n");
     printf("  -m, --monitor=PATH      Unix socket for interactive command line "
            "to operate with sever. Or 'stdio' keyword to operate through stdin "
            "and stdout\n");
@@ -540,6 +550,8 @@ enum disk_arg {
     DISK_ARG_NUM_RQS,
     DISK_ARG_BATCH_SIZE,
     DISK_ARG_PTE_FLUSH_THRESHOLD,
+    DISK_ARG_BLOCK_SIZE,
+    DISK_ARG_SECTOR_SIZE,
 };
 
 static char *const disk_arg_tokens[] = {
@@ -553,6 +565,8 @@ static char *const disk_arg_tokens[] = {
     [DISK_ARG_NUM_RQS] = "num-rqs",
     [DISK_ARG_BATCH_SIZE] = "batch-size",
     [DISK_ARG_PTE_FLUSH_THRESHOLD] = "pte-flush-threshold",
+    [DISK_ARG_BLOCK_SIZE] = "block-size",
+    [DISK_ARG_SECTOR_SIZE] = "sector-size",
     NULL
 };
 
@@ -579,6 +593,8 @@ static struct arg_setter disk_arg_setters[] = {
     [DISK_ARG_NUM_RQS] = { set_ul, CONF_FIELD(num_rqs) },
     [DISK_ARG_BATCH_SIZE] = { set_ul, CONF_FIELD(batch_size) },
     [DISK_ARG_PTE_FLUSH_THRESHOLD] = { set_ul, CONF_FIELD(pte_flush_threshold) },
+    [DISK_ARG_BLOCK_SIZE] = { set_ul, CONF_FIELD(block_size) },
+    [DISK_ARG_SECTOR_SIZE] = { set_ul, CONF_FIELD(sector_size) },
 };
 
 static bool parse_disk_args(const char *args, struct disk_config *conf)

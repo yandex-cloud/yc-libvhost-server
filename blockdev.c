@@ -118,6 +118,7 @@ struct vhd_vdev *vhd_register_blockdev(const struct vhd_bdev_info *bdev,
                                        int num_rqs, void *priv)
 {
     int res;
+    uint32_t sector_size;
 
     if (!bdev->total_blocks || !bdev->block_size) {
         VHD_LOG_ERROR("Zero blockdev capacity %" PRIu64 " * %" PRIu32,
@@ -125,11 +126,27 @@ struct vhd_vdev *vhd_register_blockdev(const struct vhd_bdev_info *bdev,
         return NULL;
     }
 
+    sector_size = vhd_blockdev_sector_size(bdev);
+
+    if (sector_size & (sector_size - 1) ||
+        bdev->sector_size % VHD_MINIMUM_SECTOR_SIZE) {
+        VHD_LOG_ERROR("Invalid sector size %" PRIu32 " must be a power "
+                      "of two and multiple of %llu", sector_size,
+                      VHD_MINIMUM_SECTOR_SIZE);
+        return NULL;
+    }
+
+    if (sector_size > bdev->block_size) {
+        VHD_LOG_ERROR("Sector size %" PRIu32 " is greater than block size (%"
+                      PRIu32 ")", sector_size, bdev->block_size);
+        return NULL;
+    }
+
     if ((bdev->block_size & (bdev->block_size - 1)) ||
-        bdev->block_size % VHD_SECTOR_SIZE) {
+        bdev->block_size % sector_size) {
         VHD_LOG_ERROR("Block size %" PRIu32 " is not"
-                      " a power of two multiple of sector size (%llu)",
-                      bdev->block_size, VHD_SECTOR_SIZE);
+                      " a power of two multiple of sector size (%" PRIu32 ")",
+                      bdev->block_size, sector_size);
         return NULL;
     }
 

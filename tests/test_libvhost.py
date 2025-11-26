@@ -77,7 +77,8 @@ def disk_image(work_dir: str) -> Generator[str, None, None]:
 
 def create_server(
     work_dir: str, disk_image: str, vhost_user_test_server: str,
-    pte_flush_threshold: int = 0
+    pte_flush_threshold: int = 0, sector_size: int = 4096,
+    block_size: int = 4096
 ) -> Generator[str, None, None]:
     socket_path = os.path.join(work_dir, "server.sock")
 
@@ -85,6 +86,7 @@ def create_server(
         vhost_user_test_server, "--disk",
         f"socket-path={socket_path},blk-file={disk_image}"
         f",serial=helloworld,pte-flush-threshold={pte_flush_threshold}"
+        f",sector-size={sector_size},block-size={block_size}"
     ])
 
     retry = 0
@@ -120,6 +122,15 @@ def server_socket_with_pte_flush(
 ) -> Generator[str, None, None]:
     yield from create_server(work_dir, disk_image, vhost_user_test_server,
                              request.param)
+
+
+@pytest.fixture(scope="class")
+def server_socket_with_custom_sector_size(
+    request: pytest.FixtureRequest, work_dir: str, disk_image: str,
+    vhost_user_test_server: str
+) -> Generator[str, None, None]:
+    yield from create_server(work_dir, disk_image, vhost_user_test_server,
+                             0, *request.param)
 
 
 def pretty_print_blkio_config(param: List[str]) -> str:
@@ -171,3 +182,23 @@ class TestPTEFlush:
     ) -> None:
         check_run_blkio_bench(blkio_bench, "randread", 4096, time,
                               server_socket_with_pte_flush)
+
+
+@pytest.mark.parametrize(
+    'server_socket_with_custom_sector_size, block_size',
+    [
+        # Test different sector sizes
+        # Format is: [[sector_size, block_size], blkio_bench_block_size]
+        [[1024, 2048], 2048],
+        [[4096, 4096], 4096],
+        [[2048, 8192], 8192],
+    ],
+    indirect=['server_socket_with_custom_sector_size']
+)
+class TestSectorSizes:
+    def test_sector_sizes(
+        self, server_socket_with_custom_sector_size: str, block_size: int,
+        blkio_bench: str
+    ) -> None:
+        check_run_blkio_bench(blkio_bench, "randread", block_size, 1,
+                              server_socket_with_custom_sector_size)
