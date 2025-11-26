@@ -12,8 +12,19 @@ struct vhd_io;
 struct vhd_request_queue;
 struct vhd_vdev;
 
-#define VHD_SECTOR_SHIFT    (9)
-#define VHD_SECTOR_SIZE     (1ull << VHD_SECTOR_SHIFT)
+#define VHD_MINIMUM_SECTOR_SHIFT 9
+#define VHD_MINIMUM_SECTOR_SIZE (1ull << VHD_MINIMUM_SECTOR_SHIFT)
+
+#define VHD_DEFAULT_SECTOR_SHIFT VHD_MINIMUM_SECTOR_SHIFT
+#define VHD_DEFAULT_SECTOR_SIZE VHD_MINIMUM_SECTOR_SIZE
+
+/*
+ * These defines are compatible with vhd_bdev_io, since no matter the value set
+ * for vhd_bdev_info->sector_size, requests are still passed as 512-byte units
+ * & offsets.
+ */
+#define VHD_SECTOR_SHIFT VHD_MINIMUM_SECTOR_SHIFT
+#define VHD_SECTOR_SIZE VHD_MINIMUM_SECTOR_SIZE
 
 #define VHD_BDEV_F_READONLY     (1ull << 0)
 #define VHD_BDEV_F_DISCARD      (1ull << 1)
@@ -29,8 +40,22 @@ struct vhd_bdev_info {
     /* Path to create listen sockets */
     const char *socket_path;
 
-    /* Block size in bytes */
+    /*
+     * Physical block size in bytes, must be a multiple of sector_size
+     * or of VHD_DEFAULT_SECTOR_SIZE if sector_size is 0.
+     */
     uint32_t block_size;
+
+    /*
+     * Logical sector size in bytes, VHD_DEFAULT_SECTOR_SIZE is used if
+     * this value is set to 0.
+     *
+     * Note that the virtio specification technically provides this value as
+     * a suggestion to the guest. Thus, a 4096-byte sector size disk may still
+     * generate 512-byte requests. Technically all existing software treats
+     * this value as a logical sector size, but care must still be taken.
+     */
+    uint32_t sector_size;
 
     /* Optimal io size in bytes */
     uint32_t optimal_io_size;
@@ -75,6 +100,12 @@ static inline bool vhd_blockdev_has_write_zeroes(
     return bdev->features & VHD_BDEV_F_WRITE_ZEROES;
 }
 
+static inline uint32_t vhd_blockdev_sector_size(
+    const struct vhd_bdev_info *bdev)
+{
+    return bdev->sector_size ? bdev->sector_size : VHD_DEFAULT_SECTOR_SIZE;
+}
+
 /**
  * Block io request type
  */
@@ -91,8 +122,13 @@ enum vhd_bdev_io_type {
 struct vhd_bdev_io {
     enum vhd_bdev_io_type type;
 
+    /*
+     * These values are ALWAYS expressed in VHD_SECTOR_SIZE (aka 512-byte)
+     * units, even if this device has a larger sector_size.
+     */
     uint64_t first_sector;
     uint64_t total_sectors;
+
     struct vhd_sglist sglist;
 };
 

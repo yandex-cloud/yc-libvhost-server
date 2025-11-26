@@ -471,8 +471,18 @@ void virtio_blk_init_dev(
     struct virtio_blk_dev *dev,
     const struct vhd_bdev_info *bdev)
 {
-    uint32_t phys_block_sectors = bdev->block_size >> VHD_SECTOR_SHIFT;
-    uint8_t phys_block_exp = vhd_find_first_bit32(phys_block_sectors);
+    uint32_t bdev_sector_size, bdev_sector_shift;
+    uint32_t phys_block_virtio_sectors, phys_block_bdev_sectors;
+    uint8_t phys_block_virtio_exp, phys_block_bdev_exp;
+
+    phys_block_virtio_sectors = bdev->block_size >> VIRTIO_BLK_SECTOR_SHIFT;
+    phys_block_virtio_exp = vhd_find_first_bit32(phys_block_virtio_sectors);
+
+    VHD_STATIC_ASSERT(VHD_MINIMUM_SECTOR_SIZE >= VIRTIO_BLK_SECTOR_SIZE);
+    bdev_sector_size = vhd_blockdev_sector_size(bdev);
+    bdev_sector_shift = vhd_find_first_bit32(bdev_sector_size);
+    phys_block_bdev_sectors = bdev->block_size >> bdev_sector_shift;
+    phys_block_bdev_exp = vhd_find_first_bit32(phys_block_bdev_sectors);
 
     dev->serial = vhd_strdup(bdev->serial);
 
@@ -487,26 +497,21 @@ void virtio_blk_init_dev(
         dev->features |= (1ull << VIRTIO_BLK_F_WRITE_ZEROES);
     }
 
-    /*
-     * Both virtio and block backend use the same sector size of 512.  Don't
-     * bother converting between the two, just assert they are the same.
-     */
-    VHD_STATIC_ASSERT(VHD_SECTOR_SIZE == VIRTIO_BLK_SECTOR_SIZE);
-
-    dev->config.capacity = bdev->total_blocks << phys_block_exp;
-    dev->config.blk_size = VHD_SECTOR_SIZE;
+    /* The capacity of the device (expressed in 512-byte sectors) */
+    dev->config.capacity = bdev->total_blocks << phys_block_virtio_exp;
+    dev->config.blk_size = bdev_sector_size;
     dev->config.numqueues = bdev->num_queues;
-    dev->config.topology.physical_block_exp = phys_block_exp;
+    /* # of logical blocks per physical block (log2) */
+    dev->config.topology.physical_block_exp = phys_block_bdev_exp;
     dev->config.topology.alignment_offset = 0;
     /* TODO: can get that from bdev info */
     dev->config.topology.min_io_size = 1;
-    dev->config.topology.opt_io_size = bdev->optimal_io_size >> VHD_SECTOR_SHIFT;
+    dev->config.topology.opt_io_size =
+        bdev->optimal_io_size >> bdev_sector_shift;
 
-    /*
-     * Guarded by the assertion above:
-     * VHD_SECTOR_SIZE == VIRTIO_BLK_SECTOR_SIZE
-     */
-    dev->config.discard_sector_alignment = 1;
+    /* Discard_sector_alignment are expressed in 512-byte units */
+    dev->config.discard_sector_alignment =
+        bdev_sector_size >> VIRTIO_BLK_SECTOR_SHIFT;
     dev->config.max_discard_sectors = VIRTIO_BLK_MAX_DISCARD_SECTORS;
     dev->config.max_discard_seg = VIRTIO_BLK_MAX_DISCARD_SEGMENTS;
 
