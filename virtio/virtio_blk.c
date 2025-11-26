@@ -481,6 +481,8 @@ void virtio_blk_init_dev(
     struct virtio_blk_dev *dev,
     const struct vhd_bdev_info *bdev)
 {
+    uint32_t sector_size;
+
     dev->serial = vhd_strdup(bdev->serial);
 
     dev->features = VIRTIO_BLK_DEFAULT_FEATURES;
@@ -504,13 +506,15 @@ void virtio_blk_init_dev(
     dev->config.capacity =
         (bdev->total_blocks * bdev->block_size) / VIRTIO_BLK_SECTOR_SIZE;
 
+    sector_size = vhd_blockdev_sector_size(bdev);
+
     /* blk_size in bytes, aka "logical-block" */
-    dev->config.blk_size = VHD_SECTOR_SIZE;
+    dev->config.blk_size = sector_size;
     dev->config.numqueues = bdev->num_queues;
 
     /* # of logical blocks per physical block (log2) */
     dev->config.topology.physical_block_exp =
-        vhd_find_first_bit32(bdev->block_size / VHD_SECTOR_SIZE);
+        vhd_find_first_bit32(bdev->block_size / sector_size);
 
     dev->config.topology.alignment_offset = 0;
     /* TODO: can get that from bdev info */
@@ -518,11 +522,11 @@ void virtio_blk_init_dev(
 
     /* opt_io_size in blk_size chunks (logical blocks) */
     dev->config.topology.opt_io_size =
-        bdev->optimal_io_size / VHD_SECTOR_SIZE;
+        bdev->optimal_io_size / sector_size;
 
     /* discard_sector_alignment in 512-bytes virtio sectors */
     dev->config.discard_sector_alignment =
-        VHD_SECTOR_SIZE / VIRTIO_BLK_SECTOR_SIZE;
+        sector_size / VIRTIO_BLK_SECTOR_SIZE;
 
     dev->config.max_discard_sectors = VIRTIO_BLK_MAX_DISCARD_SECTORS;
     dev->config.max_discard_seg = VIRTIO_BLK_MAX_DISCARD_SEGMENTS;
