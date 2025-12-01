@@ -140,6 +140,12 @@ struct vhd_vdev *vhd_register_blockdev(const struct vhd_bdev_info *bdev,
         return NULL;
     }
 
+    if (bdev->total_blocks > (UINT64_MAX / bdev->block_size)) {
+        VHD_LOG_ERROR("Disk capacity %" PRIu64 " is too large!",
+                      bdev->total_blocks);
+        return NULL;
+    }
+
     if (!blockdev_validate_features(bdev)) {
         VHD_LOG_ERROR("Invalid blockdev features %" PRIu64, bdev->features);
         return NULL;
