@@ -471,9 +471,6 @@ void virtio_blk_init_dev(
     struct virtio_blk_dev *dev,
     const struct vhd_bdev_info *bdev)
 {
-    uint32_t phys_block_sectors = bdev->block_size >> VHD_SECTOR_SHIFT;
-    uint8_t phys_block_exp = vhd_find_first_bit32(phys_block_sectors);
-
     dev->serial = vhd_strdup(bdev->serial);
 
     dev->features = VIRTIO_BLK_DEFAULT_FEATURES;
@@ -493,20 +490,30 @@ void virtio_blk_init_dev(
      */
     VHD_STATIC_ASSERT(VHD_SECTOR_SIZE == VIRTIO_BLK_SECTOR_SIZE);
 
-    dev->config.capacity = bdev->total_blocks << phys_block_exp;
+    /* capacity in 512 byte virtio sectors */
+    dev->config.capacity =
+        (bdev->total_blocks * bdev->block_size) / VIRTIO_BLK_SECTOR_SIZE;
+
+    /* blk_size in bytes, aka "logical-block" */
     dev->config.blk_size = VHD_SECTOR_SIZE;
     dev->config.numqueues = bdev->num_queues;
-    dev->config.topology.physical_block_exp = phys_block_exp;
+
+    /* # of logical blocks per physical block (log2) */
+    dev->config.topology.physical_block_exp =
+        vhd_find_first_bit32(bdev->block_size / VHD_SECTOR_SIZE);
+
     dev->config.topology.alignment_offset = 0;
     /* TODO: can get that from bdev info */
     dev->config.topology.min_io_size = 1;
-    dev->config.topology.opt_io_size = bdev->optimal_io_size >> VHD_SECTOR_SHIFT;
 
-    /*
-     * Guarded by the assertion above:
-     * VHD_SECTOR_SIZE == VIRTIO_BLK_SECTOR_SIZE
-     */
-    dev->config.discard_sector_alignment = 1;
+    /* opt_io_size in blk_size chunks (logical blocks) */
+    dev->config.topology.opt_io_size =
+        bdev->optimal_io_size / VHD_SECTOR_SIZE;
+
+    /* discard_sector_alignment in 512-bytes virtio sectors */
+    dev->config.discard_sector_alignment =
+        VHD_SECTOR_SIZE / VIRTIO_BLK_SECTOR_SIZE;
+
     dev->config.max_discard_sectors = VIRTIO_BLK_MAX_DISCARD_SECTORS;
     dev->config.max_discard_seg = VIRTIO_BLK_MAX_DISCARD_SEGMENTS;
 
