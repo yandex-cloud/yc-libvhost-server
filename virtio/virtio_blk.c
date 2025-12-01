@@ -166,6 +166,11 @@ static void handle_inout(struct virtio_blk_dev *dev,
     bio->io.completion_handler = complete_io;
 
     bio->bdev_io.type = io_type;
+    /*
+     * bdev_io fields must be in VHD_SECTOR_SIZE, but it's equal to
+     * VIRTIO_SECTOR_SIZE, which is 512 bytes. We assert that below
+     * in virtio_blk_init_dev()
+     */
     bio->bdev_io.first_sector = req->sector;
     bio->bdev_io.total_sectors = len / VIRTIO_BLK_SECTOR_SIZE;
     bio->bdev_io.sglist.nbuffers = ndatabufs;
@@ -260,6 +265,11 @@ static void handle_discard_or_write_zeroes(struct virtio_blk_dev *dev,
     bio->iov = iov;
     bio->io.completion_handler = complete_io;
     bio->bdev_io.type = io_type;
+    /*
+     * bdev_io fields must be in VHD_SECTOR_SIZE, but it's equal to
+     * VIRTIO_SECTOR_SIZE, which is 512 bytes. We assert that below
+     * in virtio_blk_init_dev()
+     */
     bio->bdev_io.first_sector = seg.sector;
     bio->bdev_io.total_sectors = seg.num_sectors;
 
