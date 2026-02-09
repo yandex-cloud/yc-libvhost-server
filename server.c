@@ -133,8 +133,16 @@ static void req_complete(struct vhd_io *io)
 {
     /* completion_handler destroys bio. save vring for unref */
     struct vhd_vring *vring = io->vring;
+    bool cancelled = io->in_flight_cancelled;
+
+    if (cancelled) {
+        io->status = VHD_BDEV_CANCELED;
+    }
     io->completion_handler(io);
-    vhd_vring_dec_in_flight(vring);
+
+    if (!cancelled) {
+        vhd_vring_dec_in_flight(vring);
+    }
 }
 
 static void rq_complete_bh(void *opaque)
@@ -267,6 +275,19 @@ void vhd_cancel_queued_requests(struct vhd_request_queue *rq,
             catomic_inc(&rq->metrics.cancelled);
         }
         io = next;
+    }
+}
+
+void vhd_cancel_inflight_requests(struct vhd_request_queue *rq,
+                                  const struct vhd_vring *vring)
+{
+    struct vhd_io *io = TAILQ_FIRST(&rq->inflight);
+
+    for (; io; io = TAILQ_NEXT(io, inflight_link)) {
+        if (unlikely(io->vring == vring)) {
+            io->in_flight_cancelled = true;
+            catomic_inc(&rq->metrics.cancelled);
+        }
     }
 }
 

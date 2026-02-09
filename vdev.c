@@ -399,20 +399,27 @@ static void vring_stop_bh(void *opaque)
     vring->kick_handler = NULL;
 
     /*
-     * FIXME: if the vring is stopped on request from the client via
-     * GET_VRING_BASE message (as opposed to a disconnect), the requests have
-     * to run through the backend because inflight requests aren't migrated by
-     * QEMU yet.  Once this is fixed (with the help of the inflight region
-     * migration), the requests should be canceled here unconditionally,
-     * speeding up vm migration and shutdown.
+     * On disconnect: safe to cancel queued requests (that not yet started).
+     * On GET_VRING_BASE: cancel all in-flight requests only if inflight protocol
+     * feature is enabled, otherwise we'd lose them during migration.
      */
     if (vring->disconnecting) {
         vhd_cancel_queued_requests(vhd_get_rq_for_vring(vring), vring);
+    } else if (vring->skip_drain) {
+        vhd_cancel_queued_requests(vhd_get_rq_for_vring(vring), vring);
+        vhd_cancel_inflight_requests(vhd_get_rq_for_vring(vring), vring);
+    }
+
+    vring->num_in_flight_at_stop = vring->num_in_flight;
+
+    if (!vring->disconnecting && vring->skip_drain) {
+        vring->num_in_flight = 0;
+        /* Decrease counter to avoid counting cancelled requests twice after migration */
+        vring->vq.last_avail -= vring->num_in_flight_at_stop;
     }
 
     vring->started_in_rq = false;
 
-    vring->num_in_flight_at_stop = vring->num_in_flight;
     vhd_run_in_ctl(vring_mark_stopped_bh, vring);
     if (!vring->num_in_flight) {
         vhd_run_in_ctl(vring_mark_drained_bh, vring);
@@ -601,7 +608,8 @@ static const uint64_t g_default_protocol_features =
     (1UL << VHOST_USER_PROTOCOL_F_REPLY_ACK) |
     (1UL << VHOST_USER_PROTOCOL_F_CONFIG) |
     (1UL << VHOST_USER_PROTOCOL_F_INFLIGHT_SHMFD) |
-    (1UL << VHOST_USER_PROTOCOL_F_CONFIGURE_MEM_SLOTS);
+    (1UL << VHOST_USER_PROTOCOL_F_CONFIGURE_MEM_SLOTS) |
+    (1UL << VHOST_USER_PROTOCOL_F_GET_VRING_BASE_INFLIGHT);
 
 #define NSEC_PER_SEC 1000000000
 #define NSEC_PER_MSEC 1000000
@@ -1592,6 +1600,12 @@ static int vhost_get_vring_base(struct vhd_vdev *vdev, const void *payload,
     if (!vring->started_in_ctl) {
         return vhost_send_vring_base(vring);
     }
+
+    bool has_inflight_enabled = has_feature(
+        vring->vdev->negotiated_protocol_features,
+        VHOST_USER_PROTOCOL_F_GET_VRING_BASE_INFLIGHT);
+
+    vring->skip_drain = has_inflight_enabled && vrstate->num == 1;
 
     /*
      * This command is special as it needs to wait for drain, not just until
