@@ -179,6 +179,8 @@ struct vhd_vring {
     bool started_in_ctl;
     /* requested to disconnect */
     bool disconnecting;
+    /* requested to skip drain */
+    bool skip_drain;
 
     /* Client kick event */
     struct vhd_io_handler *kick_handler;
@@ -213,7 +215,6 @@ struct vhd_vring {
     bool started_in_rq;
     /* #requests pending completion */
     uint16_t num_in_flight;
-    /* #requests pending completion when the queue is requested to stop */
     uint16_t num_in_flight_at_stop;
 };
 
