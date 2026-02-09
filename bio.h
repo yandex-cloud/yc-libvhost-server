@@ -17,6 +17,7 @@ struct vhd_vring;
 struct vhd_io {
     enum vhd_bdev_io_result status;
     struct vhd_vring *vring;
+    struct vhd_request_queue *rq;
 
     void (*completion_handler)(struct vhd_io *io);
 
