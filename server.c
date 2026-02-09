@@ -246,6 +246,8 @@ int vhd_enqueue_request(struct vhd_request_queue *rq, struct vhd_io *io)
 {
     vhd_vring_inc_in_flight(io->vring);
 
+    io->rq = rq;
+
     TAILQ_INSERT_TAIL(&rq->submission, io, submission_link);
     catomic_inc(&rq->metrics.enqueued);
     return 0;
@@ -274,10 +276,9 @@ void vhd_cancel_queued_requests(struct vhd_request_queue *rq,
  */
 void vhd_complete_bio(struct vhd_io *io, enum vhd_bdev_io_result status)
 {
-    struct vhd_request_queue *rq;
+    struct vhd_request_queue *rq = io->rq;
 
     io->status = status;
-    rq = vhd_get_rq_for_vring(io->vring);
 
     /*
      * if this is not the first completion on the list scheduling the bh can be
