@@ -21,7 +21,11 @@ extern "C" {
 #   define VHD_HAS_FEATURE(x) 0
 #endif
 
-#define HUGE_PAGE_SIZE 0x40000000 // 1G, works also for 2M pages alignment
+#if defined(__x86_64__)
+#   define HUGE_PAGE_SIZE 0x040000000ULL // 1G for x86_64, works also for 2M pages alignment
+#elif defined(__aarch64__)
+#   define HUGE_PAGE_SIZE 0x400000000ULL // 16G for CONT PMD on arm64 with 64k base page size, works also for 512M and 2M pages alignment. See https://docs.kernel.org/arch/arm64/hugetlbpage.html
+#endif
 
 /*////////////////////////////////////////////////////////////////////////////*/
 
