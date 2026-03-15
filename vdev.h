@@ -103,6 +103,9 @@ struct vhd_vdev {
     size_t pte_flush_byte_threshold;
     int64_t bytes_left_before_pte_flush;
 
+    /* Notification coalescing period for all vrings */
+    uint64_t notify_coalesce_period_ticks;
+
     /* #vrings which may have requests in flight */
     uint16_t num_vrings_in_flight;
     /* #vrings started and haven't yet acknowledged stop */
@@ -203,6 +206,10 @@ struct vhd_vring {
         struct vhd_memory_log *log;
         bool enabled;
     } shadow_vq;
+
+    /* Notification coalescing state (no syscalls, single-threaded) */
+    uint64_t last_notify_ticks;
+    bool notify_pending;
 
     /*
      * the fields below are only accessed in dataplane unless the vring is

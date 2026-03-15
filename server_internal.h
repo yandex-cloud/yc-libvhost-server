@@ -46,3 +46,12 @@ int vhd_submit_ctl_work_and_wait(void (*func)(struct vhd_work *, void *),
                                  void *opaque);
 
 bool vhd_in_ctl_thread(void);
+
+/*
+ * Register a poll callback for flushing coalesced notifications.
+ * The callback runs after each event loop iteration.  When active,
+ * epoll_wait uses timeout 0 (non-blocking) so pending notifications
+ * are flushed promptly.
+ */
+void vhd_rq_set_notify_poll(struct vhd_request_queue *rq,
+                             void (*cb)(void *), void *opaque);

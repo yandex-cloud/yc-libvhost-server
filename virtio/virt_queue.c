@@ -462,6 +462,11 @@ int virtq_dequeue_many(struct virtio_virtq *vq,
     uint16_t avail, avail2;
     time_t now;
 
+    /* Flush any pending coalesced notification on the kick path */
+    if (vq->notify_cb) {
+        vq->notify_cb(vq, false);
+    }
+
     if (virtq_is_broken(vq)) {
         VHD_OBJ_ERROR(vq, "virtqueue is broken, cannot process");
         return -ENODEV;
@@ -486,8 +491,21 @@ int virtq_dequeue_many(struct virtio_virtq *vq,
 
     vq->stat.metrics.dispatch_total++;
 
+    /*
+     * Virtio spec 2.7.10: suppress driver notifications while we're
+     * actively polling the avail ring, so the guest doesn't waste
+     * cycles on kick eventfd writes.
+     */
+    if (vq->polling) {
+        if (!vq->has_event_idx) {
+            vq->used->flags |= VIRTQ_USED_F_NO_NOTIFY;
+            smp_mb(); /* flags write before avail->idx read */
+        }
+        /* EVENT_IDX: just skip the avail_event update below */
+    }
+
     avail = vq->avail->idx;
-    if (vq->has_event_idx) {
+    if (vq->has_event_idx && !vq->polling) {
         smp_mb(); /* avail->idx read followed by avail_event write */
         while (true) {
             virtq_set_avail_event(vq, avail);
@@ -521,8 +539,6 @@ int virtq_dequeue_many(struct virtio_virtq *vq,
     /* Make sure that further desc reads do not pass avail->idx read. */
     smp_rmb();                  /* barrier pair [A] */
 
-    /* TODO: disable extra notifies from this point */
-
     for (i = 0; i < num_avail; ++i) {
         /* Grab next descriptor head */
         uint16_t head = vq->avail->ring[vq->last_avail % vq->qsz];
@@ -540,7 +556,6 @@ int virtq_dequeue_many(struct virtio_virtq *vq,
         vq->stat.metrics.request_total++;
     }
 
-    /* TODO: restore notifier mask here */
     return 0;
 
 queue_broken:
@@ -614,7 +629,7 @@ static void vhd_log_modified(struct virtio_virtq *vq,
     }
 }
 
-static void virtq_do_notify(struct virtio_virtq *vq)
+void virtq_do_notify(struct virtio_virtq *vq)
 {
     if (vq->notify_fd != -1) {
         eventfd_write(vq->notify_fd, 1);
@@ -652,7 +667,14 @@ static void virtq_notify(struct virtio_virtq *vq)
     /* expose used ring entries before checking used event */
     smp_mb();
 
-    if (virtq_need_notify(vq)) {
+    if (vq->notify_cb) {
+        /*
+         * Coalescing path: let the callback decide whether and when to
+         * notify.  Pass the virtio-spec need_notify result so the
+         * callback can track pending notifications.
+         */
+        vq->notify_cb(vq, virtq_need_notify(vq));
+    } else if (virtq_need_notify(vq)) {
         virtq_do_notify(vq);
     }
 }
@@ -696,6 +718,36 @@ void virtq_set_notify_fd(struct virtio_virtq *vq, int fd)
      * had a chance to signal guest.
      */
     virtq_do_notify(vq);
+}
+
+void virtq_enable_kicks(struct virtio_virtq *vq)
+{
+    vq->polling = false;
+
+    if (!vq->has_event_idx) {
+        vq->used->flags &= ~VIRTQ_USED_F_NO_NOTIFY;
+        smp_mb();
+    }
+
+    /*
+     * Re-enable avail_event so the driver notifies on the next submission.
+     * Use the same loop as virtq_dequeue_many to avoid missing a request
+     * that arrived while notifications were suppressed.
+     */
+    if (vq->has_event_idx) {
+        uint16_t avail = vq->avail->idx;
+        smp_mb();
+        while (true) {
+            virtq_set_avail_event(vq, avail);
+            smp_mb();
+            uint16_t avail2 = vq->avail->idx;
+            if (avail2 == avail) {
+                break;
+            }
+            smp_mb();
+            avail = avail2;
+        }
+    }
 }
 
 void virtio_virtq_get_stat(struct virtio_virtq *vq,
