@@ -382,6 +382,11 @@ void vhd_vring_dec_in_flight(struct vhd_vring *vring)
     }
 }
 
+static inline bool has_feature(uint64_t features_qword, size_t feature_bit)
+{
+    return features_qword & (1ull << feature_bit);
+}
+
 static void vring_stop_bh(void *opaque)
 {
     struct vhd_vring *vring = opaque;
@@ -597,11 +602,6 @@ static const uint64_t g_default_protocol_features =
     (1UL << VHOST_USER_PROTOCOL_F_CONFIG) |
     (1UL << VHOST_USER_PROTOCOL_F_INFLIGHT_SHMFD) |
     (1UL << VHOST_USER_PROTOCOL_F_CONFIGURE_MEM_SLOTS);
-
-static inline bool has_feature(uint64_t features_qword, size_t feature_bit)
-{
-    return features_qword & (1ull << feature_bit);
-}
 
 #define NSEC_PER_SEC 1000000000
 #define NSEC_PER_MSEC 1000000
