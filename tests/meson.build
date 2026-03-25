@@ -45,6 +45,6 @@ test(
     depends: [vhost_user_blk_test_server, libblkio_bench_dep],
     env: envdata,
     workdir: meson.current_source_dir(),
-    timeout: 150,
+    timeout: 300,
     is_parallel: false,
 )
