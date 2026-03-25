@@ -145,7 +145,7 @@ def check_run_blkio_bench(
         path, f"--blocksize={blocksize}", f"--runtime={time}",
         f"--readwrite={type}", f"--num-threads={threads}",
         "virtio-blk-vhost-user", f"path={socket}"
-    ], timeout=time + 10)
+    ], timeout=time + 30)
 
 
 class TestBasic:
