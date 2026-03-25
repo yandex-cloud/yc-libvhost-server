@@ -41,7 +41,7 @@ envdata.append(
 test(
     'unit-tests',
     import('python').find_installation('python3', modules: ['pytest']),
-    args: ['-m', 'pytest', '-rsv'],
+    args: ['-m', 'pytest', '-s', '-v'],
     depends: [vhost_user_blk_test_server, libblkio_bench_dep],
     env: envdata,
     workdir: meson.current_source_dir(),
