@@ -28,7 +28,7 @@ jobs:
 
       - name: Run Tests
         run: |
-          python3 -m pytest ${{ github.workspace }}/tests/test_libvhost.py -rsv --junitxml result.xml
+          python3 -m pytest ${{ github.workspace }}/tests/test_libvhost.py -s -v --junitxml result.xml
 
       - name: Collect test results
         uses: mikepenz/action-junit-report@v3
