@@ -1872,6 +1872,7 @@ static int vhost_vring_enable(struct vhd_vdev *vdev, const void *payload,
 {
     const struct vhost_user_vring_state *vrstate = payload;
     struct vhd_vring *vring;
+    bool requested_state;
 
     if (num_fds || size < sizeof(*vrstate)) {
         VHD_OBJ_ERROR(vdev, "malformed message size=%zu #fds=%zu", size,
@@ -1891,10 +1892,19 @@ static int vhost_vring_enable(struct vhd_vdev *vdev, const void *payload,
         return -EINVAL;
     }
 
-    vring->shadow_vq.enabled = !vring->shadow_vq.enabled;
-    VHD_OBJ_INFO(vdev, "changing vring %" PRIu32 " state to %s", vrstate->index,
-                 vring->shadow_vq.enabled ? "enabled" : "disabled");
+    requested_state = !!vrstate->num;
 
+    VHD_OBJ_INFO(vdev, "changing vring %" PRIu32 " state: %s -> %s",
+                 vrstate->index,
+                 vring->shadow_vq.enabled ? "enabled" : "disabled",
+                 requested_state ? "enabled" : "disabled");
+
+    if (requested_state == vring->shadow_vq.enabled) {
+        /* No-op SET_VRING_ENABLE request, just ACK and do nothing. */
+        return vring_enable_complete(vdev);
+    }
+
+    vring->shadow_vq.enabled = requested_state;
     if (!vring->started_in_ctl) {
         return vring_enable_complete(vdev);
     }
