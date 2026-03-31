@@ -282,9 +282,33 @@ static void vdev_maybe_finished(struct vhd_vdev *vdev)
 static void vring_mark_stopped(struct vhd_vring *vring)
 {
     struct vhd_vdev *vdev = vring->vdev;
+    struct vhd_rq_metrics metrics;
+    char tsbuf[32];
+    const char *ts = NULL;
 
-    VHD_OBJ_INFO(vring, "stopped vring with %u in-flight requests",
-                 vring->num_in_flight_at_stop);
+    if (vring->num_in_flight_at_stop) {
+        struct tm tm;
+
+        vhd_get_rq_stat(vhd_get_rq_for_vring(vring), &metrics);
+        if (metrics.oldest_inflight_ts &&
+            localtime_r(&metrics.oldest_inflight_ts, &tm) &&
+            strftime(tsbuf, sizeof(tsbuf), "%F %T %z", &tm)) {
+            ts = tsbuf;
+        }
+    }
+
+    if (ts) {
+        VHD_OBJ_INFO(
+            vring,
+            "stopped vring with %u in-flight requests, "
+            "oldest request at %s (%jd)",
+            vring->num_in_flight_at_stop,
+            ts,
+            (intmax_t)metrics.oldest_inflight_ts);
+    } else {
+        VHD_OBJ_INFO(vring, "stopped vring with %u in-flight requests",
+                     vring->num_in_flight_at_stop);
+    }
 
     replace_fd(&vring->kickfd, -1);
 
