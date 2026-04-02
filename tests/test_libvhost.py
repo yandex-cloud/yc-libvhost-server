@@ -144,7 +144,8 @@ def check_run_blkio_bench(
     subprocess.check_call([
         path, f"--blocksize={blocksize}", f"--runtime={time}",
         f"--readwrite={type}", f"--num-threads={threads}",
-        "virtio-blk-vhost-user", f"path={socket}"
+        "virtio-blk-vhost-user", f"path={socket}",
+        "--completion-timeout-ms=10000"
     ], timeout=time + 30)
 
 
