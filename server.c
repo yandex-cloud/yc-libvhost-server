@@ -52,6 +52,12 @@ int vhd_start_vhost_server(log_function log_fn)
         return -res;
     }
 
+    res = init_ticks_freq();
+    if (res != 0) {
+        VHD_LOG_ERROR("failed to calibrate tick frequency: %d", res);
+        return -res;
+    }
+
     if (g_vhost_evloop != NULL) {
         return 0;
     }
@@ -121,6 +127,11 @@ struct vhd_request_queue {
 
     struct vhd_bh *completion_bh;
     struct vhd_rq_metrics metrics;
+
+    /* Periodic poll for flushing coalesced notifications */
+    void (*notify_poll_cb)(void *);
+    void *notify_poll_opaque;
+    bool notify_poll_active;
 };
 
 void vhd_run_in_rq(struct vhd_request_queue *rq, void (*cb)(void *),
@@ -209,7 +220,25 @@ struct vhd_io_handler *vhd_add_rq_io_handler(struct vhd_request_queue *rq,
 
 int vhd_run_queue(struct vhd_request_queue *rq)
 {
-    return vhd_run_event_loop(rq->evloop, -1);
+    bool has_inflight = rq->notify_poll_active &&
+                        (!TAILQ_EMPTY(&rq->inflight) ||
+                         !TAILQ_EMPTY(&rq->submission));
+    int timeout = has_inflight ? 0 : -1;
+    int res = vhd_run_event_loop(rq->evloop, timeout);
+
+    if (rq->notify_poll_cb) {
+        rq->notify_poll_cb(rq->notify_poll_opaque);
+    }
+
+    return res;
+}
+
+void vhd_rq_set_notify_poll(struct vhd_request_queue *rq,
+                             void (*cb)(void *), void *opaque)
+{
+    rq->notify_poll_cb = cb;
+    rq->notify_poll_opaque = opaque;
+    rq->notify_poll_active = true;
 }
 
 void vhd_stop_queue(struct vhd_request_queue *rq)

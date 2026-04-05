@@ -175,6 +175,8 @@ static int vring_update_shadow_vq_addrs(struct vhd_vring *vring,
     return 0;
 }
 
+static void vring_disarm_notify_timer(struct vhd_vring *vring);
+
 static void vring_sync_to_virtq(struct vhd_vring *vring)
 {
     bool should_kick;
@@ -196,6 +198,7 @@ static void vring_sync_to_virtq(struct vhd_vring *vring)
     vring->vq.enabled = vring->shadow_vq.enabled;
 
     virtq_set_notify_fd(&vring->vq, vring->callfd);
+    vring_disarm_notify_timer(vring);
 
     if (should_kick) {
         vhd_set_eventfd(vring->kickfd);
@@ -406,6 +409,78 @@ void vhd_vring_dec_in_flight(struct vhd_vring *vring)
     }
 }
 
+/*
+ * Notification coalescing: rate-limits used ring notifications to the guest.
+ * No syscalls on the hot path -- uses rdtsc / cntvct_el0 (single inline
+ * instruction) and a simple pending flag.  Pending notifications are flushed
+ * either when the coalescing period elapses on a subsequent completion, or
+ * when the guest kicks (virtq_dequeue_many).
+ */
+
+static void vring_coalesce_notify_cb(struct virtio_virtq *vq,
+                                     bool need_notify)
+{
+    struct vhd_vring *vring = VHD_VRING_FROM_VQ(vq);
+
+    if (need_notify) {
+        vring->notify_pending = true;
+    }
+
+    if (!vring->notify_pending) {
+        return;
+    }
+
+    uint64_t now = vhd_ticks();
+
+    if (now - vring->last_notify_ticks
+            >= vring->vdev->notify_coalesce_period_ticks) {
+        vring->last_notify_ticks = now;
+        vring->notify_pending = false;
+        virtq_do_notify(vq);
+    }
+}
+
+static void vring_disarm_notify_timer(struct vhd_vring *vring)
+{
+    vring->notify_pending = false;
+}
+
+/*
+ * Poll callback registered on the request queue.  Called after each
+ * event loop iteration (including epoll_wait timeout) to:
+ * 1. Dispatch new requests (since kicks are suppressed per virtio 2.7.10)
+ * 2. Flush any pending coalesced notifications whose period has elapsed.
+ */
+static void rq_notify_poll(void *opaque)
+{
+    struct vhd_request_queue *rq = opaque;
+    struct vhd_vdev *vdev;
+
+    LIST_FOREACH(vdev, &g_vdevs, vdev_list) {
+        if (!vdev->notify_coalesce_period_ticks) {
+            continue;
+        }
+        for (uint16_t i = 0; i < vdev->num_queues; i++) {
+            struct vhd_vring *vring = &vdev->vrings[i];
+
+            if (!vring->started_in_rq ||
+                vhd_get_rq_for_vring(vring) != rq) {
+                continue;
+            }
+
+            /* Poll avail ring directly since kicks are suppressed */
+            if (vring->vq.enabled) {
+                vdev->type->dispatch_requests(vdev, vring);
+            }
+
+            /* Flush any pending coalesced notification */
+            if (vring->notify_pending) {
+                vring_coalesce_notify_cb(&vring->vq, false);
+            }
+        }
+    }
+}
+
 static void vring_stop_bh(void *opaque)
 {
     struct vhd_vring *vring = opaque;
@@ -413,6 +488,12 @@ static void vring_stop_bh(void *opaque)
     if (!vring->started_in_rq) {
         return;
     }
+
+    if (vring->vq.polling) {
+        virtq_enable_kicks(&vring->vq);
+    }
+    vring->vq.notify_cb = NULL;
+    vring->notify_pending = false;
 
     vhd_del_io_handler(vring->kick_handler);
     vring->kick_handler = NULL;
@@ -1433,6 +1514,15 @@ static void vring_start_bh(void *opaque)
     if (!vring->kick_handler) {
         VHD_OBJ_ERROR(vring, "Could not attach kick handler");
         goto fail;
+    }
+
+    if (vring->vdev->notify_coalesce_period_ticks) {
+        struct vhd_request_queue *rq = vhd_get_rq_for_vring(vring);
+
+        vring->last_notify_ticks = vhd_ticks();
+        vring->vq.notify_cb = vring_coalesce_notify_cb;
+        vring->vq.polling = true;
+        vhd_rq_set_notify_poll(rq, rq_notify_poll, rq);
     }
 
     vring_sync_to_virtq(vring);

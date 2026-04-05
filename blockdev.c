@@ -174,6 +174,11 @@ struct vhd_vdev *vhd_register_blockdev(const struct vhd_bdev_info *bdev,
         goto error_out;
     }
 
+    if (bdev->notify_coalesce_period_ns) {
+        dev->vdev.notify_coalesce_period_ticks =
+            vhd_ns_to_ticks(bdev->notify_coalesce_period_ns);
+    }
+
     LIST_INSERT_HEAD(&g_bdev_list, dev, blockdevs);
     return &dev->vdev;
 
