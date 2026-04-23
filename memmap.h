@@ -15,6 +15,7 @@ struct vhd_memory_map *vhd_memmap_new(int (*map_cb)(void *, size_t),
                                       int (*unmap_cb)(void *, size_t));
 struct vhd_memory_map *vhd_memmap_dup(struct vhd_memory_map *mm);
 struct vhd_memory_map *vhd_memmap_dup_remap(struct vhd_memory_map *mm);
+struct vhd_memory_map *vhd_memmap_dup_refresh(struct vhd_memory_map *mm);
 
 size_t vhd_memmap_max_memslots(void);
 
@@ -25,6 +26,9 @@ int vhd_memmap_del_slot(struct vhd_memory_map *mm, uint64_t gpa, uint64_t uva,
 
 void vhd_memmap_ref(struct vhd_memory_map *mm);
 void vhd_memmap_unref(struct vhd_memory_map *mm);
+
+bool vhd_memmap_is_shared(struct vhd_memory_map *lhs,
+                          struct vhd_memory_map *rhs);
 
 void *gpa_range_to_ptr(struct vhd_memory_map *mm, uint64_t gpa, size_t len);
 void *uva_to_ptr(struct vhd_memory_map *mm, uint64_t uva);
