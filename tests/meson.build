@@ -5,6 +5,11 @@ vhost_user_blk_test_server_includes = include_directories(
     '../'
 )
 
+vhost_user_blk_test_server_args = []
+if cc.get_id() == 'gcc'
+    vhost_user_blk_test_server_args += ['-Wno-error=unused-result']
+endif
+
 vhost_user_blk_test_server = executable(
     'vhost-user-blk-test-server',
     'vhost_user_blk_test_server.c',
@@ -13,7 +18,8 @@ vhost_user_blk_test_server = executable(
     include_directories: [
         vhost_user_blk_test_server_includes,
         libvhost_includes
-    ]
+    ],
+    c_args: vhost_user_blk_test_server_args,
 )
 
 # If libblkio is disabled, we have no client to run
