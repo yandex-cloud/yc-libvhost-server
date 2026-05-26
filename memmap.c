@@ -411,7 +411,8 @@ struct vhd_memory_map *vhd_memmap_new(int (*map_cb)(void *, size_t),
         .callbacks = (struct vhd_mmap_callbacks) {
             .map_cb = map_cb,
             .unmap_cb = unmap_cb,
-        }
+        },
+        .num = 0  /* suppress gcc warning missing-field-initializers */
     };
 
     objref_init(&mm->ref, memmap_release);
