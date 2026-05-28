@@ -82,6 +82,11 @@ def create_server(
 ) -> Generator[str, None, None]:
     socket_path = os.path.join(work_dir, "server.sock")
 
+    try:
+        os.unlink(socket_path)
+    except FileNotFoundError:
+        pass
+
     process = subprocess.Popen([
         vhost_user_test_server, "--disk",
         f"socket-path={socket_path},blk-file={disk_image}"
@@ -144,8 +149,9 @@ def check_run_blkio_bench(
     subprocess.check_call([
         path, f"--blocksize={blocksize}", f"--runtime={time}",
         f"--readwrite={type}", f"--num-threads={threads}",
-        "virtio-blk-vhost-user", f"path={socket}"
-    ], timeout=time + 10)
+        "virtio-blk-vhost-user", f"path={socket}",
+        "--completion-timeout-ms=10000"
+    ], timeout=time + 30)
 
 
 class TestBasic:

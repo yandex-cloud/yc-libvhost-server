@@ -26,6 +26,8 @@ int vhd_enqueue_request(struct vhd_request_queue *rq,
 void vhd_cancel_queued_requests(struct vhd_request_queue *rq,
                                 const struct vhd_vring *vring);
 
+void vhd_cancel_inflight_requests(struct vhd_request_queue *rq,
+                                  const struct vhd_vring *vring);
 /**
  * Run callback in request queue
  */

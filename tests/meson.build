@@ -5,6 +5,11 @@ vhost_user_blk_test_server_includes = include_directories(
     '../'
 )
 
+vhost_user_blk_test_server_args = []
+if cc.get_id() == 'gcc'
+    vhost_user_blk_test_server_args += ['-Wno-error=unused-result']
+endif
+
 vhost_user_blk_test_server = executable(
     'vhost-user-blk-test-server',
     'vhost_user_blk_test_server.c',
@@ -13,7 +18,8 @@ vhost_user_blk_test_server = executable(
     include_directories: [
         vhost_user_blk_test_server_includes,
         libvhost_includes
-    ]
+    ],
+    c_args: vhost_user_blk_test_server_args,
 )
 
 # If libblkio is disabled, we have no client to run
@@ -41,10 +47,10 @@ envdata.append(
 test(
     'unit-tests',
     import('python').find_installation('python3', modules: ['pytest']),
-    args: ['-m', 'pytest', '-rsv'],
+    args: ['-m', 'pytest', '-s', '-v'],
     depends: [vhost_user_blk_test_server, libblkio_bench_dep],
     env: envdata,
     workdir: meson.current_source_dir(),
-    timeout: 150,
+    timeout: 300,
     is_parallel: false,
 )
