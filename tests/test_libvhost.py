@@ -82,6 +82,11 @@ def create_server(
 ) -> Generator[str, None, None]:
     socket_path = os.path.join(work_dir, "server.sock")
 
+    try:
+        os.unlink(socket_path)
+    except FileNotFoundError:
+        pass
+
     process = subprocess.Popen([
         vhost_user_test_server, "--disk",
         f"socket-path={socket_path},blk-file={disk_image}"
