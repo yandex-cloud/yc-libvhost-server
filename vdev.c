@@ -606,6 +606,7 @@ static const uint64_t g_default_protocol_features =
     (1UL << VHOST_USER_PROTOCOL_F_MQ) |
     (1UL << VHOST_USER_PROTOCOL_F_LOG_SHMFD) |
     (1UL << VHOST_USER_PROTOCOL_F_REPLY_ACK) |
+    (1UL << VHOST_USER_PROTOCOL_F_SLAVE_REQ) |
     (1UL << VHOST_USER_PROTOCOL_F_CONFIG) |
     (1UL << VHOST_USER_PROTOCOL_F_INFLIGHT_SHMFD) |
     (1UL << VHOST_USER_PROTOCOL_F_CONFIGURE_MEM_SLOTS) |
@@ -796,6 +797,37 @@ static int vhost_set_protocol_features(struct vhd_vdev *vdev,
     }
 
     vdev->negotiated_protocol_features = *features;
+
+    return vhost_ack(vdev, 0);
+}
+
+static int vhost_set_slave_req_fd(struct vhd_vdev *vdev,
+                                  const void *payload, size_t size,
+                                  const int *fds, size_t num_fds)
+{
+    int fd;
+
+    if (size || num_fds != 1) {
+        VHD_OBJ_ERROR(vdev, "malformed message size=%zu #fds=%zu", size,
+                      num_fds);
+        return -EINVAL;
+    }
+
+    if (!has_feature(vdev->negotiated_protocol_features,
+                     VHOST_USER_PROTOCOL_F_SLAVE_REQ)) {
+        VHD_OBJ_ERROR(vdev, "SET_SLAVE_REQ_FD without negotiated feature");
+        return -EINVAL;
+    }
+
+    fd = fcntl(fds[0], F_DUPFD_CLOEXEC, 0);
+    if (fd < 0) {
+        int ret = -errno;
+        VHD_OBJ_ERROR(vdev, "failed to duplicate slave request fd: %s",
+                      strerror(-ret));
+        return ret;
+    }
+
+    replace_fd(&vdev->slave_req_fd, fd);
 
     return vhost_ack(vdev, 0);
 }
@@ -1936,6 +1968,7 @@ static int (*vhost_msg_handlers[])(struct vhd_vdev *vdev,
     [VHOST_USER_SET_OWNER]              = vhost_set_owner,
     [VHOST_USER_GET_PROTOCOL_FEATURES]  = vhost_get_protocol_features,
     [VHOST_USER_SET_PROTOCOL_FEATURES]  = vhost_set_protocol_features,
+    [VHOST_USER_SET_SLAVE_REQ_FD]       = vhost_set_slave_req_fd,
     [VHOST_USER_GET_CONFIG]             = vhost_get_config,
     [VHOST_USER_SET_MEM_TABLE]          = vhost_set_mem_table,
     [VHOST_USER_GET_QUEUE_NUM]          = vhost_get_queue_num,
@@ -2071,12 +2104,47 @@ static void vdev_cleanup(struct vhd_vdev *vdev)
         replace_fd(&vdev->timerfd, -1);
     }
 
+    replace_fd(&vdev->slave_req_fd, -1);
+
     /*
      * Closing the connection should go last, so that the client doesn't see
      * the need to reconnect until the server detaches from the client's
      * mappings.
      */
      replace_fd(&vdev->connfd, -1);
+}
+
+static void notify_config_change_entry(struct vhd_work *work, void *opaque)
+{
+    struct vhd_vdev *vdev = opaque;
+    struct vhost_user_msg_hdr hdr = {
+        .req = VHOST_USER_SLAVE_CONFIG_CHANGE_MSG,
+        .flags = VHOST_USER_MSG_VERSION,
+    };
+    int ret = 0;
+
+    if (!vdev->conn_handler ||
+        vdev->slave_req_fd < 0 ||
+        !has_feature(vdev->negotiated_protocol_features,
+                     VHOST_USER_PROTOCOL_F_CONFIG) ||
+        !has_feature(vdev->negotiated_protocol_features,
+                     VHOST_USER_PROTOCOL_F_SLAVE_REQ)) {
+        goto out;
+    }
+
+    VHD_OBJ_INFO(vdev, "Notify config change");
+    ret = net_send_msg(vdev->slave_req_fd, &hdr, NULL, NULL, 0);
+    if (ret > 0) {
+        ret = 0;
+    }
+
+out:
+    vhd_complete_work(work, ret);
+}
+
+int vhd_vdev_notify_config_change(struct vhd_vdev *vdev)
+{
+    return vhd_submit_ctl_work_and_wait(notify_config_change_entry, vdev);
 }
 
 static void vhd_vdev_release(struct vhd_vdev *vdev)
@@ -2408,6 +2476,7 @@ int vhd_vdev_init_server(
         .type = type,
         .listenfd = listenfd,
         .connfd = -1,
+        .slave_req_fd = -1,
         .req = VHOST_USER_NONE,
         .rqs = vhd_rqs,
         .num_rqs = num_rqs,

@@ -1,5 +1,6 @@
 #include <inttypes.h>
 #include <stdint.h>
+#include <string.h>
 
 #include "vhost/blockdev.h"
 #include "server_internal.h"
@@ -103,6 +104,11 @@ void vhd_blockdev_set_total_blocks(struct vhd_vdev *vdev, uint64_t total_blocks)
      */
     int ret = vhd_submit_ctl_work_and_wait(set_total_blocks_entry, &stb);
     VHD_VERIFY(ret == 0);
+
+    ret = vhd_vdev_notify_config_change(vdev);
+    if (ret < 0) {
+        VHD_OBJ_WARN(vdev, "Failed to notify config change: %s", strerror(-ret));
+    }
 }
 
 static bool blockdev_validate_features(const struct vhd_bdev_info *bdev)

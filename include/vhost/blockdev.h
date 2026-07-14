@@ -155,11 +155,9 @@ void vhd_unregister_blockdev(struct vhd_vdev *vdev,
 /**
  * Resize a vhost block device.
  *
- * The function change virtio config, that client may read by
- * VHOST_USER_GET_CONFIG command.
- *
- * Note, that client is not notified about config change, the caller is
- * responsible for this.
+ * The function changes virtio config, that client may read by
+ * VHOST_USER_GET_CONFIG command. If the client negotiated config-change
+ * notifications, it is notified after the config update.
  */
 void vhd_blockdev_set_total_blocks(struct vhd_vdev *vdev,
                                    uint64_t total_blocks);
