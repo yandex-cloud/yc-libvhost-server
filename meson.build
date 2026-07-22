@@ -5,7 +5,8 @@ project(
 libvhost_log_verbosity = 'LOG_INFO'
 
 libvhost_includes = include_directories(
-    'include'
+    'include',
+    '.',
 )
 
 libvhost_sources = files([
