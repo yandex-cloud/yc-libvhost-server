@@ -1,6 +1,5 @@
 #include <inttypes.h>
 #include <stdint.h>
-#include <string.h>
 
 #include "vhost/blockdev.h"
 #include "server_internal.h"
@@ -86,7 +85,7 @@ static void set_total_blocks_entry(struct vhd_work *work, void *opaque)
     vhd_complete_work(work, 0);
 }
 
-void vhd_blockdev_set_total_blocks(struct vhd_vdev *vdev, uint64_t total_blocks)
+static int set_total_blocks(struct vhd_vdev *vdev, uint64_t total_blocks)
 {
     struct set_total_blocks stb = {
         .vdev = vdev,
@@ -102,13 +101,23 @@ void vhd_blockdev_set_total_blocks(struct vhd_vdev *vdev, uint64_t total_blocks)
      * total_blocks in config is unrelated stopping process, so it should not be
      * a problem intersect with wdev_stop_work work.
      */
-    int ret = vhd_submit_ctl_work_and_wait(set_total_blocks_entry, &stb);
-    VHD_VERIFY(ret == 0);
+    return vhd_submit_ctl_work_and_wait(set_total_blocks_entry, &stb);
+}
 
-    ret = vhd_vdev_notify_config_change(vdev);
-    if (ret < 0) {
-        VHD_OBJ_WARN(vdev, "Failed to notify config change: %s", strerror(-ret));
+void vhd_blockdev_set_total_blocks(struct vhd_vdev *vdev, uint64_t total_blocks)
+{
+    int ret = set_total_blocks(vdev, total_blocks);
+    VHD_VERIFY(ret == 0);
+}
+
+int vhd_blockdev_resize(struct vhd_vdev *vdev, uint64_t total_blocks)
+{
+    int ret = set_total_blocks(vdev, total_blocks);
+    if (ret != 0) {
+        return ret;
     }
+
+    return vhd_vdev_notify_config_change(vdev);
 }
 
 static bool blockdev_validate_features(const struct vhd_bdev_info *bdev)
