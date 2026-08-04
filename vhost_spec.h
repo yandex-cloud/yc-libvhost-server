@@ -108,6 +108,9 @@ enum {
     VHOST_USER_REM_MEM_REG = 38,
 };
 
+/* Slave request types. */
+#define VHOST_USER_SLAVE_CONFIG_CHANGE_MSG 2
+
 struct vhost_user_mem_region {
     uint64_t guest_addr;
     uint64_t size;

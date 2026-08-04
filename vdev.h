@@ -57,6 +57,9 @@ struct vhd_vdev {
     int connfd;
     struct vhd_io_handler *conn_handler;
 
+    /* Backend-to-frontend request fd, negotiated via SET_SLAVE_REQ_FD. */
+    int slave_req_fd;
+
     /* Message currently being handled */
     uint32_t req;
 
@@ -163,6 +166,14 @@ int vhd_vdev_init_server(
  */
 int vhd_vdev_stop_server(struct vhd_vdev *vdev,
                          void (*release_cb)(void *), void *release_arg);
+
+/**
+ * Notify the connected client that device configuration has changed.
+ *
+ * Returns 0 when the notification was sent or when there is no connected
+ * client with negotiated config-change notifications.
+ */
+int vhd_vdev_notify_config_change(struct vhd_vdev *vdev);
 
 /**
  * Device vring instance
