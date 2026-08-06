@@ -75,6 +75,16 @@ struct vhd_bdev_info {
      * will be flushed after the guest reads/writes 2 blocks.
      */
     size_t pte_flush_byte_threshold;
+
+    /*
+     * If set to a non-zero value, used ring notifications to the guest
+     * are coalesced: a notification is sent only if at least this many
+     * nanoseconds have elapsed since the last one, or if the virtio
+     * protocol mandates it (EVENT_IDX / flags-based suppression still
+     * applies).  Zero (default) means every eligible completion triggers
+     * an immediate notification.
+     */
+    uint64_t notify_coalesce_period_ns;
 };
 
 static inline bool vhd_blockdev_is_readonly(const struct vhd_bdev_info *bdev)

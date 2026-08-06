@@ -27,6 +27,28 @@ extern "C" {
 #   define HUGE_PAGE_SIZE 0x400000000ULL // 16G for CONT PMD on arm64 with 64k base page size, works also for 512M and 2M pages alignment. See https://docs.kernel.org/arch/arm64/hugetlbpage.html
 #endif
 
+/*
+ * Fast monotonic tick counter — single inline instruction, no syscall.
+ * Use vhd_ns_to_ticks() to convert nanoseconds to tick units.
+ */
+static inline uint64_t vhd_ticks(void)
+{
+#if defined(__x86_64__)
+    uint32_t lo, hi;
+    __asm__ __volatile__("rdtsc" : "=a"(lo), "=d"(hi));
+    return ((uint64_t)hi << 32) | lo;
+#elif defined(__aarch64__)
+    uint64_t val;
+    __asm__ __volatile__("mrs %0, cntvct_el0" : "=r"(val));
+    return val;
+#else
+#   error Unsupported architecture for vhd_ticks
+#endif
+}
+
+int init_ticks_freq(void);
+uint64_t vhd_ns_to_ticks(uint64_t ns);
+
 /*////////////////////////////////////////////////////////////////////////////*/
 
 #if !defined(NDEBUG)

@@ -74,10 +74,26 @@ struct virtio_virtq {
     int notify_fd;
 
     /*
+     * Optional callback to intercept notifications.  When set,
+     * virtq_notify() calls this on every completion instead of the default
+     * need_notify+do_notify path.  @need_notify is the result of the
+     * virtio-spec notification check.
+     * Used by the vring layer to implement notification coalescing.
+     */
+    void (*notify_cb)(struct virtio_virtq *vq, bool need_notify);
+
+    /*
      * Whether the processing of this virtq is enabled.
      * Can be toggled after virtq is started.
      */
     bool enabled;
+
+    /*
+     * When set, suppress driver notifications (kicks) per virtio spec
+     * 2.7.10.  The device polls the avail ring directly instead of
+     * relying on kick events.
+     */
+    bool polling;
 
     /* inflight information */
     uint64_t req_cnt;
@@ -120,6 +136,10 @@ int virtq_dequeue_many(struct virtio_virtq *vq,
 void virtq_push(struct virtio_virtq *vq, struct virtio_iov *iov, uint32_t len);
 
 void virtq_set_notify_fd(struct virtio_virtq *vq, int fd);
+
+void virtq_do_notify(struct virtio_virtq *vq);
+
+void virtq_enable_kicks(struct virtio_virtq *vq);
 
 void virtio_free_iov(struct virtio_iov *iov);
 uint16_t virtio_iov_get_head(struct virtio_iov *iov);
