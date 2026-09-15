@@ -55,6 +55,7 @@ static const char *const vhost_req_names[] = {
     VHOST_REQ(GET_MAX_MEM_SLOTS),
     VHOST_REQ(ADD_MEM_REG),
     VHOST_REQ(REM_MEM_REG),
+    VHOST_REQ(GET_VRING_BASE_SKIP_DRAIN),
 };
 #undef VHOST_REQ
 
@@ -609,7 +610,8 @@ static const uint64_t g_default_protocol_features =
     (1UL << VHOST_USER_PROTOCOL_F_CONFIG) |
     (1UL << VHOST_USER_PROTOCOL_F_INFLIGHT_SHMFD) |
     (1UL << VHOST_USER_PROTOCOL_F_CONFIGURE_MEM_SLOTS) |
-    (1UL << VHOST_USER_PROTOCOL_F_GET_VRING_BASE_INFLIGHT);
+    (1UL << VHOST_USER_PROTOCOL_F_GET_VRING_BASE_INFLIGHT) |
+    (1UL << VHOST_USER_PROTOCOL_F_GET_VRING_BASE_SKIP_DRAIN);
 
 #define NSEC_PER_SEC 1000000000
 #define NSEC_PER_MSEC 1000000
@@ -1580,8 +1582,8 @@ static int vhost_set_vring_base(struct vhd_vdev *vdev, const void *payload,
     return vhost_ack(vdev, 0);
 }
 
-static int vhost_get_vring_base(struct vhd_vdev *vdev, const void *payload,
-                                size_t size, const int *fds, size_t num_fds)
+static int do_vhost_get_vring_base(struct vhd_vdev *vdev, const void *payload,
+                                   size_t size, size_t num_fds, bool skip_drain)
 {
     const struct vhost_user_vring_state *vrstate = payload;
     struct vhd_vring *vring;
@@ -1597,15 +1599,22 @@ static int vhost_get_vring_base(struct vhd_vdev *vdev, const void *payload,
         return -EINVAL;
     }
 
+    if (skip_drain) {
+        bool has_inflight_enabled = has_feature(
+            vring->vdev->negotiated_protocol_features,
+            VHOST_USER_PROTOCOL_F_GET_VRING_BASE_SKIP_DRAIN);
+
+        if (!has_inflight_enabled) {
+            VHD_OBJ_ERROR(vdev, "GET_VRING_BASE_SKIP_DRAIN feature not negotiated");
+            return -ENOTSUP;
+        }
+    }
+
     if (!vring->started_in_ctl) {
         return vhost_send_vring_base(vring);
     }
 
-    bool has_inflight_enabled = has_feature(
-        vring->vdev->negotiated_protocol_features,
-        VHOST_USER_PROTOCOL_F_GET_VRING_BASE_INFLIGHT);
-
-    vring->skip_drain = has_inflight_enabled && vrstate->num == 1;
+    vring->skip_drain = skip_drain;
 
     /*
      * This command is special as it needs to wait for drain, not just until
@@ -1615,6 +1624,19 @@ static int vhost_get_vring_base(struct vhd_vdev *vdev, const void *payload,
     vring->on_drain_cb = vhost_send_vring_base;
     vhd_run_in_rq(vhd_get_rq_for_vring(vring), vring_stop_bh, vring);
     return 0;
+}
+
+static int vhost_get_vring_base(struct vhd_vdev *vdev, const void *payload,
+                                size_t size, const int *fds, size_t num_fds)
+{
+    return do_vhost_get_vring_base(vdev, payload, size, num_fds, false);
+}
+
+static int vhost_get_vring_base_skip_drain(struct vhd_vdev *vdev,
+                                           const void *payload, size_t size,
+                                           const int *fds, size_t num_fds)
+{
+    return do_vhost_get_vring_base(vdev, payload, size, num_fds, true);
 }
 
 static int set_vring_addr_complete(struct vhd_vdev *vdev)
@@ -1946,6 +1968,8 @@ static int (*vhost_msg_handlers[])(struct vhd_vdev *vdev,
     [VHOST_USER_SET_VRING_NUM]          = vhost_set_vring_num,
     [VHOST_USER_SET_VRING_BASE]         = vhost_set_vring_base,
     [VHOST_USER_GET_VRING_BASE]         = vhost_get_vring_base,
+    [VHOST_USER_GET_VRING_BASE_SKIP_DRAIN]
+                                        = vhost_get_vring_base_skip_drain,
     [VHOST_USER_SET_VRING_ADDR]         = vhost_set_vring_addr,
     [VHOST_USER_GET_INFLIGHT_FD]        = vhost_get_inflight_fd,
     [VHOST_USER_SET_INFLIGHT_FD]        = vhost_set_inflight_fd,
