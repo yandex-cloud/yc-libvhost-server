@@ -22,6 +22,8 @@ vhost_user_blk_test_server = executable(
     c_args: vhost_user_blk_test_server_args,
 )
 
+subdir('unit')
+
 # If libblkio is disabled, we have no client to run
 # against vhost-user-blk-test-server, so nothing to do here.
 if not libblkio_proj.found()
@@ -45,7 +47,7 @@ envdata.append(
 )
 
 test(
-    'unit-tests',
+    'integration-tests',
     import('python').find_installation('python3', modules: ['pytest']),
     args: ['-m', 'pytest', '-s', '-v'],
     depends: [vhost_user_blk_test_server, libblkio_bench_dep],
@@ -53,4 +55,5 @@ test(
     workdir: meson.current_source_dir(),
     timeout: 300,
     is_parallel: false,
+    suite: 'integration',
 )

@@ -12,7 +12,7 @@ jobs:
       - name: Install libraries
         run: |
           sudo apt update
-          sudo apt install python3 python3-docutils meson clang libaio-dev rustc cargo
+          sudo apt install python3 python3-docutils meson clang libaio-dev libcunit1-dev rustc cargo
           python3 -m pip install pytest
           rustup default 1.89.0
           rustup component add clippy
@@ -21,20 +21,23 @@ jobs:
         run: |
           src_dir="${{ github.workspace }}"
           build_dir="$src_dir/build"
-          CC=clang meson setup $build_dir $src_dir
+          CC=clang CXX=clang++ meson setup $build_dir $src_dir -Dunit-tests=enabled
           pushd $build_dir
           ninja
           popd
 
-      - name: Run Tests
+      - name: Run unit tests
+        run: meson test -C build --suite unit --print-errorlogs --logbase unit-tests
+
+      - name: Run integration tests
         run: |
-          python3 -m pytest ${{ github.workspace }}/tests/test_libvhost.py -s -v --junitxml result.xml
+          python3 -m pytest ${{ github.workspace }}/tests/test_libvhost.py -s -v --junitxml build/meson-logs/integration-tests.junit.xml
 
       - name: Collect test results
         uses: mikepenz/action-junit-report@v3
         if: always()
         with:
-          report_paths: result.xml
+          report_paths: build/meson-logs/*.junit.xml
   build-with-cmake:
     runs-on: ubuntu-latest
 

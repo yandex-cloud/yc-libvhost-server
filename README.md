@@ -15,7 +15,20 @@ CC=clang meson setup build
 ninja -C build
 ```
 
-Running tests locally:
+Running tests locally (unit tests require a C++11 compiler and CUnit, provided
+by `libcunit1-dev` on Debian and Ubuntu):
 ```
+meson configure build -Dunit-tests=enabled
 ninja test -C build
 ```
+
+Unit tests run without QEMU or libblkio. To build and run only these tests:
+```bash
+CC=clang CXX=clang++ meson setup build-unit -Dunit-tests=enabled -Dlibblkio=disabled
+meson test -C build-unit --suite unit --print-errorlogs
+```
+
+The `unit-tests` option defaults to `auto`: unit tests are built when CUnit and
+a C++ compiler are available. Use `-Dunit-tests=enabled` to require them or
+`-Dunit-tests=disabled` to skip them. Integration tests require libblkio and
+pytest and can be selected with `meson test -C build --suite integration`.
