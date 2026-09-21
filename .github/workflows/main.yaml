@@ -29,6 +29,13 @@ jobs:
       - name: Run unit tests
         run: meson test -C build --suite unit --print-errorlogs --logbase unit-tests
 
+      - name: Print full unit test log
+        if: failure()
+        run: |
+          if [ -f build/meson-logs/unit-tests.txt ]; then
+            cat build/meson-logs/unit-tests.txt
+          fi
+
       - name: Run integration tests
         run: |
           python3 -m pytest ${{ github.workspace }}/tests/test_libvhost.py -s -v --junitxml build/meson-logs/integration-tests.junit.xml
