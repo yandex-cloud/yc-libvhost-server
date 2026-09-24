@@ -2454,6 +2454,9 @@ int vhd_vdev_init_server(
             .callfd = -1,
             .kickfd = -1,
             .errfd = -1,
+            .vq = {
+                .notify_fd = -1,
+            },
         };
     }
 
