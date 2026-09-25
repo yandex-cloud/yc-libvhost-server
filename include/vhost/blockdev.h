@@ -153,9 +153,9 @@ void vhd_unregister_blockdev(struct vhd_vdev *vdev,
                              void (*unregister_complete)(void *), void *arg);
 
 /**
- * Resize a vhost block device.
+ * Update a vhost block device size in its virtio config.
  *
- * The function change virtio config, that client may read by
+ * The function changes virtio config, that client may read by
  * VHOST_USER_GET_CONFIG command.
  *
  * Note, that client is not notified about config change, the caller is
@@ -163,6 +163,19 @@ void vhd_unregister_blockdev(struct vhd_vdev *vdev,
  */
 void vhd_blockdev_set_total_blocks(struct vhd_vdev *vdev,
                                    uint64_t total_blocks);
+
+/**
+ * Resize a vhost block device and notify the client if possible.
+ *
+ * The function changes virtio config, that client may read by
+ * VHOST_USER_GET_CONFIG command. If the client negotiated config-change
+ * notifications, it is notified after the config update.
+ *
+ * Returns 0 on success, or a negative errno value when either the config update
+ * or the config-change notification fails.
+ */
+int vhd_blockdev_resize(struct vhd_vdev *vdev,
+                        uint64_t total_blocks);
 
 #ifdef __cplusplus
 }
