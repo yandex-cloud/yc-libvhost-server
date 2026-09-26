@@ -22,6 +22,15 @@ struct vhd_fsdev_info {
 
     /* Total number of backend queues this device supports */
     uint32_t num_queues;
+
+    /*
+     * If set to a non-zero value, used ring notifications to the guest
+     * are coalesced: a notification is sent only if at least this many
+     * nanoseconds have elapsed since the last one, or if the virtio
+     * protocol mandates it.  Zero (default) means every eligible
+     * completion triggers an immediate notification.
+     */
+    uint64_t notify_coalesce_period_ns;
 };
 
 /**

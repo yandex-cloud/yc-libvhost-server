@@ -104,6 +104,11 @@ struct vhd_vdev *vhd_register_fs_mq(struct vhd_fsdev_info *fsdev,
         goto error_out;
     }
 
+    if (fsdev->notify_coalesce_period_ns) {
+        dev->vdev.notify_coalesce_period_ticks =
+            vhd_ns_to_ticks(fsdev->notify_coalesce_period_ns);
+    }
+
     LIST_INSERT_HEAD(&g_fsdev_list, dev, fsdevs);
     return &dev->vdev;
 
