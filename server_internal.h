@@ -2,6 +2,10 @@
 
 #include "vhost/server.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct vhd_io_handler;
 /* Add io handler to vhost control event loop */
 struct vhd_io_handler *vhd_add_vhost_io_handler(int fd, int (*read)(void *),
@@ -48,3 +52,7 @@ int vhd_submit_ctl_work_and_wait(void (*func)(struct vhd_work *, void *),
                                  void *opaque);
 
 bool vhd_in_ctl_thread(void);
+
+#ifdef __cplusplus
+}
+#endif
