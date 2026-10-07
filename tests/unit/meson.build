@@ -18,7 +18,7 @@ unit_test_args = libvhost_defines + [
     '-Wno-missing-field-initializers',
 ]
 
-foreach name : ['event_loop_test', 'virtio/virtq_test', 'virtio/virtio_blk_test']
+foreach name : ['event_loop_test', 'vdev_test', 'virtio/virtq_test', 'virtio/virtio_blk_test']
     unit_test = executable(
         name.split('/')[-1],
         name + '.cpp',
