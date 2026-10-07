@@ -238,6 +238,7 @@ static void vring_handle_msg(struct vhd_vring *vring,
 }
 
 static void vdev_disconnect(struct vhd_vdev *vdev);
+static void vdev_maybe_finished(struct vhd_vdev *vdev);
 
 static void vring_mark_msg_handled(struct vhd_vring *vring)
 {
@@ -249,8 +250,20 @@ static void vring_mark_msg_handled(struct vhd_vring *vring)
     if (!vdev->num_vrings_handling_msg) {
         int ret = vdev->handle_complete(vdev);
         vdev->handle_complete = NULL;
-        if (ret < 0) {
+        if (ret < 0 && vdev->conn_handler) {
+            /*
+             * vdev_disconnect() ends with vdev_maybe_finished(), don't call
+             * it twice
+             */
             vdev_disconnect(vdev);
+        } else {
+            /*
+             * If the device got disconnected while the message was being
+             * handled, and the vrings have been stopped and drained since,
+             * this message was the last thing keeping the device in use.
+             * NB: the device may be released here.
+             */
+            vdev_maybe_finished(vdev);
         }
     }
 }
