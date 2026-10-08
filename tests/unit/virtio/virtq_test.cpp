@@ -1,5 +1,8 @@
 #include <stdlib.h>
 #include <stdio.h>
+#include <errno.h>
+#include <sys/eventfd.h>
+#include <unistd.h>
 
 #include <vector>
 #include <deque>
@@ -842,6 +845,52 @@ static void inflight_recover_test(void)
     return;
 }
 
+static void notify_fd_test(void)
+{
+    queue_data qdata;
+    virtio_virtq vq;
+    eventfd_t value = 0;
+
+    int fd1 = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+    int fd2 = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+
+    CU_ASSERT_FATAL(fd1 >= 0);
+    CU_ASSERT_FATAL(fd2 >= 0);
+
+    qdata.attach_virtq(&vq);
+
+    CU_ASSERT(vq.notify_fd == -1);
+
+    virtq_set_notify_fd(&vq, fd1);
+    CU_ASSERT(vq.notify_fd == fd1);
+    CU_ASSERT(eventfd_read(fd1, &value) == 0);
+    CU_ASSERT(value == 1);
+
+    virtq_set_notify_fd(&vq, fd2);
+    CU_ASSERT(vq.notify_fd == fd2);
+    errno = 0;
+    CU_ASSERT(eventfd_read(fd2, &value) == -1);
+    CU_ASSERT(errno == EAGAIN);
+
+    virtq_set_notify_fd(&vq, fd1);
+    CU_ASSERT(vq.notify_fd == fd1);
+    errno = 0;
+    CU_ASSERT(eventfd_read(fd1, &value) == -1);
+    CU_ASSERT(errno == EAGAIN);
+
+    virtio_virtq_release(&vq);
+    CU_ASSERT(vq.notify_fd == -1);
+
+    virtq_set_notify_fd(&vq, fd2);
+    CU_ASSERT(vq.notify_fd == fd2);
+    value = 0;
+    CU_ASSERT(eventfd_read(fd2, &value) == 0);
+    CU_ASSERT(value == 1);
+
+    close(fd1);
+    close(fd2);
+}
+
 int main(void)
 {
     int res = 0;
@@ -872,6 +921,7 @@ int main(void)
     CU_ADD_TEST(suite, broken_queue_test);
     CU_ADD_TEST(suite, inflight_base_test);
     CU_ADD_TEST(suite, inflight_recover_test);
+    CU_ADD_TEST(suite, notify_fd_test);
 
     CU_basic_set_mode(CU_BRM_VERBOSE);
     CU_basic_run_tests();
