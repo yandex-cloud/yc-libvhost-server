@@ -117,6 +117,7 @@ struct queue_data {
             .used_gpa_base = 0x1, /* to pass virtio_virtq_init check */
             .qsz = qsz,
             .last_avail = used_ring->idx,
+            .notify_fd = -1,
             .inflight_region = inflight_region,
         };
 
