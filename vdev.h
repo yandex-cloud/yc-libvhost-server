@@ -107,6 +107,8 @@ struct vhd_vdev {
     uint16_t num_vrings_in_flight;
     /* #vrings started and haven't yet acknowledged stop */
     uint16_t num_vrings_started;
+    /* #stop callbacks not yet acknowledged by the control plane */
+    uint16_t num_vrings_stopping;
 
     /* callback and arg to be called when the device is released */
     void (*release_cb)(void *);
