@@ -461,9 +461,15 @@ out:
     vhd_run_in_ctl(vring_stop_complete_bh, vdev);
 }
 
-/* Called only in the control plane. */
+/* Called only in the control plane, once per vring start. */
 static void vring_stop(struct vhd_vring *vring)
 {
+    if (vring->stop_requested) {
+        return;
+    }
+
+    vring->stop_requested = true;
+    /* Also pins the device if a pending start fails before the stop runs. */
     vring->vdev->num_vrings_stopping++;
     vhd_run_in_rq(vhd_get_rq_for_vring(vring), vring_stop_bh, vring);
 }
@@ -1516,6 +1522,7 @@ static int vhost_set_vring_kick(struct vhd_vdev *vdev, const void *payload,
     virtio_virtq_init(&vring->vq);
 
     vring->started_in_ctl = true;
+    vring->stop_requested = false;
     vdev->num_vrings_started++;
     vdev->num_vrings_in_flight++;
 
