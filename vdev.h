@@ -107,6 +107,8 @@ struct vhd_vdev {
     uint16_t num_vrings_in_flight;
     /* #vrings started and haven't yet acknowledged stop */
     uint16_t num_vrings_started;
+    /* #stop callbacks not yet acknowledged by the control plane */
+    uint16_t num_vrings_stopping;
 
     /* callback and arg to be called when the device is released */
     void (*release_cb)(void *);
@@ -177,7 +179,9 @@ struct vhd_vring {
 
     /* started as seen from control plane */
     bool started_in_ctl;
-    /* requested to disconnect */
+    /* stop already requested for this start; control plane only */
+    bool stop_requested;
+    /* requested to disconnect; accessed atomically across event loops */
     bool disconnecting;
     /* requested to skip drain */
     bool skip_drain;

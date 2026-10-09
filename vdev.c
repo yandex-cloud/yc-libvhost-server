@@ -222,6 +222,10 @@ static void vring_sync_to_virtq(struct vhd_vring *vring)
  *    counts vrings that have any potential to have requests in flight: it's
  *    incremented when a vring is started and decremented when a stopped vring
  *    reports there are no requests remaining in flight
+ *
+ * ->num_vrings_stopping
+ *    keeps the device alive until each scheduled stop callback has finished
+ *    accessing it, including stops racing with a failed start
  */
 static void vring_handle_msg(struct vhd_vring *vring,
                              void (*handler_bh)(void *))
@@ -279,7 +283,8 @@ static void vdev_drained(struct vhd_vdev *vdev);
 static bool vdev_in_use(struct vhd_vdev *vdev)
 {
     return vdev->num_vrings_in_flight || vdev->num_vrings_handling_msg ||
-           vdev->num_vrings_started || vdev->conn_handler;
+           vdev->num_vrings_started || vdev->num_vrings_stopping ||
+           vdev->conn_handler;
 }
 
 static void vdev_maybe_finished(struct vhd_vdev *vdev)
@@ -323,7 +328,7 @@ static void vring_reset(struct vhd_vring *vring)
 
     vring->num_in_flight_at_stop = 0;
 
-    vring->disconnecting = false;
+    catomic_set(&vring->disconnecting, false);
 }
 
 static void vring_mark_drained(struct vhd_vring *vring)
@@ -374,7 +379,8 @@ void vhd_vring_dec_in_flight(struct vhd_vring *vring)
     if (vring->started_in_rq) {
         struct vhd_vdev *vdev = vring->vdev;
 
-        if (vdev->pte_flush_byte_threshold && !vring->disconnecting) {
+        if (vdev->pte_flush_byte_threshold &&
+            !catomic_read(&vring->disconnecting)) {
             int64_t bytes_left;
 
             if (catomic_load_acquire(&vdev->pte_flush_pending)) {
@@ -401,12 +407,23 @@ static inline bool has_feature(uint64_t features_qword, size_t feature_bit)
     return features_qword & (1ull << feature_bit);
 }
 
+static void vring_stop_complete_bh(void *opaque)
+{
+    struct vhd_vdev *vdev = opaque;
+
+    VHD_ASSERT(vdev->num_vrings_stopping);
+    vdev->num_vrings_stopping--;
+    vdev_maybe_finished(vdev);
+}
+
 static void vring_stop_bh(void *opaque)
 {
     struct vhd_vring *vring = opaque;
+    struct vhd_vdev *vdev = vring->vdev;
+    bool disconnecting = catomic_read(&vring->disconnecting);
 
     if (!vring->started_in_rq) {
-        return;
+        goto out;
     }
 
     vhd_del_io_handler(vring->kick_handler);
@@ -417,7 +434,7 @@ static void vring_stop_bh(void *opaque)
      * On GET_VRING_BASE: cancel all in-flight requests only if inflight protocol
      * feature is enabled, otherwise we'd lose them during migration.
      */
-    if (vring->disconnecting) {
+    if (disconnecting) {
         vhd_cancel_queued_requests(vhd_get_rq_for_vring(vring), vring);
     } else if (vring->skip_drain) {
         vhd_cancel_queued_requests(vhd_get_rq_for_vring(vring), vring);
@@ -426,7 +443,7 @@ static void vring_stop_bh(void *opaque)
 
     vring->num_in_flight_at_stop = vring->num_in_flight;
 
-    if (!vring->disconnecting && vring->skip_drain) {
+    if (!disconnecting && vring->skip_drain) {
         vring->num_in_flight = 0;
         /* Decrease counter to avoid counting cancelled requests twice after migration */
         vring->vq.last_avail -= vring->num_in_flight_at_stop;
@@ -438,6 +455,23 @@ static void vring_stop_bh(void *opaque)
     if (!vring->num_in_flight) {
         vhd_run_in_ctl(vring_mark_drained_bh, vring);
     }
+
+out:
+    /* No accesses to the vring or vdev are allowed after this notification. */
+    vhd_run_in_ctl(vring_stop_complete_bh, vdev);
+}
+
+/* Called only in the control plane, once per vring start. */
+static void vring_stop(struct vhd_vring *vring)
+{
+    if (vring->stop_requested) {
+        return;
+    }
+
+    vring->stop_requested = true;
+    /* Also pins the device if a pending start fails before the stop runs. */
+    vring->vdev->num_vrings_stopping++;
+    vhd_run_in_rq(vhd_get_rq_for_vring(vring), vring_stop_bh, vring);
 }
 
 static void vring_disconnect(struct vhd_vring *vring)
@@ -447,9 +481,9 @@ static void vring_disconnect(struct vhd_vring *vring)
          * If vring_start_bh gets reordered with vring_stop_bh, make sure it
          * doesn't actually start vring.
          */
-        vring->disconnecting = true;
+        catomic_set(&vring->disconnecting, true);
 
-        vhd_run_in_rq(vhd_get_rq_for_vring(vring), vring_stop_bh, vring);
+        vring_stop(vring);
     }
 }
 
@@ -1422,7 +1456,7 @@ static void vring_start_bh(void *opaque)
      * If vring_stop_bh from vdev_disconnect gets reordered with
      * vring_start_bh, do not start the vring as the device is going down.
      */
-    if (vring->disconnecting) {
+    if (catomic_read(&vring->disconnecting)) {
         goto fail;
     }
 
@@ -1488,6 +1522,7 @@ static int vhost_set_vring_kick(struct vhd_vdev *vdev, const void *payload,
     virtio_virtq_init(&vring->vq);
 
     vring->started_in_ctl = true;
+    vring->stop_requested = false;
     vdev->num_vrings_started++;
     vdev->num_vrings_in_flight++;
 
@@ -1635,7 +1670,7 @@ static int do_vhost_get_vring_base(struct vhd_vdev *vdev, const void *payload,
      * vring_stop_bh() instead of going through vring_handle_msg().
      */
     vring->on_drain_cb = vhost_send_vring_base;
-    vhd_run_in_rq(vhd_get_rq_for_vring(vring), vring_stop_bh, vring);
+    vring_stop(vring);
     return 0;
 }
 
