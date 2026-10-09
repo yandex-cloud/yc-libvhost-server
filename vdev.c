@@ -222,6 +222,10 @@ static void vring_sync_to_virtq(struct vhd_vring *vring)
  *    counts vrings that have any potential to have requests in flight: it's
  *    incremented when a vring is started and decremented when a stopped vring
  *    reports there are no requests remaining in flight
+ *
+ * ->num_vrings_stopping
+ *    keeps the device alive until each scheduled stop callback has finished
+ *    accessing it, including stops racing with a failed start
  */
 static void vring_handle_msg(struct vhd_vring *vring,
                              void (*handler_bh)(void *))
@@ -279,7 +283,8 @@ static void vdev_drained(struct vhd_vdev *vdev);
 static bool vdev_in_use(struct vhd_vdev *vdev)
 {
     return vdev->num_vrings_in_flight || vdev->num_vrings_handling_msg ||
-           vdev->num_vrings_started || vdev->conn_handler;
+           vdev->num_vrings_started || vdev->num_vrings_stopping ||
+           vdev->conn_handler;
 }
 
 static void vdev_maybe_finished(struct vhd_vdev *vdev)
@@ -402,13 +407,23 @@ static inline bool has_feature(uint64_t features_qword, size_t feature_bit)
     return features_qword & (1ull << feature_bit);
 }
 
+static void vring_stop_complete_bh(void *opaque)
+{
+    struct vhd_vdev *vdev = opaque;
+
+    VHD_ASSERT(vdev->num_vrings_stopping);
+    vdev->num_vrings_stopping--;
+    vdev_maybe_finished(vdev);
+}
+
 static void vring_stop_bh(void *opaque)
 {
     struct vhd_vring *vring = opaque;
+    struct vhd_vdev *vdev = vring->vdev;
     bool disconnecting = catomic_read(&vring->disconnecting);
 
     if (!vring->started_in_rq) {
-        return;
+        goto out;
     }
 
     vhd_del_io_handler(vring->kick_handler);
@@ -440,6 +455,17 @@ static void vring_stop_bh(void *opaque)
     if (!vring->num_in_flight) {
         vhd_run_in_ctl(vring_mark_drained_bh, vring);
     }
+
+out:
+    /* No accesses to the vring or vdev are allowed after this notification. */
+    vhd_run_in_ctl(vring_stop_complete_bh, vdev);
+}
+
+/* Called only in the control plane. */
+static void vring_stop(struct vhd_vring *vring)
+{
+    vring->vdev->num_vrings_stopping++;
+    vhd_run_in_rq(vhd_get_rq_for_vring(vring), vring_stop_bh, vring);
 }
 
 static void vring_disconnect(struct vhd_vring *vring)
@@ -451,7 +477,7 @@ static void vring_disconnect(struct vhd_vring *vring)
          */
         catomic_set(&vring->disconnecting, true);
 
-        vhd_run_in_rq(vhd_get_rq_for_vring(vring), vring_stop_bh, vring);
+        vring_stop(vring);
     }
 }
 
@@ -1637,7 +1663,7 @@ static int do_vhost_get_vring_base(struct vhd_vdev *vdev, const void *payload,
      * vring_stop_bh() instead of going through vring_handle_msg().
      */
     vring->on_drain_cb = vhost_send_vring_base;
-    vhd_run_in_rq(vhd_get_rq_for_vring(vring), vring_stop_bh, vring);
+    vring_stop(vring);
     return 0;
 }
 
