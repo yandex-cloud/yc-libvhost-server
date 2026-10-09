@@ -867,7 +867,10 @@ static int resize(struct disk *d, uint64_t new_size)
         return ret;
     }
 
-    vhd_blockdev_set_total_blocks(d->handler, new_size / block_size);
+    ret = vhd_blockdev_resize(d->handler, new_size / block_size);
+    if (ret < 0) {
+        return ret;
+    }
 
     vhd_log_stderr(LOG_INFO, "Resized succesfully to %" PRIu64, new_size);
 
