@@ -405,6 +405,7 @@ static inline bool has_feature(uint64_t features_qword, size_t feature_bit)
 static void vring_stop_bh(void *opaque)
 {
     struct vhd_vring *vring = opaque;
+    bool disconnecting = catomic_read(&vring->disconnecting);
 
     if (!vring->started_in_rq) {
         return;
@@ -418,7 +419,7 @@ static void vring_stop_bh(void *opaque)
      * On GET_VRING_BASE: cancel all in-flight requests only if inflight protocol
      * feature is enabled, otherwise we'd lose them during migration.
      */
-    if (catomic_read(&vring->disconnecting)) {
+    if (disconnecting) {
         vhd_cancel_queued_requests(vhd_get_rq_for_vring(vring), vring);
     } else if (vring->skip_drain) {
         vhd_cancel_queued_requests(vhd_get_rq_for_vring(vring), vring);
@@ -427,7 +428,7 @@ static void vring_stop_bh(void *opaque)
 
     vring->num_in_flight_at_stop = vring->num_in_flight;
 
-    if (!catomic_read(&vring->disconnecting) && vring->skip_drain) {
+    if (!disconnecting && vring->skip_drain) {
         vring->num_in_flight = 0;
         /* Decrease counter to avoid counting cancelled requests twice after migration */
         vring->vq.last_avail -= vring->num_in_flight_at_stop;
