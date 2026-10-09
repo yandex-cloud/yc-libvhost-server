@@ -127,8 +127,8 @@ static void client_set_vring_enable(int sock, uint32_t index, bool enable,
     }
 }
 
-/* Bring all the vrings of the device into the started and enabled state */
-static void client_start_vrings(int sock)
+/* Negotiate the features and set up the guest memory */
+static void client_setup_device(int sock)
 {
     uint64_t features;
     struct vhost_user_mem_desc mem = {};
@@ -159,32 +159,59 @@ static void client_start_vrings(int sock)
     mem.regions[0].user_addr = guest_mem_uva;
     client_request(sock, VHOST_USER_SET_MEM_TABLE, mem, memfd);
     close(memfd);
+}
+
+/* Configure a vring up to the point where SET_VRING_KICK starts it */
+static void client_setup_vring(int sock, uint32_t i)
+{
+    uint64_t base = guest_mem_uva + i * vring_mem_size;
+    struct vhost_user_vring_state num = { i, queue_size };
+    struct vhost_user_vring_state last_avail = { i, 0 };
+    struct vhost_user_vring_addr addr = {};
+    uint64_t vring_idx = i;
+    int callfd = eventfd(0, EFD_CLOEXEC);
+    CU_ASSERT_FATAL(callfd >= 0);
+
+    addr.index = i;
+    addr.desc_addr = base;
+    addr.avail_addr = base + page_size;
+    addr.used_addr = base + 2 * page_size;
+
+    client_request(sock, VHOST_USER_SET_VRING_NUM, num);
+    client_request(sock, VHOST_USER_SET_VRING_ADDR, addr);
+    client_request(sock, VHOST_USER_SET_VRING_BASE, last_avail);
+    client_request(sock, VHOST_USER_SET_VRING_CALL, vring_idx, callfd);
+
+    /* the server keeps its own duplicate */
+    close(callfd);
+}
+
+/* Send SET_VRING_KICK; with @wait == false the reply is left unread */
+static void client_kick_vring(int sock, uint32_t i, bool wait)
+{
+    uint64_t vring_idx = i;
+    int kickfd = eventfd(0, EFD_CLOEXEC);
+    CU_ASSERT_FATAL(kickfd >= 0);
+
+    client_send(sock, VHOST_USER_SET_VRING_KICK, &vring_idx, sizeof(vring_idx),
+                kickfd, true);
+    if (wait) {
+        CU_ASSERT_FATAL(client_recv_u64(sock, VHOST_USER_SET_VRING_KICK) == 0);
+    }
+
+    /* the server keeps its own duplicate */
+    close(kickfd);
+}
+
+/* Bring all the vrings of the device into the started and enabled state */
+static void client_start_vrings(int sock)
+{
+    client_setup_device(sock);
 
     for (uint32_t i = 0; i < num_queues; i++) {
-        uint64_t base = guest_mem_uva + i * vring_mem_size;
-        struct vhost_user_vring_state num = { i, queue_size };
-        struct vhost_user_vring_state last_avail = { i, 0 };
-        struct vhost_user_vring_addr addr = {};
-        uint64_t vring_idx = i;
-        int callfd = eventfd(0, EFD_CLOEXEC);
-        int kickfd = eventfd(0, EFD_CLOEXEC);
-        CU_ASSERT_FATAL(callfd >= 0 && kickfd >= 0);
-
-        addr.index = i;
-        addr.desc_addr = base;
-        addr.avail_addr = base + page_size;
-        addr.used_addr = base + 2 * page_size;
-
-        client_request(sock, VHOST_USER_SET_VRING_NUM, num);
-        client_request(sock, VHOST_USER_SET_VRING_ADDR, addr);
-        client_request(sock, VHOST_USER_SET_VRING_BASE, last_avail);
-        client_request(sock, VHOST_USER_SET_VRING_CALL, vring_idx, callfd);
-        client_request(sock, VHOST_USER_SET_VRING_KICK, vring_idx, kickfd);
+        client_setup_vring(sock, i);
+        client_kick_vring(sock, i, true);
         client_set_vring_enable(sock, i, true, true);
-
-        /* the server keeps its own duplicates */
-        close(callfd);
-        close(kickfd);
     }
 }
 
@@ -346,6 +373,239 @@ static void unregister_during_vring_msg_test(void)
     sem_destroy(&unregistered);
 }
 
+/*
+ * Common environment for the vring stop tests: a blockdev on one request queue
+ * with a connected client that has set up the device but started no vrings.
+ */
+struct stop_test_env {
+    char tmpdir[sizeof("/tmp/vhost_vdev_test_XXXXXX")];
+    std::string socket_path;
+    struct vhd_request_queue *rq;
+    std::thread rq_thread;
+    struct vhd_vdev *vdev;
+    int sock;
+    sem_t unregistered;
+};
+
+static void stop_test_env_init(struct stop_test_env *env)
+{
+    struct vhd_bdev_info bdev_info = {};
+
+    strcpy(env->tmpdir, "/tmp/vhost_vdev_test_XXXXXX");
+    CU_ASSERT_FATAL(mkdtemp(env->tmpdir) != NULL);
+    env->socket_path = std::string(env->tmpdir) + "/vhost.sock";
+    sem_init(&env->unregistered, 0, 0);
+
+    bdev_info.serial = "vdev_test";
+    bdev_info.socket_path = env->socket_path.c_str();
+    bdev_info.block_size = 4096;
+    bdev_info.num_queues = num_queues;
+    bdev_info.total_blocks = 256;
+
+    CU_ASSERT_FATAL(vhd_start_vhost_server(vhd_log_stderr) == 0);
+
+    env->rq = vhd_create_request_queue();
+    CU_ASSERT_FATAL(env->rq != NULL);
+
+    struct vhd_request_queue *rq = env->rq;
+    env->rq_thread = std::thread([rq]() {
+        while (vhd_run_queue(rq) == -EAGAIN) {
+            ;
+        }
+    });
+
+    env->vdev = vhd_register_blockdev(&bdev_info, &env->rq, 1, NULL);
+    CU_ASSERT_FATAL(env->vdev != NULL);
+
+    env->sock = client_connect(env->socket_path.c_str());
+    client_setup_device(env->sock);
+}
+
+static void stop_test_env_fini(struct stop_test_env *env, bool released)
+{
+    vhd_stop_queue(env->rq);
+    env->rq_thread.join();
+
+    /* a device that failed to go away still uses these, leave them alone */
+    if (released) {
+        vhd_release_request_queue(env->rq);
+        vhd_stop_vhost_server();
+    }
+
+    close(env->sock);
+    unlink(env->socket_path.c_str());
+    rmdir(env->tmpdir);
+    sem_destroy(&env->unregistered);
+}
+
+/*
+ * Runs in the request queue between the vring stop callbacks.  Checks whether
+ * the device gets released while a stop callback for one of its vrings is
+ * still pending: that callback would then access freed memory.
+ */
+struct release_probe {
+    sem_t *unregistered;
+    bool released_early;
+    sem_t done;
+};
+
+/*
+ * With the fix the device is pinned until the pending stop callback runs, so
+ * the wait always times out; a release within the timeout means the device was
+ * freed under the pending callback.
+ */
+static constexpr int release_probe_timeout_sec = 1;
+
+static void release_probe_bh(void *opaque)
+{
+    struct release_probe *probe = (struct release_probe *)opaque;
+
+    probe->released_early = sem_wait_timeout(probe->unregistered,
+                                             release_probe_timeout_sec);
+    if (probe->released_early) {
+        /* keep the final check in the test working */
+        sem_post(probe->unregistered);
+    }
+    sem_post(&probe->done);
+}
+
+/* Wait for the probe to finish and check its result */
+static void release_probe_check(struct release_probe *probe)
+{
+    sem_wait(&probe->done);
+    CU_ASSERT(!probe->released_early);
+    sem_destroy(&probe->done);
+}
+
+static bool vdev_has_get_vring_base_pending(struct vhd_vdev *vdev)
+{
+    return vdev->req == VHOST_USER_GET_VRING_BASE;
+}
+
+static bool vdev_has_msg_pending(struct vhd_vdev *vdev)
+{
+    return vdev->num_vrings_handling_msg == 1;
+}
+
+static bool vdev_is_disconnected(struct vhd_vdev *vdev)
+{
+    return vdev->conn_handler == NULL;
+}
+
+/*
+ * GET_VRING_BASE and the disconnect on unregister both schedule a stop of the
+ * same vring.  The second stop callback must not run on a released device.
+ *
+ * BHs scheduled while the request queue is stalled run in LIFO order, so the
+ * request queue sees: the disconnect stop, the release probe, the
+ * GET_VRING_BASE stop.
+ */
+static void get_vring_base_vs_disconnect_test(void)
+{
+    struct stop_test_env env;
+    struct rq_stall stall;
+    struct release_probe probe = { &env.unregistered, false, {} };
+    struct vhost_user_vring_state state = { 0, 0 };
+
+    stop_test_env_init(&env);
+    sem_init(&probe.done, 0, 0);
+    sem_init(&stall.entered, 0, 0);
+    sem_init(&stall.release, 0, 0);
+
+    client_setup_vring(env.sock, 0);
+    client_kick_vring(env.sock, 0, true);
+
+    vhd_run_in_rq(env.rq, rq_stall_bh, &stall);
+    sem_wait(&stall.entered);
+
+    /* schedules the first stop; the reply only comes once drained */
+    client_send(env.sock, VHOST_USER_GET_VRING_BASE, &state, sizeof(state));
+    wait_in_ctl(env.vdev, vdev_has_get_vring_base_pending);
+
+    vhd_run_in_rq(env.rq, release_probe_bh, &probe);
+
+    /* schedules the second stop (before the fix) */
+    std::thread unregister_thread([&]() {
+        vhd_unregister_blockdev(env.vdev, unregister_complete,
+                                &env.unregistered);
+    });
+    wait_in_ctl(env.vdev, vdev_is_disconnected);
+
+    sem_post(&stall.release);
+    unregister_thread.join();
+
+    release_probe_check(&probe);
+
+    bool released = sem_wait_timeout(&env.unregistered, 5);
+    CU_ASSERT(released);
+
+    stop_test_env_fini(&env, released);
+    sem_destroy(&stall.entered);
+    sem_destroy(&stall.release);
+}
+
+/*
+ * The disconnect on unregister schedules a stop of a vring whose start is
+ * still pending.  The start then fails as the device is going down and the
+ * vring is marked stopped and drained by the control plane.  The pending stop
+ * callback must not run on a released device.
+ *
+ * Two stalls are needed to make the start run before the stop:
+ *   batch 1 (LIFO): stall #2, start  -- the disconnect happens during stall #2
+ *   batch 2 (LIFO): release probe, disconnect stop
+ */
+static void failed_start_vs_disconnect_test(void)
+{
+    struct stop_test_env env;
+    struct rq_stall stall1, stall2;
+    struct release_probe probe = { &env.unregistered, false, {} };
+
+    stop_test_env_init(&env);
+    sem_init(&probe.done, 0, 0);
+    sem_init(&stall1.entered, 0, 0);
+    sem_init(&stall1.release, 0, 0);
+    sem_init(&stall2.entered, 0, 0);
+    sem_init(&stall2.release, 0, 0);
+
+    client_setup_vring(env.sock, 0);
+
+    vhd_run_in_rq(env.rq, rq_stall_bh, &stall1);
+    sem_wait(&stall1.entered);
+
+    /* the start is queued to the stalled request queue */
+    client_kick_vring(env.sock, 0, false);
+    wait_in_ctl(env.vdev, vdev_has_msg_pending);
+
+    /* runs before the start within the next batch */
+    vhd_run_in_rq(env.rq, rq_stall_bh, &stall2);
+    sem_post(&stall1.release);
+    sem_wait(&stall2.entered);
+
+    /* sets ->disconnecting and schedules the stop into the next batch */
+    std::thread unregister_thread([&]() {
+        vhd_unregister_blockdev(env.vdev, unregister_complete,
+                                &env.unregistered);
+    });
+    wait_in_ctl(env.vdev, vdev_is_disconnected);
+
+    vhd_run_in_rq(env.rq, release_probe_bh, &probe);
+
+    /* the start fails now, and the control plane may release the device */
+    sem_post(&stall2.release);
+    unregister_thread.join();
+
+    release_probe_check(&probe);
+
+    bool released = sem_wait_timeout(&env.unregistered, 5);
+    CU_ASSERT(released);
+
+    stop_test_env_fini(&env, released);
+    sem_destroy(&stall1.entered);
+    sem_destroy(&stall1.release);
+    sem_destroy(&stall2.entered);
+    sem_destroy(&stall2.release);
+}
+
 int main(void)
 {
     int res = 0;
@@ -362,6 +622,8 @@ int main(void)
     }
 
     CU_ADD_TEST(suite, unregister_during_vring_msg_test);
+    CU_ADD_TEST(suite, get_vring_base_vs_disconnect_test);
+    CU_ADD_TEST(suite, failed_start_vs_disconnect_test);
 
     CU_basic_set_mode(CU_BRM_VERBOSE);
     CU_basic_run_tests();
