@@ -177,7 +177,7 @@ struct vhd_vring {
 
     /* started as seen from control plane */
     bool started_in_ctl;
-    /* requested to disconnect */
+    /* requested to disconnect; accessed atomically across event loops */
     bool disconnecting;
     /* requested to skip drain */
     bool skip_drain;

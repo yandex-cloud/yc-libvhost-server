@@ -323,7 +323,7 @@ static void vring_reset(struct vhd_vring *vring)
 
     vring->num_in_flight_at_stop = 0;
 
-    vring->disconnecting = false;
+    catomic_set(&vring->disconnecting, false);
 }
 
 static void vring_mark_drained(struct vhd_vring *vring)
@@ -374,7 +374,8 @@ void vhd_vring_dec_in_flight(struct vhd_vring *vring)
     if (vring->started_in_rq) {
         struct vhd_vdev *vdev = vring->vdev;
 
-        if (vdev->pte_flush_byte_threshold && !vring->disconnecting) {
+        if (vdev->pte_flush_byte_threshold &&
+            !catomic_read(&vring->disconnecting)) {
             int64_t bytes_left;
 
             if (catomic_load_acquire(&vdev->pte_flush_pending)) {
@@ -417,7 +418,7 @@ static void vring_stop_bh(void *opaque)
      * On GET_VRING_BASE: cancel all in-flight requests only if inflight protocol
      * feature is enabled, otherwise we'd lose them during migration.
      */
-    if (vring->disconnecting) {
+    if (catomic_read(&vring->disconnecting)) {
         vhd_cancel_queued_requests(vhd_get_rq_for_vring(vring), vring);
     } else if (vring->skip_drain) {
         vhd_cancel_queued_requests(vhd_get_rq_for_vring(vring), vring);
@@ -426,7 +427,7 @@ static void vring_stop_bh(void *opaque)
 
     vring->num_in_flight_at_stop = vring->num_in_flight;
 
-    if (!vring->disconnecting && vring->skip_drain) {
+    if (!catomic_read(&vring->disconnecting) && vring->skip_drain) {
         vring->num_in_flight = 0;
         /* Decrease counter to avoid counting cancelled requests twice after migration */
         vring->vq.last_avail -= vring->num_in_flight_at_stop;
@@ -447,7 +448,7 @@ static void vring_disconnect(struct vhd_vring *vring)
          * If vring_start_bh gets reordered with vring_stop_bh, make sure it
          * doesn't actually start vring.
          */
-        vring->disconnecting = true;
+        catomic_set(&vring->disconnecting, true);
 
         vhd_run_in_rq(vhd_get_rq_for_vring(vring), vring_stop_bh, vring);
     }
@@ -1422,7 +1423,7 @@ static void vring_start_bh(void *opaque)
      * If vring_stop_bh from vdev_disconnect gets reordered with
      * vring_start_bh, do not start the vring as the device is going down.
      */
-    if (vring->disconnecting) {
+    if (catomic_read(&vring->disconnecting)) {
         goto fail;
     }
 
