@@ -55,6 +55,13 @@ libvhost_defines = [
     '-DLOG_VERBOSITY=' + libvhost_log_verbosity
 ]
 
+# Whatever includes vdev.h has to be built with these as well
+libvhost_fault_injection_defines = []
+if get_option('fault-injection')
+    libvhost_fault_injection_defines += ['-DVHD_FAULT_INJECTION']
+endif
+libvhost_defines += libvhost_fault_injection_defines
+
 libvhost = static_library(
     'vhost',
     sources: libvhost_sources,

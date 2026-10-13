@@ -5,7 +5,7 @@ vhost_user_blk_test_server_includes = include_directories(
     '../'
 )
 
-vhost_user_blk_test_server_args = []
+vhost_user_blk_test_server_args = libvhost_fault_injection_defines
 if cc.get_id() == 'gcc'
     vhost_user_blk_test_server_args += ['-Wno-error=unused-result']
 endif

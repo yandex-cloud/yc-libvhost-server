@@ -1,2 +1,3 @@
 option('libblkio', type : 'feature', value : 'auto', description : 'Pull libblkio subproject (required for integration tests)')
 option('unit-tests', type : 'feature', value : 'auto', description : 'Build unit tests (requires C++ and CUnit)')
+option('fault-injection', type : 'boolean', value : false, description : 'Compile in vhost-user fault injection')
