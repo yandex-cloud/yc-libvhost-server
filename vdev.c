@@ -17,6 +17,9 @@
 #include "logging.h"
 #include "memmap.h"
 #include "memlog.h"
+#ifdef VHD_FAULT_INJECTION
+#include "fault_injection.h"
+#endif
 
 #define VHOST_REQ(req) [VHOST_USER_ ## req] = #req
 static const char *const vhost_req_names[] = {
@@ -2001,6 +2004,50 @@ static inline void log_vhost_request_failed(struct vhd_vdev *vdev, uint32_t req,
                   vhost_req_name(req), req, strerror(-ret), size, payload_hex);
 }
 
+#ifdef VHD_FAULT_INJECTION
+struct vhd_msg_faults {
+    enum vhd_msg_fault by_req[VHD_ARRAY_SIZE(vhost_msg_handlers)];
+};
+
+static bool vhost_inject_fault(struct vhd_vdev *vdev, uint32_t req, int *ret)
+{
+    if (!vdev->msg_faults) {
+        return false;
+    }
+
+    switch (vdev->msg_faults->by_req[req]) {
+    case VHD_MSG_FAULT_NONE:
+        return false;
+    case VHD_MSG_FAULT_ABORT:
+        VHD_OBJ_ERROR(vdev, "%s (%u): injected fault, aborting",
+                      vhost_req_name(req), req);
+        abort();
+    case VHD_MSG_FAULT_FAIL:
+        VHD_OBJ_WARN(vdev, "%s (%u): injected fault, failing the request",
+                     vhost_req_name(req), req);
+        if (vdev->ack_pending) {
+            /* Tell QEMU this request failed without aborting the connection */
+            *ret = vhost_ack(vdev, -EIO);
+        } else {
+            /*
+             * Since QEMU is not expecting a reply for this request, make
+             * conn_read() drop the connection instead
+             */
+            *ret = -EIO;
+        }
+        return true;
+    }
+
+    VHD_UNREACHABLE();
+}
+#else
+static inline bool vhost_inject_fault(struct vhd_vdev *vdev, uint32_t req,
+                                      int *ret)
+{
+    return false;
+}
+#endif
+
 static int vhost_handle_msg(struct vhd_vdev *vdev, uint32_t req,
                             const void *payload, size_t size,
                             const int *fds, size_t num_fds)
@@ -2013,7 +2060,9 @@ static int vhost_handle_msg(struct vhd_vdev *vdev, uint32_t req,
         return -ENOTSUP;
     }
 
-    ret = vhost_msg_handlers[req](vdev, payload, size, fds, num_fds);
+    if (!vhost_inject_fault(vdev, req, &ret)) {
+        ret = vhost_msg_handlers[req](vdev, payload, size, fds, num_fds);
+    }
     if (ret < 0) {
         log_vhost_request_failed(vdev, req, payload, size, ret);
     }
@@ -2114,6 +2163,9 @@ static void vhd_vdev_release(struct vhd_vdev *vdev)
     }
     vhd_free(vdev->vrings);
     vhd_free(vdev->rqs);
+#ifdef VHD_FAULT_INJECTION
+    vhd_free(vdev->msg_faults);
+#endif
 
     if (vdev->release_cb) {
         vdev->release_cb(vdev->release_arg);
@@ -2513,6 +2565,41 @@ int vhd_vdev_stop_server(struct vhd_vdev *vdev,
     }
     return ret;
 }
+
+#ifdef VHD_FAULT_INJECTION
+struct vdev_set_msg_fault_work {
+    uint32_t req;
+    enum vhd_msg_fault fault;
+};
+
+static void vdev_set_msg_fault(struct vhd_vdev *vdev, void *opaque)
+{
+    struct vdev_set_msg_fault_work *work = opaque;
+
+    if (!vdev->msg_faults) {
+        vdev->msg_faults = vhd_zalloc(sizeof(*vdev->msg_faults));
+    }
+    vdev->msg_faults->by_req[work->req] = work->fault;
+
+    vdev_complete_work(vdev, 0);
+}
+
+int vhd_vdev_set_msg_fault(struct vhd_vdev *vdev, uint32_t req,
+                           enum vhd_msg_fault fault)
+{
+    struct vdev_set_msg_fault_work work = {
+        .req = req,
+        .fault = fault,
+    };
+
+    if (req >= VHD_ARRAY_SIZE(vhost_msg_handlers) ||
+        !vhost_msg_handlers[req]) {
+        return -ENOTSUP;
+    }
+
+    return vdev_submit_work_and_wait(vdev, vdev_set_msg_fault, &work);
+}
+#endif
 
 void *vhd_vdev_get_priv(struct vhd_vdev *vdev)
 {

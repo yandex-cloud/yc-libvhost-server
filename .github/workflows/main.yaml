@@ -26,6 +26,13 @@ jobs:
           ninja
           popd
 
+      - name: Build with fault injection
+        run: |
+          src_dir="${{ github.workspace }}"
+          build_dir="$src_dir/build-fault-injection"
+          CC=clang CXX=clang++ meson setup $build_dir $src_dir -Dunit-tests=enabled -Dlibblkio=disabled -Dfault-injection=true
+          ninja -C $build_dir
+
       - name: Run unit tests
         run: meson test -C build --suite unit --print-errorlogs --logbase unit-tests
 

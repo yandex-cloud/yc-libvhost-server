@@ -34,6 +34,7 @@ struct vhd_vdev_type {
 struct vhd_memory_map;
 struct vhd_memory_log;
 struct vhd_work;
+struct vhd_msg_faults;
 
 /**
  * Vhost generic device instance.
@@ -128,6 +129,11 @@ struct vhd_vdev {
     int keep_fd;
 
     struct vhd_work *work;
+
+#ifdef VHD_FAULT_INJECTION
+    /* Faults to inject upon requests, NULL unless any was ever set */
+    struct vhd_msg_faults *msg_faults;
+#endif
 };
 
 /**
