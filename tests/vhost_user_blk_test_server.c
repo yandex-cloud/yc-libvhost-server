@@ -24,6 +24,9 @@
 #include "test_utils.h"
 #include "platform.h"
 #include "vdev.h"
+#ifdef VHD_FAULT_INJECTION
+#include "fault_injection.h"
+#endif
 
 #define DIE(fmt, ...)                              \
 do {                                               \
@@ -874,14 +877,79 @@ static int resize(struct disk *d, uint64_t new_size)
     return 0;
 }
 
+#ifdef VHD_FAULT_INJECTION
+static const char *const fault_names[] = {
+    [VHD_MSG_FAULT_NONE] = "none",
+    [VHD_MSG_FAULT_ABORT] = "abort",
+    [VHD_MSG_FAULT_FAIL] = "fail",
+};
+
+static int inject_fault(struct disk *d, uint32_t req, const char *name)
+{
+    size_t i;
+
+    for (i = 0; i < VHD_ARRAY_SIZE(fault_names); ++i) {
+        if (!strcmp(name, fault_names[i])) {
+            return vhd_vdev_set_msg_fault(d->handler, req, i);
+        }
+    }
+
+    return -EINVAL;
+}
+
+static bool monitor_fault_cmd(struct disks_context *ctx, const char *cmdline,
+                              char *out, int out_size)
+{
+    char fault[16];
+    uint64_t dev_idx;
+    uint32_t req;
+    int ret;
+
+    if (sscanf(cmdline, "fault %" SCNu64 " %" SCNu32 " %15s\n",
+               &dev_idx, &req, fault) != 3) {
+        return false;
+    }
+
+    if (dev_idx >= ctx->num_disks) {
+        snprintf(out, out_size, "Invalid device index %" PRIu64 "\n", dev_idx);
+        return true;
+    }
+
+    ret = inject_fault(&ctx->disks[dev_idx], req, fault);
+    if (ret == 0) {
+        ret = snprintf(out, out_size, "Fault for request %" PRIu32
+                       " set to %s\n", req, fault);
+    } else {
+        ret = snprintf(out, out_size, "Setting fault failed: %s\n",
+                       strerror(-ret));
+    }
+    VHD_VERIFY(ret < out_size); /* fit in buffer */
+
+    return true;
+}
+#else
+static bool monitor_fault_cmd(struct disks_context *ctx, const char *cmdline,
+                              char *out, int out_size)
+{
+    return false;
+}
+#endif
+
 static bool monitor_serve_fd(FILE *f_in, FILE *f_out,
                              struct disks_context *ctx)
 {
-    const char *const help = "Commands:\n"
-                             "  help  -  print this message\n"
-                             "  stop  -  stop the server and quit\n"
-                             "  stat  -  print statistics\n"
-                             "  resize <new_size>  -  resize the disk\n";
+    const char *const help =
+        "Commands:\n"
+        "  help  -  print this message\n"
+        "  stop  -  stop the server and quit\n"
+        "  stat <disk>  -  print statistics\n"
+        "  resize <disk> <new_size>  -  resize the disk\n"
+#ifdef VHD_FAULT_INJECTION
+        "  fault <disk> <request> none|abort|fail  -  upon receiving the\n"
+        "      vhost-user request with this number, abort the server or\n"
+        "      fail the request; none makes it be handled normally again\n"
+#endif
+        ;
 
     bool interactive = (f_in == stdin && f_out == stdout);
 
@@ -961,6 +1029,9 @@ static bool monitor_serve_fd(FILE *f_in, FILE *f_out,
                 snprintf(output_buf, output_buf_size,
                          "Invalid device index %" PRIu64 "\n", dev_idx);
             }
+        } else if (monitor_fault_cmd(ctx, cmdline, output_buf,
+                                     output_buf_size)) {
+            /* the result is in output_buf */
         } else {
             out = "Unknown command\n";
         }

@@ -32,3 +32,7 @@ The `unit-tests` option defaults to `auto`: unit tests are built when CUnit and
 a C++ compiler are available. Use `-Dunit-tests=enabled` to require them or
 `-Dunit-tests=disabled` to skip them. Integration tests require libblkio and
 pytest and can be selected with `meson test -C build --suite integration`.
+
+`-Dfault-injection=true` compiles in vhost-user fault injection and the `fault`
+monitor command of the test server, which make the server crash or fail a
+request upon receiving a given vhost-user request.
