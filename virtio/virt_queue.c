@@ -260,9 +260,7 @@ void virtio_virtq_release(struct virtio_virtq *vq)
 {
     VHD_ASSERT(vq->buffers);
     vhd_free(vq->buffers);
-    *vq = (struct virtio_virtq) {
-        .notify_fd = -1,
-    };
+    *vq = (struct virtio_virtq) {};
 }
 
 struct inflight_resubmit {
@@ -688,21 +686,16 @@ void virtq_push(struct virtio_virtq *vq, struct virtio_iov *iov, uint32_t len)
 
 void virtq_set_notify_fd(struct virtio_virtq *vq, int fd)
 {
-    int old_fd = vq->notify_fd;
-    bool should_notify = old_fd == -1 && fd != -1;
-
     vq->notify_fd = fd;
 
     /*
-     * On init/reconnect notify new fd because on initial setup QEMU sets up
-     * kick_fd before call_fd, so before call_fd becomes configured there can
-     * be already processed descriptors that guest wasn't notified about.
+     * Always notify new fd because on initial setup QEMU sets up kick_fd
+     * before call_fd, so before call_fd becomes configured there can be
+     * already processed descriptors that guest wasn't notified about.
      * And on reconnect connection may have been lost before the server has
      * had a chance to signal guest.
      */
-    if (should_notify) {
-        virtq_do_notify(vq);
-    }
+    virtq_do_notify(vq);
 }
 
 void virtio_virtq_get_stat(struct virtio_virtq *vq,
