@@ -5,8 +5,12 @@
 #include <time.h>
 #include <unistd.h>
 #include <sys/eventfd.h>
+#include <poll.h>
+#include <stdio.h>
 #include <sys/mman.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
+#include <sys/sysmacros.h>
 #include <sys/un.h>
 
 #include <string>
@@ -21,6 +25,8 @@
 #include "server_internal.h"
 #include "vdev.h"
 #include "vhost_spec.h"
+#include "virtio/virtio_blk_spec.h"
+#include "virtio/virtio_spec.h"
 
 #include "test_utils.h"
 
@@ -30,7 +36,11 @@ static constexpr size_t page_size = 4096;
 
 /* desc, avail and used rings take a zero-filled page each */
 static constexpr size_t vring_mem_size = 3 * page_size;
-static constexpr size_t guest_mem_size = num_queues * vring_mem_size;
+/* a page for the header and status of a request, followed by its data */
+static constexpr size_t req_mem_offset = num_queues * vring_mem_size;
+static constexpr size_t req_data_size = page_size;
+static constexpr size_t guest_mem_size = req_mem_offset + page_size +
+                                         req_data_size;
 /* the library maps the memory on its own and only uses this as a lookup key */
 static constexpr uint64_t guest_mem_uva = 0x100000000ull;
 
@@ -127,8 +137,11 @@ static void client_set_vring_enable(int sock, uint32_t index, bool enable,
     }
 }
 
-/* Negotiate the features and set up the guest memory */
-static void client_setup_device(int sock)
+/*
+ * Negotiate the features and set up the guest memory. If @memfd_out is given,
+ * the guest memory fd is returned there for the caller to fill in and close.
+ */
+static void client_setup_device(int sock, int *memfd_out = NULL)
 {
     uint64_t features;
     struct vhost_user_mem_desc mem = {};
@@ -158,7 +171,12 @@ static void client_setup_device(int sock)
     mem.regions[0].size = guest_mem_size;
     mem.regions[0].user_addr = guest_mem_uva;
     client_request(sock, VHOST_USER_SET_MEM_TABLE, mem, memfd);
-    close(memfd);
+
+    if (memfd_out) {
+        *memfd_out = memfd;
+    } else {
+        close(memfd);
+    }
 }
 
 /* Configure a vring up to the point where SET_VRING_KICK starts it */
@@ -186,8 +204,13 @@ static void client_setup_vring(int sock, uint32_t i)
     close(callfd);
 }
 
-/* Send SET_VRING_KICK; with @wait == false the reply is left unread */
-static void client_kick_vring(int sock, uint32_t i, bool wait)
+/*
+ * Send SET_VRING_KICK. With @wait == false the reply is left unread. If
+ * @kickfd_out is given, the kick eventfd is returned there for the caller to
+ * signal and close.
+ */
+static void client_kick_vring(int sock, uint32_t i, bool wait,
+                              int *kickfd_out = NULL)
 {
     uint64_t vring_idx = i;
     int kickfd = eventfd(0, EFD_CLOEXEC);
@@ -199,8 +222,12 @@ static void client_kick_vring(int sock, uint32_t i, bool wait)
         CU_ASSERT_FATAL(client_recv_u64(sock, VHOST_USER_SET_VRING_KICK) == 0);
     }
 
-    /* the server keeps its own duplicate */
-    close(kickfd);
+    if (kickfd_out) {
+        *kickfd_out = kickfd;
+    } else {
+        /* the server keeps its own duplicate */
+        close(kickfd);
+    }
 }
 
 /* Bring all the vrings of the device into the started and enabled state */
@@ -213,6 +240,85 @@ static void client_start_vrings(int sock)
         client_kick_vring(sock, i, true);
         client_set_vring_enable(sock, i, true, true);
     }
+}
+
+/* Wait until a reply arrives on @sock, return false on timeout */
+static bool client_wait_reply(int sock, int timeout_ms)
+{
+    struct pollfd pfd = { sock, POLLIN, 0 };
+    int ret;
+
+    do {
+        ret = poll(&pfd, 1, timeout_ms);
+    } while (ret < 0 && errno == EINTR);
+
+    CU_ASSERT_FATAL(ret >= 0);
+    return ret > 0;
+}
+
+/*
+ * Minimal guest driver
+ *
+ * The guest memory is accessed via the memfd rather than mapped, so that any
+ * mapping of it in the process belongs to the library.
+ */
+
+static void guest_write(int memfd, uint64_t gpa, const void *buf, size_t size)
+{
+    CU_ASSERT_FATAL(pwrite(memfd, buf, size, gpa) == (ssize_t)size);
+}
+
+/* Make a single read request available on vring @i */
+static void guest_add_read_req(int memfd, uint32_t i)
+{
+    uint64_t base = i * vring_mem_size;
+    struct virtio_blk_req_hdr hdr = {};
+    struct virtq_desc desc[] = {
+        { req_mem_offset, sizeof(hdr), VIRTQ_DESC_F_NEXT, 1 },
+        { req_mem_offset + page_size, req_data_size,
+          VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE, 2 },
+        /* status */
+        { req_mem_offset + sizeof(hdr), 1, VIRTQ_DESC_F_WRITE, 0 },
+    };
+    /* flags, idx, ring[0] */
+    uint16_t avail[] = { 0, 1, 0 };
+
+    hdr.type = VIRTIO_BLK_T_IN;
+
+    guest_write(memfd, req_mem_offset, &hdr, sizeof(hdr));
+    guest_write(memfd, base, desc, sizeof(desc));
+    guest_write(memfd, base + page_size, avail, sizeof(avail));
+}
+
+/* Check if the guest memory is still mapped by the library */
+static bool guest_mem_is_mapped(int memfd)
+{
+    struct stat st;
+    FILE *maps;
+    char *line = NULL;
+    size_t len = 0;
+    bool mapped = false;
+
+    CU_ASSERT_FATAL(fstat(memfd, &st) == 0);
+    maps = fopen("/proc/self/maps", "r");
+    CU_ASSERT_FATAL(maps != NULL);
+
+    while (!mapped && getline(&line, &len, maps) > 0) {
+        unsigned int maj, min;
+        unsigned long ino;
+
+        /* address perms offset dev inode pathname */
+        if (sscanf(line, "%*s %*s %*s %x:%x %lu", &maj, &min, &ino) != 3) {
+            continue;
+        }
+
+        mapped = maj == major(st.st_dev) && min == minor(st.st_dev) &&
+                 ino == st.st_ino;
+    }
+
+    free(line);
+    fclose(maps);
+    return mapped;
 }
 
 /*
@@ -376,6 +482,8 @@ static void unregister_during_vring_msg_test(void)
 /*
  * Common environment for the vring stop tests: a blockdev on one request queue
  * with a connected client that has set up the device but started no vrings.
+ * The request queue thread acts as a backend which holds on to the dequeued
+ * request until the test completes it.
  */
 struct stop_test_env {
     char tmpdir[sizeof("/tmp/vhost_vdev_test_XXXXXX")];
@@ -384,7 +492,10 @@ struct stop_test_env {
     std::thread rq_thread;
     struct vhd_vdev *vdev;
     int sock;
+    int memfd;
     sem_t unregistered;
+    sem_t submitted;
+    struct vhd_io *submitted_io;
 };
 
 static void stop_test_env_init(struct stop_test_env *env)
@@ -395,6 +506,8 @@ static void stop_test_env_init(struct stop_test_env *env)
     CU_ASSERT_FATAL(mkdtemp(env->tmpdir) != NULL);
     env->socket_path = std::string(env->tmpdir) + "/vhost.sock";
     sem_init(&env->unregistered, 0, 0);
+    sem_init(&env->submitted, 0, 0);
+    env->submitted_io = NULL;
 
     bdev_info.serial = "vdev_test";
     bdev_info.socket_path = env->socket_path.c_str();
@@ -407,10 +520,14 @@ static void stop_test_env_init(struct stop_test_env *env)
     env->rq = vhd_create_request_queue();
     CU_ASSERT_FATAL(env->rq != NULL);
 
-    struct vhd_request_queue *rq = env->rq;
-    env->rq_thread = std::thread([rq]() {
-        while (vhd_run_queue(rq) == -EAGAIN) {
-            ;
+    env->rq_thread = std::thread([env]() {
+        struct vhd_request req;
+
+        while (vhd_run_queue(env->rq) == -EAGAIN) {
+            while (vhd_dequeue_request(env->rq, &req)) {
+                env->submitted_io = req.io;
+                sem_post(&env->submitted);
+            }
         }
     });
 
@@ -418,7 +535,7 @@ static void stop_test_env_init(struct stop_test_env *env)
     CU_ASSERT_FATAL(env->vdev != NULL);
 
     env->sock = client_connect(env->socket_path.c_str());
-    client_setup_device(env->sock);
+    client_setup_device(env->sock, &env->memfd);
 }
 
 static void stop_test_env_fini(struct stop_test_env *env, bool released)
@@ -433,9 +550,11 @@ static void stop_test_env_fini(struct stop_test_env *env, bool released)
     }
 
     close(env->sock);
+    close(env->memfd);
     unlink(env->socket_path.c_str());
     rmdir(env->tmpdir);
     sem_destroy(&env->unregistered);
+    sem_destroy(&env->submitted);
 }
 
 /*
@@ -606,6 +725,58 @@ static void failed_start_vs_disconnect_test(void)
     sem_destroy(&stall2.release);
 }
 
+static bool vdev_vrings_stopped(struct vhd_vdev *vdev)
+{
+    return !vdev->num_vrings_started;
+}
+
+/*
+ * A new client on the socket may belong to a different VM that reuses the
+ * memory backing of the previous one. So once the client goes away with a
+ * request still in the backend, the device must not accept a new connection
+ * until the request is completed and the old guest memory is unmapped.
+ */
+static void reconnect_after_drain_test(void)
+{
+    struct stop_test_env env;
+    int kickfd;
+    uint64_t kick = 1;
+
+    stop_test_env_init(&env);
+
+    guest_add_read_req(env.memfd, 0);
+    client_setup_vring(env.sock, 0);
+    client_kick_vring(env.sock, 0, true, &kickfd);
+    client_set_vring_enable(env.sock, 0, true, true);
+
+    CU_ASSERT_FATAL(write(kickfd, &kick, sizeof(kick)) == sizeof(kick));
+    close(kickfd);
+    CU_ASSERT_FATAL(sem_wait_timeout(&env.submitted, 5));
+
+    close(env.sock);
+    wait_in_ctl(env.vdev, vdev_vrings_stopped);
+
+    /* sits in the listen backlog until the device accepts it */
+    env.sock = client_connect(env.socket_path.c_str());
+    client_send(env.sock, VHOST_USER_GET_FEATURES, NULL, 0);
+
+    CU_ASSERT(!client_wait_reply(env.sock, 1000));
+    CU_ASSERT(guest_mem_is_mapped(env.memfd));
+
+    vhd_complete_bio(env.submitted_io, VHD_BDEV_SUCCESS);
+
+    CU_ASSERT_FATAL(client_wait_reply(env.sock, 5000));
+    client_recv_u64(env.sock, VHOST_USER_GET_FEATURES);
+    CU_ASSERT(!guest_mem_is_mapped(env.memfd));
+
+    vhd_unregister_blockdev(env.vdev, unregister_complete, &env.unregistered);
+
+    bool released = sem_wait_timeout(&env.unregistered, 5);
+    CU_ASSERT(released);
+
+    stop_test_env_fini(&env, released);
+}
+
 int main(void)
 {
     int res = 0;
@@ -624,6 +795,7 @@ int main(void)
     CU_ADD_TEST(suite, unregister_during_vring_msg_test);
     CU_ADD_TEST(suite, get_vring_base_vs_disconnect_test);
     CU_ADD_TEST(suite, failed_start_vs_disconnect_test);
+    CU_ADD_TEST(suite, reconnect_after_drain_test);
 
     CU_basic_set_mode(CU_BRM_VERBOSE);
     CU_basic_run_tests();
