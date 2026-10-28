@@ -58,6 +58,9 @@ struct vhd_vdev {
     int connfd;
     struct vhd_io_handler *conn_handler;
 
+    /* Backend-to-frontend request fd, negotiated via SET_SLAVE_REQ_FD. */
+    int slave_req_fd;
+
     /* Message currently being handled */
     uint32_t req;
 
