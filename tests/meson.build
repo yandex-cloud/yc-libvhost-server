@@ -28,6 +28,24 @@ test(
     is_parallel: false,
 )
 
+vhost_config_change_test = executable(
+    'vhost-config-change-test',
+    'vhost_config_change_test.c',
+    link_with: libvhost,
+    dependencies: [libpthread],
+    include_directories: [
+        vhost_user_blk_test_server_includes,
+        libvhost_includes
+    ]
+)
+
+test(
+    'config-change-notification',
+    vhost_config_change_test,
+    timeout: 30,
+    is_parallel: false,
+)
+
 vhost_user_blk_test_server = executable(
     'vhost-user-blk-test-server',
     'vhost_user_blk_test_server.c',

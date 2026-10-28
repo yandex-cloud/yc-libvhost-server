@@ -2235,6 +2235,39 @@ static void vdev_cleanup(struct vhd_vdev *vdev)
      replace_fd(&vdev->connfd, -1);
 }
 
+static void notify_config_change_entry(struct vhd_work *work, void *opaque)
+{
+    struct vhd_vdev *vdev = opaque;
+    struct vhost_user_msg_hdr hdr = {
+        .req = VHOST_USER_SLAVE_CONFIG_CHANGE_MSG,
+        .flags = VHOST_USER_MSG_VERSION,
+    };
+    int ret = 0;
+
+    if (!vdev->conn_handler ||
+        vdev->slave_req_fd < 0 ||
+        !has_feature(vdev->negotiated_protocol_features,
+                     VHOST_USER_PROTOCOL_F_CONFIG) ||
+        !has_feature(vdev->negotiated_protocol_features,
+                     VHOST_USER_PROTOCOL_F_SLAVE_REQ)) {
+        goto out;
+    }
+
+    VHD_OBJ_INFO(vdev, "Notify config change");
+    ret = net_send_msg(vdev->slave_req_fd, &hdr, NULL, NULL, 0);
+    if (ret > 0) {
+        ret = 0;
+    }
+
+out:
+    vhd_complete_work(work, ret);
+}
+
+int vhd_vdev_notify_config_change(struct vhd_vdev *vdev)
+{
+    return vhd_submit_ctl_work_and_wait(notify_config_change_entry, vdev);
+}
+
 static void vhd_vdev_release(struct vhd_vdev *vdev)
 {
     uint16_t i;
