@@ -10,6 +10,42 @@ if cc.get_id() == 'gcc'
     vhost_user_blk_test_server_args += ['-Wno-error=unused-result']
 endif
 
+vhost_slave_req_fd_test = executable(
+    'vhost-slave-req-fd-test',
+    'vhost_slave_req_fd_test.c',
+    link_with: libvhost,
+    dependencies: [libpthread],
+    include_directories: [
+        vhost_user_blk_test_server_includes,
+        libvhost_includes
+    ]
+)
+
+test(
+    'slave-request-fd',
+    vhost_slave_req_fd_test,
+    timeout: 30,
+    is_parallel: false,
+)
+
+vhost_config_change_test = executable(
+    'vhost-config-change-test',
+    'vhost_config_change_test.c',
+    link_with: libvhost,
+    dependencies: [libpthread],
+    include_directories: [
+        vhost_user_blk_test_server_includes,
+        libvhost_includes
+    ]
+)
+
+test(
+    'config-change-notification',
+    vhost_config_change_test,
+    timeout: 30,
+    is_parallel: false,
+)
+
 vhost_user_blk_test_server = executable(
     'vhost-user-blk-test-server',
     'vhost_user_blk_test_server.c',
