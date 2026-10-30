@@ -36,3 +36,7 @@ pytest and can be selected with `meson test -C build --suite integration`.
 `-Dfault-injection=true` compiles in vhost-user fault injection and the `fault`
 monitor command of the test server, which make the server crash or fail a
 request upon receiving a given vhost-user request.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on preparing changes.
